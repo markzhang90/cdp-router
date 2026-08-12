@@ -1028,6 +1028,7 @@ func TestSyncProviderResultExplainsProcessingStatus(t *testing.T) {
 	providerCfg.StatusURL = providerServer.URL + "/provider/status/{externalBatchId}"
 	providerCfg.FilesURL = providerServer.URL + "/provider/files/{externalBatchId}"
 	cfg.Provider = map[string]config.ProviderConfig{providerCode: providerCfg}
+	setDefaultProviderCode(cfg, providerCode)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1214,6 +1215,7 @@ func TestMpzdataCallbackReconcilesProviderFilesWithRealPostgres(t *testing.T) {
 	providerCfg.SubmitURL = providerServer.URL + "/provider/submit"
 	providerCfg.FilesURL = providerServer.URL + "/provider/files/{externalBatchId}"
 	cfg.Provider = map[string]config.ProviderConfig{providerCode: providerCfg}
+	setDefaultProviderCode(cfg, providerCode)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1677,26 +1679,67 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 		t.Fatalf("unexpected platform filtered list body: %+v", platformFilteredBody.Data)
 	}
 
+	dispatchOptionsResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/dispatch-options", auth)
+	if dispatchOptionsResp.StatusCode != http.StatusOK {
+		t.Fatalf("dispatch options status=%d body=%s", dispatchOptionsResp.StatusCode, readBody(dispatchOptionsResp))
+	}
+	var dispatchOptionsBody struct {
+		Data struct {
+			Strategies []struct {
+				Code string `json:"code"`
+				Name string `json:"name"`
+			} `json:"strategies"`
+			Providers []struct {
+				ProviderCode string `json:"providerCode"`
+			} `json:"providers"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(dispatchOptionsResp.Body).Decode(&dispatchOptionsBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = dispatchOptionsResp.Body.Close()
+	if len(dispatchOptionsBody.Data.Strategies) != 1 || dispatchOptionsBody.Data.Strategies[0].Code != "ROUND_ROBIN" {
+		t.Fatalf("unexpected dispatch strategies: %+v", dispatchOptionsBody.Data.Strategies)
+	}
+	var hasVendorA bool
+	for _, provider := range dispatchOptionsBody.Data.Providers {
+		if provider.ProviderCode == "vendor_a" {
+			hasVendorA = true
+			break
+		}
+	}
+	if !hasVendorA {
+		t.Fatalf("dispatch providers missing vendor_a: %+v", dispatchOptionsBody.Data.Providers)
+	}
+
 	platformCode := fmt.Sprintf("e2e-platform-%d", time.Now().UnixNano())
 	defer cleanupPlatformUser(t, db, platformCode)
 	createPlatformResp := adminPostJSON(t, gatewayBaseURL+"/api/admin/v1/platform-users", auth, map[string]any{
-		"platformCode":        platformCode,
-		"name":                "E2E 接入方",
-		"status":              "ACTIVE",
-		"defaultProviderCode": "vendor_a",
-		"callbackMode":        "DEFAULT_HTTP",
-		"callbackUrl":         businessCallback.URL,
+		"platformCode": platformCode,
+		"name":         "E2E 接入方",
+		"status":       "ACTIVE",
+		"callbackMode": "DEFAULT_HTTP",
+		"callbackUrl":  businessCallback.URL,
+		"dispatchProfile": map[string]any{
+			"strategy":      "ROUND_ROBIN",
+			"enabled":       true,
+			"providerCodes": []string{"vendor_a"},
+		},
 	})
 	if createPlatformResp.StatusCode != http.StatusOK {
 		t.Fatalf("create platform user status=%d body=%s", createPlatformResp.StatusCode, readBody(createPlatformResp))
 	}
 	var createPlatformBody struct {
 		Data struct {
-			ID                  string `json:"id"`
-			PlatformCode        string `json:"platformCode"`
-			APIKey              string `json:"apiKey"`
-			CallbackMode        string `json:"callbackMode"`
-			DefaultProviderCode string `json:"defaultProviderCode"`
+			ID              string `json:"id"`
+			PlatformCode    string `json:"platformCode"`
+			APIKey          string `json:"apiKey"`
+			CallbackMode    string `json:"callbackMode"`
+			DispatchProfile struct {
+				Strategy      string   `json:"strategy"`
+				Enabled       bool     `json:"enabled"`
+				ProviderCodes []string `json:"providerCodes"`
+			} `json:"dispatchProfile"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(createPlatformResp.Body).Decode(&createPlatformBody); err != nil {
@@ -1706,16 +1749,23 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	if createPlatformBody.Data.ID == "" || createPlatformBody.Data.PlatformCode != platformCode ||
 		!strings.HasPrefix(createPlatformBody.Data.APIKey, "mck_") ||
 		createPlatformBody.Data.CallbackMode != "DEFAULT_HTTP" ||
-		createPlatformBody.Data.DefaultProviderCode != "vendor_a" {
+		createPlatformBody.Data.DispatchProfile.Strategy != "ROUND_ROBIN" ||
+		!createPlatformBody.Data.DispatchProfile.Enabled ||
+		len(createPlatformBody.Data.DispatchProfile.ProviderCodes) != 1 ||
+		createPlatformBody.Data.DispatchProfile.ProviderCodes[0] != "vendor_a" {
 		t.Fatalf("unexpected create platform user body: %+v", createPlatformBody.Data)
 	}
 	updatePlatformResp := adminPutJSON(t, gatewayBaseURL+"/api/admin/v1/platform-users/"+createPlatformBody.Data.ID, auth, map[string]any{
-		"platformCode":        platformCode,
-		"name":                "E2E 接入方更新",
-		"status":              "DISABLED",
-		"defaultProviderCode": "vendor_a",
-		"callbackMode":        "CUSTOM",
-		"callbackUrl":         businessCallback.URL + "/custom",
+		"platformCode": platformCode,
+		"name":         "E2E 接入方更新",
+		"status":       "DISABLED",
+		"callbackMode": "CUSTOM",
+		"callbackUrl":  businessCallback.URL + "/custom",
+		"dispatchProfile": map[string]any{
+			"strategy":      "ROUND_ROBIN",
+			"enabled":       true,
+			"providerCodes": []string{"vendor_a"},
+		},
 	})
 	if updatePlatformResp.StatusCode != http.StatusOK {
 		t.Fatalf("update platform user status=%d body=%s", updatePlatformResp.StatusCode, readBody(updatePlatformResp))
@@ -2329,7 +2379,34 @@ func syncPlatformUsers(t *testing.T, ctx context.Context, db *pgxpool.Pool, cfg 
 	if err := repo.SyncFromConfig(ctx, cfg.PlatformUsers); err != nil {
 		t.Fatal(err)
 	}
+	for _, user := range cfg.PlatformUsers {
+		if strings.TrimSpace(user.DefaultProviderCode) == "" {
+			continue
+		}
+		seedDispatchProfile(t, ctx, db, user.PlatformCode, user.Name, user.DefaultProviderCode)
+	}
 	return repo
+}
+
+func seedDispatchProfile(t *testing.T, ctx context.Context, db *pgxpool.Pool, platformCode string, name string, providerCode string) {
+	t.Helper()
+	if _, err := db.Exec(ctx, `
+insert into cdp_dispatch_profiles (
+  platform_user_id, code, name, strategy, enabled, config
+)
+select id, $2, $3, 'ROUND_ROBIN', true, $4
+from platform_users
+where platform_code=$1
+on conflict (platform_user_id) do update set
+  code=excluded.code,
+  name=excluded.name,
+  strategy=excluded.strategy,
+  enabled=excluded.enabled,
+  config=excluded.config,
+  updated_at=now()
+`, platformCode, platformCode+"_default", name+" Default Dispatch", fmt.Sprintf(`{"providers":[{"code":%q}]}`, providerCode)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func ensureE2EProviderConfig(cfg *config.Config) {
@@ -2616,19 +2693,35 @@ func createSubmittedTaskForMaintenance(t *testing.T, ctx context.Context, repo *
 	if err != nil {
 		t.Fatal(err)
 	}
+	platformCode := "maintenance-e2e-" + strings.ReplaceAll(batchNo, "-", "_")
+	var platformUserID int64
+	if err := db.QueryRow(ctx, `
+insert into platform_users (platform_code,name,api_key,status,default_provider_code,callback_mode,callback_config)
+values ($1,$2,$3,'ACTIVE',null,'DEFAULT_HTTP','{}'::jsonb)
+on conflict (platform_code) do update set updated_at=now()
+returning id
+`, platformCode, "Maintenance E2E", "api-key-"+platformCode).Scan(&platformUserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+insert into cdp_dispatch_profiles (platform_user_id, code, name, strategy, enabled, config)
+values ($1,$2,$3,'ROUND_ROBIN',true,$4)
+on conflict (platform_user_id) do update set config=excluded.config, enabled=true, updated_at=now()
+`, platformUserID, platformCode+"_default", "Maintenance E2E Dispatch", fmt.Sprintf(`{"providers":[{"code":%q}]}`, providerCode)); err != nil {
+		t.Fatal(err)
+	}
 	task, err := repo.CreateTask(ctx, biz.CreateTaskInput{
 		JobID:          "job_" + batchNo,
-		PlatformUserID: 1,
-		PlatformCode:   "maintenance-e2e",
+		PlatformUserID: platformUserID,
+		PlatformCode:   platformCode,
 		BatchNo:        batchNo,
-		ProviderCode:   providerCode,
 		GatewayCode:    "maintenance-e2e",
 		Source:         "maintenance-e2e",
 		BizDate:        time.Now().Format("2006-01-02"),
 		CallbackURL:    "http://127.0.0.1/callback",
 		Items:          items,
 		RawRequest:     rawRequest,
-	}, "http://127.0.0.1/external/callback/"+providerCode)
+	}, []string{providerCode}, "http://127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}

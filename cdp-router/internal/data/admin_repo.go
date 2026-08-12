@@ -172,7 +172,7 @@ func (r *AdminRepo) ListPlatformUsers(ctx context.Context, filter biz.AdminPlatf
 	where, args := adminPlatformUserWhere(filter)
 
 	var total int
-	if err := r.db.QueryRow(ctx, `select count(*) from platform_users `+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `select count(*) from platform_users u `+where, args...).Scan(&total); err != nil {
 		return biz.AdminPlatformUserList{}, err
 	}
 
@@ -180,10 +180,14 @@ func (r *AdminRepo) ListPlatformUsers(ctx context.Context, filter biz.AdminPlatf
 	offset := (filter.Page - 1) * filter.PageSize
 	queryArgs := append(append([]any{}, args...), limit, offset)
 	rows, err := r.db.Query(ctx, `
-select id,platform_code,name,api_key,status,default_provider_code,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at
-from platform_users
+select
+  u.id,u.platform_code,u.name,u.api_key,u.status,u.callback_mode,coalesce(u.callback_url,''),u.callback_config,u.created_at,u.updated_at,
+  coalesce(dp.id,0), coalesce(dp.platform_user_id,0), coalesce(dp.code,''), coalesce(dp.name,''), coalesce(dp.strategy,''), coalesce(dp.enabled,false),
+  coalesce(dp.cursor,0), coalesce(dp.last_provider_code,''), coalesce(dp.config,'{}'::jsonb), dp.created_at, dp.updated_at
+from platform_users u
+left join cdp_dispatch_profiles dp on dp.platform_user_id=u.id
 `+where+`
-order by created_at desc
+order by u.created_at desc
 limit $`+strconv.Itoa(len(args)+1)+` offset $`+strconv.Itoa(len(args)+2), queryArgs...)
 	if err != nil {
 		return biz.AdminPlatformUserList{}, err
@@ -203,9 +207,13 @@ limit $`+strconv.Itoa(len(args)+1)+` offset $`+strconv.Itoa(len(args)+2), queryA
 
 func (r *AdminRepo) GetPlatformUser(ctx context.Context, id int64) (biz.PlatformUser, error) {
 	user, err := scanPlatformUser(r.db.QueryRow(ctx, `
-select id,platform_code,name,api_key,status,default_provider_code,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at
-from platform_users
-where id=$1
+select
+  u.id,u.platform_code,u.name,u.api_key,u.status,u.callback_mode,coalesce(u.callback_url,''),u.callback_config,u.created_at,u.updated_at,
+  coalesce(dp.id,0), coalesce(dp.platform_user_id,0), coalesce(dp.code,''), coalesce(dp.name,''), coalesce(dp.strategy,''), coalesce(dp.enabled,false),
+  coalesce(dp.cursor,0), coalesce(dp.last_provider_code,''), coalesce(dp.config,'{}'::jsonb), dp.created_at, dp.updated_at
+from platform_users u
+left join cdp_dispatch_profiles dp on dp.platform_user_id=u.id
+where u.id=$1
 `, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return biz.PlatformUser{}, biz.ErrPlatformUserNotFound
@@ -306,33 +314,100 @@ func (r *AdminRepo) CreatePlatformUser(ctx context.Context, input biz.AdminPlatf
 	if err != nil {
 		return biz.PlatformUser{}, err
 	}
-	user, err := scanPlatformUser(r.db.QueryRow(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return biz.PlatformUser{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	user, err := scanPlatformUser(tx.QueryRow(ctx, `
 insert into platform_users (
   platform_code,name,api_key,status,default_provider_code,callback_mode,callback_url,callback_config
-) values ($1,$2,$3,$4,$5,$6,$7,'{}'::jsonb)
-returning id,platform_code,name,api_key,status,default_provider_code,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at
-`, input.PlatformCode, input.Name, apiKey, input.Status, input.DefaultProviderCode, input.CallbackMode, nullableAdminString(input.CallbackURL)))
-	return user, mapPlatformUserWriteError(err)
+) values ($1,$2,$3,$4,null,$5,$6,'{}'::jsonb)
+returning id,platform_code,name,api_key,status,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at,
+  0::bigint, 0::bigint, ''::text, ''::text, ''::text, false, 0::bigint, ''::text, '{}'::jsonb, null::timestamptz, null::timestamptz
+`, input.PlatformCode, input.Name, apiKey, input.Status, input.CallbackMode, nullableAdminString(input.CallbackURL)))
+	if err != nil {
+		return biz.PlatformUser{}, mapPlatformUserWriteError(err)
+	}
+	if err := r.upsertDispatchProfile(ctx, tx, user.ID, user.PlatformCode, input.DispatchProfile); err != nil {
+		return biz.PlatformUser{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return biz.PlatformUser{}, err
+	}
+	return r.GetPlatformUser(ctx, user.ID)
 }
 
 func (r *AdminRepo) UpdatePlatformUser(ctx context.Context, id int64, input biz.AdminPlatformUserInput) (biz.PlatformUser, error) {
 	normalizePlatformUserInput(&input)
-	user, err := scanPlatformUser(r.db.QueryRow(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return biz.PlatformUser{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	user, err := scanPlatformUser(tx.QueryRow(ctx, `
 update platform_users set
   platform_code=$2,
   name=$3,
   status=$4,
-  default_provider_code=$5,
-  callback_mode=$6,
-  callback_url=$7,
+  callback_mode=$5,
+  callback_url=$6,
   updated_at=now()
 where id=$1
-returning id,platform_code,name,api_key,status,default_provider_code,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at
-`, id, input.PlatformCode, input.Name, input.Status, input.DefaultProviderCode, input.CallbackMode, nullableAdminString(input.CallbackURL)))
+returning id,platform_code,name,api_key,status,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at,
+  0::bigint, 0::bigint, ''::text, ''::text, ''::text, false, 0::bigint, ''::text, '{}'::jsonb, null::timestamptz, null::timestamptz
+`, id, input.PlatformCode, input.Name, input.Status, input.CallbackMode, nullableAdminString(input.CallbackURL)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return biz.PlatformUser{}, biz.ErrPlatformUserNotFound
 	}
-	return user, mapPlatformUserWriteError(err)
+	if err != nil {
+		return biz.PlatformUser{}, mapPlatformUserWriteError(err)
+	}
+	if err := r.upsertDispatchProfile(ctx, tx, user.ID, user.PlatformCode, input.DispatchProfile); err != nil {
+		return biz.PlatformUser{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return biz.PlatformUser{}, err
+	}
+	return r.GetPlatformUser(ctx, user.ID)
+}
+
+func (r *AdminRepo) upsertDispatchProfile(ctx context.Context, tx pgx.Tx, platformUserID int64, platformCode string, input biz.DispatchProfileInput) error {
+	providerCodes := cleanProviderCodes(input.ProviderCodes)
+	if len(providerCodes) == 0 {
+		return fmt.Errorf("%w: providerCodes are required", biz.ErrInvalidTaskRequest)
+	}
+	if input.Strategy == "" {
+		input.Strategy = biz.DispatchStrategyRoundRobin
+	}
+	if input.Strategy != biz.DispatchStrategyRoundRobin {
+		return fmt.Errorf("%w: unsupported dispatch strategy", biz.ErrInvalidTaskRequest)
+	}
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		code = platformCode + "_default"
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = platformCode + " 默认调度"
+	}
+	config, err := dispatchConfigJSON(providerCodes)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+insert into cdp_dispatch_profiles (
+  platform_user_id, code, name, strategy, enabled, config
+) values ($1,$2,$3,$4,$5,$6)
+on conflict (platform_user_id) do update set
+  code=excluded.code,
+  name=excluded.name,
+  strategy=excluded.strategy,
+  enabled=excluded.enabled,
+  config=excluded.config,
+  updated_at=now()
+`, platformUserID, code, name, input.Strategy, input.Enabled, config)
+	return err
 }
 
 func (r *AdminRepo) AddAuditLog(ctx context.Context, log biz.AdminAuditLog) error {
@@ -993,10 +1068,22 @@ func scanAdminTaskSummary(scanner interface{ Scan(dest ...any) error }) (biz.Adm
 
 func scanPlatformUser(scanner interface{ Scan(dest ...any) error }) (biz.PlatformUser, error) {
 	var user biz.PlatformUser
-	if err := scanner.Scan(&user.ID, &user.PlatformCode, &user.Name, &user.APIKey, &user.Status, &user.DefaultProviderCode,
-		&user.CallbackMode, &user.CallbackURL, &user.CallbackConfig, &user.CreatedAt, &user.UpdatedAt); err != nil {
+	var dispatchCreatedAt sql.NullTime
+	var dispatchUpdatedAt sql.NullTime
+	if err := scanner.Scan(&user.ID, &user.PlatformCode, &user.Name, &user.APIKey, &user.Status,
+		&user.CallbackMode, &user.CallbackURL, &user.CallbackConfig, &user.CreatedAt, &user.UpdatedAt,
+		&user.DispatchProfile.ID, &user.DispatchProfile.PlatformUserID, &user.DispatchProfile.Code, &user.DispatchProfile.Name,
+		&user.DispatchProfile.Strategy, &user.DispatchProfile.Enabled, &user.DispatchProfile.Cursor, &user.DispatchProfile.LastProviderCode,
+		&user.DispatchProfile.Config, &dispatchCreatedAt, &dispatchUpdatedAt); err != nil {
 		return biz.PlatformUser{}, err
 	}
+	if dispatchCreatedAt.Valid {
+		user.DispatchProfile.CreatedAt = dispatchCreatedAt.Time
+	}
+	if dispatchUpdatedAt.Valid {
+		user.DispatchProfile.UpdatedAt = dispatchUpdatedAt.Time
+	}
+	user.DispatchProfile.ProviderCodes = dispatchProviderCodes(user.DispatchProfile.Config)
 	return user, nil
 }
 
@@ -1044,14 +1131,22 @@ func normalizePlatformUserInput(input *biz.AdminPlatformUserInput) {
 	input.PlatformCode = strings.TrimSpace(input.PlatformCode)
 	input.Name = strings.TrimSpace(input.Name)
 	input.Status = strings.TrimSpace(strings.ToUpper(input.Status))
-	input.DefaultProviderCode = strings.TrimSpace(input.DefaultProviderCode)
 	input.CallbackMode = strings.TrimSpace(strings.ToUpper(input.CallbackMode))
 	input.CallbackURL = strings.TrimSpace(input.CallbackURL)
+	input.DispatchProfile.Code = strings.TrimSpace(input.DispatchProfile.Code)
+	input.DispatchProfile.Name = strings.TrimSpace(input.DispatchProfile.Name)
+	input.DispatchProfile.Strategy = biz.DispatchStrategy(strings.TrimSpace(strings.ToUpper(string(input.DispatchProfile.Strategy))))
+	for i := range input.DispatchProfile.ProviderCodes {
+		input.DispatchProfile.ProviderCodes[i] = strings.TrimSpace(input.DispatchProfile.ProviderCodes[i])
+	}
 	if input.Status == "" {
 		input.Status = "ACTIVE"
 	}
 	if input.CallbackMode == "" {
 		input.CallbackMode = "DEFAULT_HTTP"
+	}
+	if input.DispatchProfile.Strategy == "" {
+		input.DispatchProfile.Strategy = biz.DispatchStrategyRoundRobin
 	}
 }
 
@@ -1099,10 +1194,10 @@ func adminPlatformUserWhere(filter biz.AdminPlatformUserFilter) (string, []any) 
 	if filter.Keyword != "" {
 		args = append(args, filter.Keyword)
 		idx := len(args)
-		clauses = append(clauses, fmt.Sprintf(" and (platform_code ilike '%%' || $%d || '%%' or name ilike '%%' || $%d || '%%')", idx, idx))
+		clauses = append(clauses, fmt.Sprintf(" and (u.platform_code ilike '%%' || $%d || '%%' or u.name ilike '%%' || $%d || '%%')", idx, idx))
 	}
 	if filter.Status != "" && filter.Status != "ALL" {
-		add(" and status = $%d", filter.Status)
+		add(" and u.status = $%d", filter.Status)
 	}
 	return strings.Join(clauses, ""), args
 }
@@ -1162,4 +1257,43 @@ func nullableAdminString(value string) any {
 		return nil
 	}
 	return value
+}
+
+func cleanProviderCodes(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		code := strings.TrimSpace(value)
+		if code == "" || seen[code] {
+			continue
+		}
+		seen[code] = true
+		out = append(out, code)
+	}
+	return out
+}
+
+func dispatchConfigJSON(providerCodes []string) (json.RawMessage, error) {
+	providers := make([]map[string]string, 0, len(providerCodes))
+	for _, code := range cleanProviderCodes(providerCodes) {
+		providers = append(providers, map[string]string{"code": code})
+	}
+	body, err := json.Marshal(map[string]any{"providers": providers})
+	return json.RawMessage(body), err
+}
+
+func dispatchProviderCodes(config json.RawMessage) []string {
+	var parsed struct {
+		Providers []struct {
+			Code string `json:"code"`
+		} `json:"providers"`
+	}
+	if len(config) == 0 || json.Unmarshal(config, &parsed) != nil {
+		return nil
+	}
+	out := make([]string, 0, len(parsed.Providers))
+	for _, provider := range parsed.Providers {
+		out = append(out, provider.Code)
+	}
+	return cleanProviderCodes(out)
 }

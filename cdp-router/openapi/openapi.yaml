@@ -6,6 +6,24 @@ info:
     title: ""
     version: 0.0.1
 paths:
+    /api/admin/v1/dispatch-options:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_GetDispatchOptions
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetDispatchOptionsResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
     /api/admin/v1/login:
         post:
             tags:
@@ -853,12 +871,12 @@ components:
                     type: string
                 status:
                     type: string
-                defaultProviderCode:
-                    type: string
                 callbackMode:
                     type: string
                 callbackUrl:
                     type: string
+                dispatchProfile:
+                    $ref: '#/components/schemas/DispatchProfileInput'
         CreatePlatformUserResponse:
             type: object
             properties:
@@ -904,6 +922,60 @@ components:
                     type: string
                 data:
                     $ref: '#/components/schemas/CreateTaskData'
+        DispatchOptionsData:
+            type: object
+            properties:
+                strategies:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DispatchStrategyOption'
+                providers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Provider'
+        DispatchProfile:
+            type: object
+            properties:
+                id:
+                    type: string
+                code:
+                    type: string
+                name:
+                    type: string
+                strategy:
+                    type: string
+                enabled:
+                    type: boolean
+                cursor:
+                    type: string
+                lastProviderCode:
+                    type: string
+                providerCodes:
+                    type: array
+                    items:
+                        type: string
+        DispatchProfileInput:
+            type: object
+            properties:
+                code:
+                    type: string
+                name:
+                    type: string
+                strategy:
+                    type: string
+                enabled:
+                    type: boolean
+                providerCodes:
+                    type: array
+                    items:
+                        type: string
+        DispatchStrategyOption:
+            type: object
+            properties:
+                code:
+                    type: string
+                name:
+                    type: string
         EmptyData:
             type: object
             properties:
@@ -993,6 +1065,16 @@ components:
                     type: string
                 parseError:
                     type: string
+        GetDispatchOptionsResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/DispatchOptionsData'
         GetExternalTaskResultResponse:
             type: object
             properties:
@@ -1301,8 +1383,6 @@ components:
                     type: string
                 status:
                     type: string
-                defaultProviderCode:
-                    type: string
                 callbackMode:
                     type: string
                 callbackUrl:
@@ -1311,6 +1391,8 @@ components:
                     type: string
                 updatedAt:
                     type: string
+                dispatchProfile:
+                    $ref: '#/components/schemas/DispatchProfile'
         PlatformUserListData:
             type: object
             properties:
@@ -1817,12 +1899,12 @@ components:
                     type: string
                 status:
                     type: string
-                defaultProviderCode:
-                    type: string
                 callbackMode:
                     type: string
                 callbackUrl:
                     type: string
+                dispatchProfile:
+                    $ref: '#/components/schemas/DispatchProfileInput'
         UpdatePlatformUserResponse:
             type: object
             properties:

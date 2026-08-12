@@ -653,7 +653,6 @@ create table platform_users (
   name varchar(128) not null,
   api_key varchar(256) not null,
   status varchar(32) not null default 'ACTIVE',
-  default_provider_code varchar(64) not null,
   callback_mode varchar(64) not null default 'DEFAULT_HTTP',
   callback_url text,
   callback_config jsonb not null default '{}'::jsonb,
@@ -666,6 +665,22 @@ create unique index idx_platform_users_platform_code
 
 create unique index idx_platform_users_api_key
   on platform_users(api_key);
+
+create table cdp_dispatch_profiles (
+  id bigserial primary key,
+  platform_user_id bigint not null,
+  code varchar(64) not null,
+  name varchar(128) not null,
+  strategy varchar(32) not null default 'ROUND_ROBIN',
+  enabled boolean not null default true,
+  cursor bigint not null default 0,
+  last_provider_code varchar(64),
+  config jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (platform_user_id),
+  unique (code)
+);
 ```
 
 `cdp_tasks` 增加接入方归属和网关对外任务 ID：
@@ -675,6 +690,9 @@ alter table cdp_tasks add column job_id varchar(64);
 alter table cdp_tasks add column platform_user_id bigint;
 alter table cdp_tasks add column platform_code varchar(64);
 alter table cdp_tasks add column provider_external_batch_id varchar(128);
+alter table cdp_tasks add column dispatch_profile_id bigint;
+alter table cdp_tasks add column dispatch_profile_code varchar(64);
+alter table cdp_tasks add column dispatch_strategy varchar(32);
 
 create unique index idx_cdp_tasks_job_id
   on cdp_tasks(job_id);
@@ -695,6 +713,7 @@ create index idx_cdp_tasks_provider_external_batch_id
 | `provider_external_batch_id` | 网关/供应商 | 供应商创建任务后返回的 `externalBatchId` |
 | `platform_user_id` | 网关内部 | 标记本任务由哪个接入方 API key 发起 |
 | `platform_code` | 网关内部/后台 | 接入方唯一编码，来自 `platform_users.platform_code` |
+| `dispatch_profile_id` / `dispatch_profile_code` / `dispatch_strategy` | 网关内部/后台 | 任务创建时使用的调度配置审计字段。历史任务不要求回填，缺失时后台展示为 `-` |
 
 接入方调用网关统一使用：
 
@@ -726,7 +745,7 @@ sequenceDiagram
     participant Provider as 供应商
 
     User->>Gateway: POST /api/v1/tasks<br/>X-API-Key 或 X-Provider-Token / batchNo / bizDate / callbackUrl / items
-    Note over Gateway: 校验 platform_user api_key<br/>忽略请求体 providerCode<br/>使用 platform_user.default_provider_code
+    Note over Gateway: 校验 platform_user api_key<br/>忽略请求体 providerCode<br/>按 platform_user_id 锁定调度配置并选择供应商
 
     Gateway->>Provider: <span style="color:red"><b>POST /api/v1/ai/batch/create</b></span><br/>batchNo/providerCode/bizDate/gateway callbackUrl/items
     Provider-->>Gateway: provider externalBatchId/acceptedCount
@@ -754,7 +773,7 @@ sequenceDiagram
 
 说明：
 
-- 用户业务系统提交任务时，必须带 `X-API-Key` 或兼容 header `X-Provider-Token`；header 值均为 `platform_users.api_key`。请求体 `providerCode` 仅保留协议兼容，不参与供应商选择，网关始终使用 `platform_users.default_provider_code`。
+- 用户业务系统提交任务时，必须带 `X-API-Key` 或兼容 header `X-Provider-Token`；header 值均为 `platform_users.api_key`。请求体 `providerCode` 仅保留协议兼容，不参与供应商选择，网关始终使用绑定在该 `platform_user_id` 上的 `cdp_dispatch_profiles` 做整任务级供应商选择。
 - 请求体 `callbackUrl` 只影响网关处理完成后回调接入方的地址，可覆盖 `platform_users.callback_url`。它不会作为供应商回调网关的地址下发；阳狮定制回调未传 `callbackUrl` 时，fallback 到 `platform_users.<code>.callback_config` 中的 `baseURL + /external/callback/{providerCode}`。
 - 网关创建 `job_id`，对接入方统一返回为 `externalBatchId`；创建任务响应不返回内部 `taskId`。
 - 网关提交给供应商时，使用供应商文档中的 `POST /api/v1/ai/batch/create`；请求里的 `callbackUrl` 由 `server.public_base_url + /external/callback/{providerCode}` 生成，线上为 `https://openapi.mainland.vip/external/callback/{providerCode}`。保存返回的 `externalBatchId` 到 `provider_external_batch_id`。
@@ -771,9 +790,10 @@ sequenceDiagram
 Client
   -> POST /api/v1/tasks
   -> service 通过 X-API-Key 或 X-Provider-Token 识别 platform_user
-  -> service 忽略请求体 providerCode，使用 platform_user.default_provider_code
   -> biz 生成 job_id
-  -> data 在事务内写 platform_user_id + cdp_tasks + cdp_task_items + cdp_task_events
+  -> data 在事务内锁定 platform_user_id 对应的 cdp_dispatch_profiles
+  -> data 按 ROUND_ROBIN 从 config.providers 选择一个有效供应商并推进 cursor
+  -> data 在事务内写 platform_user_id + dispatch 审计字段 + provider_code + cdp_tasks + cdp_task_items + cdp_task_events
   -> biz 同步调用 provider submit_url
   -> provider 创建成功后更新 provider_external_batch_id / SUBMITTED
   -> 返回 externalBatchId=job_id
@@ -782,6 +802,10 @@ Client
 设计要点：
 
 - 上游可传 `Idempotency-Key`，没有则按业务请求摘要生成。
+- 分发粒度是整任务维度，不按 `items[]` 或子任务拆分。一个任务选中一个供应商后，全部明细都提交给该供应商。
+- `cdp_dispatch_profiles.enabled=false` 时创建任务失败，返回“任务调度未启用”。
+- 调度配置中的 `config.providers` 为空、格式非法，或所有 provider code 都无法在当前 provider registry 中找到时，创建任务失败，返回“供应商服务不可用”，且不创建 `cdp_tasks`。
+- 幂等命中已有任务时直接返回已有任务，不推进调度游标。
 - 创建接口必须同步完成供应商任务创建；供应商创建失败时，对接入方返回失败。
 - 供应商创建失败的任务仍保留数据库记录，状态为 `FAILED`，用于排障。
 - 创建成功响应只返回 `externalBatchId=job_id`、`batchNo` 和 `accepted`，不返回内部 `taskId`。
@@ -988,7 +1012,7 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 - `GET /api/admin/v1/platform-users/{id}`：接入方详情。
 - `GET /api/admin/v1/platform-users/{id}/metrics`：接入方数据详情指标，支持 `createdFrom`、`createdTo` 创建时间范围筛选，按真实任务、问题、结果文件、回调表和供应商维度聚合提交任务数、完成问答数、进行中任务数、失败任务数、任务成功率、任务平均耗时等排障指标。供应商维度按天和 `providerCode` 聚合任务数、问答数、成功问答数量和失败/未回答数量。
 - `POST /api/admin/v1/platform-users`：新增接入方，自动生成明文 `apiKey`，后台不提供手工输入。
-- `PUT /api/admin/v1/platform-users/{id}`：编辑接入方名称、编码、状态、默认 provider、回调方式和回调 URL；不允许编辑 `apiKey`。
+- `PUT /api/admin/v1/platform-users/{id}`：编辑接入方名称、编码、状态、调度配置、回调方式和回调 URL；不允许编辑 `apiKey`。
 
 任务创建请求支持 `source` 字段，后台列表按 `source` 展示来源；如果业务方未传 `source`，服务端回退使用接入方 `platform_code`。
 
@@ -1002,11 +1026,15 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 | `name` | 是 | 是 | 接入方名称 |
 | `apiKey` | 自动生成 | 否 | 明文保存，页面支持复制 |
 | `status` | 是 | 是 | `ACTIVE` / `DISABLED` |
-| `defaultProviderCode` | 是 | 是 | 默认下发供应商 |
 | `callbackMode` | 是 | 是 | `DEFAULT_HTTP` / `CUSTOM` |
 | `callbackUrl` | 否 | 是 | 任务完成通知地址 |
+| `dispatchProfile.enabled` | 是 | 是 | 是否启用任务调度 |
+| `dispatchProfile.strategy` | 是 | 是 | 第一阶段固定为 `ROUND_ROBIN` |
+| `dispatchProfile.providerCodes` | 是 | 是 | 整任务级供应商候选池，按数组顺序轮询 |
 
 `callbackConfig` 第一版不在后台暴露，不做页面配置。
+
+调度策略和可选供应商由后台接口 `GET /api/admin/v1/dispatch-options` 返回，页面不得硬编码供应商列表。`cdp_dispatch_profiles` 由后台页面/API 写入数据库维护，服务启动不再读取 `[dispatch_profiles.*]` 配置段，也不会用配置文件覆盖数据库中的调度配置。
 
 ### 8.5 结果入库和业务方回调
 
@@ -1594,7 +1622,6 @@ platform_code = mainland
 name = Mainland Default
 api_key = <mainland-api-key>
 status = ACTIVE
-default_provider_code = vendor_a
 callback_mode = DEFAULT_HTTP
 callback_url =
 callback_config = {}
@@ -1604,7 +1631,6 @@ platform_code = yangshi
 name = 阳狮
 api_key = <yangshi-api-key>
 status = ACTIVE
-default_provider_code = vendor_a
 callback_mode = CUSTOM
 callback_url =
 callback_config = {"baseURL":"https://staging-api-growth.wiredcraft.cn/api2","providerCode":"vendor_a","providerToken":"<provider-token>"}
@@ -1614,7 +1640,6 @@ platform_code = yangshi_dev
 name = 阳狮测试
 api_key = <yangshi-dev-api-key>
 status = ACTIVE
-default_provider_code = vendor_a
 callback_mode = CUSTOM
 callback_url =
 callback_config = {"baseURL":"https://staging-api-growth.wiredcraft.cn/api2","providerCode":"vendor_a","providerToken":"<provider-token>"}
@@ -1623,6 +1648,8 @@ callback_config = {"baseURL":"https://staging-api-growth.wiredcraft.cn/api2","pr
 timeout_seconds = 15
 max_retry = 3
 ```
+
+接入方的任务调度配置通过后台页面或管理 API 创建/编辑后写入 `cdp_dispatch_profiles`。首次上线时如需保留老的 `default_provider_code`，由数据库 migration 做一次性 seed；后续运行期以数据库中的 dispatch profile 为准。
 
 ## 13. 部署架构
 

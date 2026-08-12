@@ -46,6 +46,7 @@ func New(taskService *service.TaskService, adminService *service.AdminService) *
 		admin.POST("/tasks/:id/check-result", adminService.RequireAuth(true), adminService.CheckTaskResult)
 		admin.POST("/tasks/:id/retry-callback", adminService.RequireAuth(true), adminService.RetryTaskCallback)
 		admin.GET("/providers", adminService.RequireAuth(false), adminService.ListProviders)
+		admin.GET("/dispatch-options", adminService.RequireAuth(false), adminService.GetDispatchOptions)
 		admin.GET("/providers/:providerCode/metrics", adminService.RequireAuth(false), adminService.GetProviderMetrics)
 		admin.GET("/platform-users", adminService.RequireAuth(false), adminService.ListPlatformUsers)
 		admin.GET("/platform-users/:id", adminService.RequireAuth(false), adminService.GetPlatformUser)

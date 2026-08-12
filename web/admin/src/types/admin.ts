@@ -179,6 +179,16 @@ export interface ProviderListData {
   providers: Provider[];
 }
 
+export interface DispatchStrategyOption {
+  code: string;
+  name: string;
+}
+
+export interface DispatchOptionsData {
+  strategies: DispatchStrategyOption[];
+  providers: Provider[];
+}
+
 export interface ProviderMetricsQuery {
   createdFrom?: string;
   createdTo?: string;
@@ -206,11 +216,22 @@ export interface PlatformUser {
   name: string;
   apiKey: string;
   status: string;
-  defaultProviderCode: string;
   callbackMode: string;
   callbackUrl: string;
+  dispatchProfile?: DispatchProfile;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DispatchProfile {
+  id: number;
+  code: string;
+  name: string;
+  strategy: string;
+  enabled: boolean;
+  cursor: number;
+  lastProviderCode: string;
+  providerCodes: string[];
 }
 
 export interface PlatformUserListData {
@@ -304,7 +325,15 @@ export interface PlatformUserPayload {
   platformCode: string;
   name: string;
   status?: string;
-  defaultProviderCode: string;
   callbackMode?: string;
   callbackUrl?: string;
+  dispatchProfile: DispatchProfilePayload;
+}
+
+export interface DispatchProfilePayload {
+  code?: string;
+  name?: string;
+  strategy: string;
+  enabled: boolean;
+  providerCodes: string[];
 }

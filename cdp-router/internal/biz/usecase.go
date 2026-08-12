@@ -62,20 +62,16 @@ func NewTaskUsecase(repo TaskRepo, providers ProviderRegistry, providerConfig Pr
 }
 
 func (u *TaskUsecase) CreateTask(ctx context.Context, input CreateTaskInput) (*Task, int, error) {
-	if input.BatchNo == "" || input.ProviderCode == "" || input.BizDate == "" || input.CallbackURL == "" || len(input.Items) == 0 {
+	if input.BatchNo == "" || input.BizDate == "" || input.CallbackURL == "" || len(input.Items) == 0 {
 		return nil, 0, ErrInvalidTaskRequest
 	}
 	if input.PlatformUserID <= 0 || input.PlatformCode == "" {
 		return nil, 0, ErrPlatformUserNotFound
 	}
-	if _, ok := u.providers.Get(input.ProviderCode); !ok {
-		return nil, 0, ErrProviderNotFound
-	}
 	if input.JobID == "" {
 		input.JobID = newJobID()
 	}
-	providerCallbackURL := fmt.Sprintf("%s/external/callback/%s", u.publicBaseURL, input.ProviderCode)
-	task, err := u.repo.CreateTask(ctx, input, providerCallbackURL)
+	task, err := u.repo.CreateTask(ctx, input, u.providers.Codes(), u.publicBaseURL)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -238,7 +234,14 @@ func (u *TaskUsecase) SubmitPending(ctx context.Context, limit int) error {
 	}
 	for _, task := range tasks {
 		if _, err := u.submitOne(ctx, task); err != nil {
-			return err
+			slog.ErrorContext(ctx, "submit pending task failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"error", err,
+			)
+			continue
 		}
 	}
 	return nil
@@ -254,7 +257,14 @@ func (u *TaskUsecase) ImportPendingResults(ctx context.Context, limit int) error
 	}
 	for _, task := range tasks {
 		if _, _, err := u.importCompletionFiles(ctx, task, false, true); err != nil {
-			return err
+			slog.ErrorContext(ctx, "import pending task result failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"error", err,
+			)
+			continue
 		}
 	}
 	return nil
@@ -840,7 +850,14 @@ func (u *TaskUsecase) DeliverPendingCallbacks(ctx context.Context, limit int) er
 	for _, task := range tasks {
 		updatedTask, ready, err := u.repo.CompleteResultImport(ctx, task.ID, true)
 		if err != nil {
-			return err
+			slog.ErrorContext(ctx, "complete result import before callback failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"error", err,
+			)
+			continue
 		}
 		if !ready {
 			slog.WarnContext(ctx, "business callback skipped because result import is not ready",
@@ -857,7 +874,14 @@ func (u *TaskUsecase) DeliverPendingCallbacks(ctx context.Context, limit int) er
 		}
 		task = updatedTask
 		if _, err := u.deliverTaskCallback(ctx, task, false); err != nil {
-			return err
+			slog.ErrorContext(ctx, "deliver pending callback failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"error", err,
+			)
+			continue
 		}
 	}
 	return nil

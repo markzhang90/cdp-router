@@ -41,6 +41,14 @@ func (r *Registry) Get(code string) (biz.ProviderClient, bool) {
 	return provider, ok
 }
 
+func (r *Registry) Codes() []string {
+	codes := make([]string, 0, len(r.providers))
+	for code := range r.providers {
+		codes = append(codes, code)
+	}
+	return codes
+}
+
 type HTTPProvider struct {
 	cfg        config.ProviderConfig
 	client     *httphelper.Client

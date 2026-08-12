@@ -66,6 +66,12 @@ service AdminAPI {
     };
   }
 
+  rpc GetDispatchOptions(GetDispatchOptionsRequest) returns (GetDispatchOptionsResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/dispatch-options"
+    };
+  }
+
   rpc GetProviderMetrics(GetProviderMetricsRequest) returns (GetProviderMetricsResponse) {
     option (google.api.http) = {
       get: "/api/admin/v1/providers/{provider_code}/metrics"
@@ -365,6 +371,24 @@ message Provider {
   bool files_url_configured = 11 [json_name = "filesUrlConfigured"];
 }
 
+message GetDispatchOptionsRequest {}
+
+message GetDispatchOptionsResponse {
+  int32 status = 1;
+  string message = 2;
+  DispatchOptionsData data = 3;
+}
+
+message DispatchOptionsData {
+  repeated DispatchStrategyOption strategies = 1;
+  repeated Provider providers = 2;
+}
+
+message DispatchStrategyOption {
+  string code = 1;
+  string name = 2;
+}
+
 message GetProviderMetricsRequest {
   string provider_code = 1 [json_name = "providerCode"];
   string created_from = 2 [json_name = "createdFrom"];
@@ -399,11 +423,30 @@ message PlatformUser {
   string name = 3;
   string api_key = 4 [json_name = "apiKey"];
   string status = 5;
-  string default_provider_code = 6 [json_name = "defaultProviderCode"];
-  string callback_mode = 7 [json_name = "callbackMode"];
-  string callback_url = 8 [json_name = "callbackUrl"];
-  string created_at = 9 [json_name = "createdAt"];
-  string updated_at = 10 [json_name = "updatedAt"];
+  string callback_mode = 6 [json_name = "callbackMode"];
+  string callback_url = 7 [json_name = "callbackUrl"];
+  string created_at = 8 [json_name = "createdAt"];
+  string updated_at = 9 [json_name = "updatedAt"];
+  DispatchProfile dispatch_profile = 10 [json_name = "dispatchProfile"];
+}
+
+message DispatchProfile {
+  int64 id = 1;
+  string code = 2;
+  string name = 3;
+  string strategy = 4;
+  bool enabled = 5;
+  int64 cursor = 6;
+  string last_provider_code = 7 [json_name = "lastProviderCode"];
+  repeated string provider_codes = 8 [json_name = "providerCodes"];
+}
+
+message DispatchProfileInput {
+  string code = 1;
+  string name = 2;
+  string strategy = 3;
+  bool enabled = 4;
+  repeated string provider_codes = 5 [json_name = "providerCodes"];
 }
 
 message ListPlatformUsersRequest {
@@ -520,9 +563,9 @@ message CreatePlatformUserRequest {
   string platform_code = 1 [json_name = "platformCode"];
   string name = 2;
   string status = 3;
-  string default_provider_code = 4 [json_name = "defaultProviderCode"];
-  string callback_mode = 5 [json_name = "callbackMode"];
-  string callback_url = 6 [json_name = "callbackUrl"];
+  string callback_mode = 4 [json_name = "callbackMode"];
+  string callback_url = 5 [json_name = "callbackUrl"];
+  DispatchProfileInput dispatch_profile = 6 [json_name = "dispatchProfile"];
 }
 
 message CreatePlatformUserResponse {
@@ -536,9 +579,9 @@ message UpdatePlatformUserRequest {
   string platform_code = 2 [json_name = "platformCode"];
   string name = 3;
   string status = 4;
-  string default_provider_code = 5 [json_name = "defaultProviderCode"];
-  string callback_mode = 6 [json_name = "callbackMode"];
-  string callback_url = 7 [json_name = "callbackUrl"];
+  string callback_mode = 5 [json_name = "callbackMode"];
+  string callback_url = 6 [json_name = "callbackUrl"];
+  DispatchProfileInput dispatch_profile = 7 [json_name = "dispatchProfile"];
 }
 
 message UpdatePlatformUserResponse {

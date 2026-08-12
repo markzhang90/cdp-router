@@ -28,6 +28,7 @@ func (r *PlatformUserRepo) SyncFromConfig(ctx context.Context, users map[string]
 		if !json.Valid(callbackConfig) {
 			callbackConfig = json.RawMessage(`{}`)
 		}
+		defaultProviderCode := user.DefaultProviderCode
 		_, err := r.db.Exec(ctx, `
 insert into platform_users (
   platform_code,name,api_key,status,default_provider_code,callback_mode,callback_url,callback_config
@@ -41,7 +42,7 @@ on conflict (platform_code) do update set
   callback_url=excluded.callback_url,
   callback_config=excluded.callback_config,
   updated_at=now()
-`, user.PlatformCode, user.Name, user.APIKey, user.Status, user.DefaultProviderCode, user.CallbackMode, user.CallbackURL, callbackConfig)
+`, user.PlatformCode, user.Name, user.APIKey, user.Status, defaultProviderCode, user.CallbackMode, user.CallbackURL, callbackConfig)
 		if err != nil {
 			return err
 		}
@@ -52,10 +53,10 @@ on conflict (platform_code) do update set
 func (r *PlatformUserRepo) GetByAPIKey(ctx context.Context, apiKey string) (biz.PlatformUser, error) {
 	var user biz.PlatformUser
 	err := r.db.QueryRow(ctx, `
-select id,platform_code,name,api_key,status,default_provider_code,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at
+select id,platform_code,name,api_key,status,callback_mode,coalesce(callback_url,''),callback_config,created_at,updated_at
 from platform_users
 where api_key=$1
-`, apiKey).Scan(&user.ID, &user.PlatformCode, &user.Name, &user.APIKey, &user.Status, &user.DefaultProviderCode,
+`, apiKey).Scan(&user.ID, &user.PlatformCode, &user.Name, &user.APIKey, &user.Status,
 		&user.CallbackMode, &user.CallbackURL, &user.CallbackConfig, &user.CreatedAt, &user.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return biz.PlatformUser{}, biz.ErrPlatformUserNotFound

@@ -69,7 +69,6 @@ func (s *TaskService) CreateTask(c *gin.Context) {
 			RawItem:      rawItem,
 		})
 	}
-	providerCode := platformUser.DefaultProviderCode
 	callbackURL := req.CallbackUrl
 	if callbackURL == "" {
 		callbackURL = platformUser.CallbackURL
@@ -85,7 +84,6 @@ func (s *TaskService) CreateTask(c *gin.Context) {
 		PlatformUserID: platformUser.ID,
 		PlatformCode:   platformUser.PlatformCode,
 		BatchNo:        req.BatchNo,
-		ProviderCode:   providerCode,
 		Source:         source,
 		BizDate:        req.BizDate,
 		CallbackURL:    callbackURL,
@@ -96,7 +94,6 @@ func (s *TaskService) CreateTask(c *gin.Context) {
 		slog.WarnContext(c.Request.Context(), "create task failed",
 			"trace_id", trace.RequestID(c.Request.Context()),
 			"batch_no", req.BatchNo,
-			"provider_code", providerCode,
 			"platform_code", platformUser.PlatformCode,
 			"item_count", len(req.Items),
 			"error", err,
@@ -586,6 +583,8 @@ func writeBizError(c *gin.Context, err error) {
 		errorJSON(c, http.StatusNotFound, err)
 	case errors.Is(err, biz.ErrProviderNotFound):
 		errorJSON(c, http.StatusBadRequest, err)
+	case errors.Is(err, biz.ErrDispatchDisabled), errors.Is(err, biz.ErrProviderUnavailable):
+		errorJSON(c, http.StatusServiceUnavailable, err)
 	case errors.Is(err, biz.ErrPlatformUserNotFound), errors.Is(err, biz.ErrPlatformUserDisabled):
 		errorJSON(c, http.StatusUnauthorized, err)
 	case errors.Is(err, biz.ErrPlatformUserConflict):

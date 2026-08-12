@@ -372,6 +372,28 @@ func (s *AdminService) RetryTaskCallback(c *gin.Context) {
 }
 
 func (s *AdminService) ListProviders(c *gin.Context) {
+	providers := s.providerList(false)
+	protoJSON(c, http.StatusOK, &adminv1.ListProvidersResponse{
+		Status: 0,
+		Data: &adminv1.ProviderListData{
+			Providers: providers,
+		},
+	})
+}
+
+func (s *AdminService) GetDispatchOptions(c *gin.Context) {
+	protoJSON(c, http.StatusOK, &adminv1.GetDispatchOptionsResponse{
+		Status: 0,
+		Data: &adminv1.DispatchOptionsData{
+			Strategies: []*adminv1.DispatchStrategyOption{
+				{Code: string(biz.DispatchStrategyRoundRobin), Name: "Round Robin"},
+			},
+			Providers: s.providerList(true),
+		},
+	})
+}
+
+func (s *AdminService) providerList(onlyDispatchAvailable bool) []*adminv1.Provider {
 	providers := make([]*adminv1.Provider, 0, len(s.providers))
 	codes := make([]string, 0, len(s.providers))
 	for code := range s.providers {
@@ -379,14 +401,20 @@ func (s *AdminService) ListProviders(c *gin.Context) {
 	}
 	sort.Strings(codes)
 	for _, code := range codes {
-		providers = append(providers, providerProto(s.providers[code]))
+		provider := s.providers[code]
+		if onlyDispatchAvailable && !dispatchAvailableProvider(provider) {
+			continue
+		}
+		providers = append(providers, providerProto(provider))
 	}
-	protoJSON(c, http.StatusOK, &adminv1.ListProvidersResponse{
-		Status: 0,
-		Data: &adminv1.ProviderListData{
-			Providers: providers,
-		},
-	})
+	return providers
+}
+
+func dispatchAvailableProvider(provider config.ProviderConfig) bool {
+	return strings.TrimSpace(provider.Code) != "" &&
+		strings.TrimSpace(provider.SubmitURL) != "" &&
+		provider.QPSLimit > 0 &&
+		provider.ConcurrencyLimit > 0
 }
 
 func (s *AdminService) GetProviderMetrics(c *gin.Context) {
@@ -489,7 +517,7 @@ func (s *AdminService) CreatePlatformUser(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
 	}
-	input, err := platformUserInput(req.PlatformCode, req.Name, req.Status, req.DefaultProviderCode, req.CallbackMode, req.CallbackUrl)
+	input, err := s.platformUserInput(req.PlatformCode, req.Name, req.Status, req.CallbackMode, req.CallbackUrl, req.DispatchProfile)
 	if err != nil {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
@@ -532,7 +560,7 @@ func (s *AdminService) UpdatePlatformUser(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
 	}
-	input, err := platformUserInput(req.PlatformCode, req.Name, req.Status, req.DefaultProviderCode, req.CallbackMode, req.CallbackUrl)
+	input, err := s.platformUserInput(req.PlatformCode, req.Name, req.Status, req.CallbackMode, req.CallbackUrl, req.DispatchProfile)
 	if err != nil {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
@@ -779,14 +807,26 @@ func parsePositiveInt(value string, fallback int) int {
 	return parsed
 }
 
-func platformUserInput(platformCode string, name string, status string, defaultProviderCode string, callbackMode string, callbackURL string) (biz.AdminPlatformUserInput, error) {
+func (s *AdminService) platformUserInput(platformCode string, name string, status string, callbackMode string, callbackURL string, dispatch *adminv1.DispatchProfileInput) (biz.AdminPlatformUserInput, error) {
 	input := biz.AdminPlatformUserInput{
-		PlatformCode:        strings.TrimSpace(platformCode),
-		Name:                strings.TrimSpace(name),
-		Status:              strings.TrimSpace(strings.ToUpper(status)),
-		DefaultProviderCode: strings.TrimSpace(defaultProviderCode),
-		CallbackMode:        strings.TrimSpace(strings.ToUpper(callbackMode)),
-		CallbackURL:         strings.TrimSpace(callbackURL),
+		PlatformCode: strings.TrimSpace(platformCode),
+		Name:         strings.TrimSpace(name),
+		Status:       strings.TrimSpace(strings.ToUpper(status)),
+		CallbackMode: strings.TrimSpace(strings.ToUpper(callbackMode)),
+		CallbackURL:  strings.TrimSpace(callbackURL),
+	}
+	input.DispatchProfile = biz.DispatchProfileInput{
+		Strategy: biz.DispatchStrategyRoundRobin,
+		Enabled:  true,
+	}
+	if dispatch != nil {
+		input.DispatchProfile = biz.DispatchProfileInput{
+			Code:          strings.TrimSpace(dispatch.Code),
+			Name:          strings.TrimSpace(dispatch.Name),
+			Strategy:      biz.DispatchStrategy(strings.TrimSpace(strings.ToUpper(dispatch.Strategy))),
+			Enabled:       dispatch.Enabled,
+			ProviderCodes: append([]string{}, dispatch.ProviderCodes...),
+		}
 	}
 	if input.Status == "" {
 		input.Status = "ACTIVE"
@@ -794,8 +834,20 @@ func platformUserInput(platformCode string, name string, status string, defaultP
 	if input.CallbackMode == "" {
 		input.CallbackMode = "DEFAULT_HTTP"
 	}
-	if input.PlatformCode == "" || input.Name == "" || input.DefaultProviderCode == "" {
-		return biz.AdminPlatformUserInput{}, fmt.Errorf("platformCode/name/defaultProviderCode are required")
+	if input.DispatchProfile.Strategy == "" {
+		input.DispatchProfile.Strategy = biz.DispatchStrategyRoundRobin
+	}
+	if input.PlatformCode == "" || input.Name == "" {
+		return biz.AdminPlatformUserInput{}, fmt.Errorf("platformCode/name are required")
+	}
+	if len(input.DispatchProfile.ProviderCodes) == 0 {
+		return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.providerCodes are required")
+	}
+	for _, code := range input.DispatchProfile.ProviderCodes {
+		provider, ok := s.providers[code]
+		if !ok || !dispatchAvailableProvider(provider) {
+			return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.providerCodes contains unavailable provider %s", code)
+		}
 	}
 	switch input.Status {
 	case "ACTIVE", "DISABLED":
@@ -806,6 +858,9 @@ func platformUserInput(platformCode string, name string, status string, defaultP
 	case "DEFAULT_HTTP", "CUSTOM":
 	default:
 		return biz.AdminPlatformUserInput{}, fmt.Errorf("callbackMode must be DEFAULT_HTTP or CUSTOM")
+	}
+	if input.DispatchProfile.Strategy != biz.DispatchStrategyRoundRobin {
+		return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.strategy must be ROUND_ROBIN")
 	}
 	return input, nil
 }
@@ -953,16 +1008,32 @@ func int32FromInt(value int) int32 {
 
 func platformUserProto(user biz.PlatformUser) *adminv1.PlatformUser {
 	return &adminv1.PlatformUser{
-		Id:                  user.ID,
-		PlatformCode:        user.PlatformCode,
-		Name:                user.Name,
-		ApiKey:              user.APIKey,
-		Status:              user.Status,
-		DefaultProviderCode: user.DefaultProviderCode,
-		CallbackMode:        user.CallbackMode,
-		CallbackUrl:         user.CallbackURL,
-		CreatedAt:           formatTime(user.CreatedAt),
-		UpdatedAt:           formatTime(user.UpdatedAt),
+		Id:              user.ID,
+		PlatformCode:    user.PlatformCode,
+		Name:            user.Name,
+		ApiKey:          user.APIKey,
+		Status:          user.Status,
+		CallbackMode:    user.CallbackMode,
+		CallbackUrl:     user.CallbackURL,
+		DispatchProfile: dispatchProfileProto(user.DispatchProfile),
+		CreatedAt:       formatTime(user.CreatedAt),
+		UpdatedAt:       formatTime(user.UpdatedAt),
+	}
+}
+
+func dispatchProfileProto(profile biz.DispatchProfile) *adminv1.DispatchProfile {
+	if profile.ID == 0 {
+		return nil
+	}
+	return &adminv1.DispatchProfile{
+		Id:               profile.ID,
+		Code:             profile.Code,
+		Name:             profile.Name,
+		Strategy:         string(profile.Strategy),
+		Enabled:          profile.Enabled,
+		Cursor:           profile.Cursor,
+		LastProviderCode: profile.LastProviderCode,
+		ProviderCodes:    append([]string{}, profile.ProviderCodes...),
 	}
 }
 

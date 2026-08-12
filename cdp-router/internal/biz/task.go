@@ -23,6 +23,7 @@ type EventType string
 
 const (
 	EventTaskCreated          EventType = "TASK_CREATED"
+	EventTaskDispatched       EventType = "TASK_DISPATCHED"
 	EventProviderSubmitted    EventType = "PROVIDER_SUBMITTED"
 	EventProviderSubmitFailed EventType = "PROVIDER_SUBMIT_FAILED"
 	EventUploadURLIssued      EventType = "UPLOAD_URL_ISSUED"
@@ -41,6 +42,8 @@ const (
 var (
 	ErrTaskNotFound         = errors.New("task not found")
 	ErrProviderNotFound     = errors.New("provider not found")
+	ErrDispatchDisabled     = errors.New("任务创建失败，任务调度未启用")
+	ErrProviderUnavailable  = errors.New("任务创建失败，供应商服务不可用")
 	ErrPlatformUserNotFound = errors.New("platform user not found")
 	ErrPlatformUserDisabled = errors.New("platform user disabled")
 	ErrPlatformUserConflict = errors.New("platform user conflict")
@@ -48,17 +51,46 @@ var (
 )
 
 type PlatformUser struct {
-	ID                  int64
-	PlatformCode        string
-	Name                string
-	APIKey              string
-	Status              string
-	DefaultProviderCode string
-	CallbackMode        string
-	CallbackURL         string
-	CallbackConfig      json.RawMessage
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID              int64
+	PlatformCode    string
+	Name            string
+	APIKey          string
+	Status          string
+	CallbackMode    string
+	CallbackURL     string
+	CallbackConfig  json.RawMessage
+	DispatchProfile DispatchProfile
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type DispatchStrategy string
+
+const (
+	DispatchStrategyRoundRobin DispatchStrategy = "ROUND_ROBIN"
+)
+
+type DispatchProfile struct {
+	ID               int64
+	PlatformUserID   int64
+	Code             string
+	Name             string
+	Strategy         DispatchStrategy
+	Enabled          bool
+	Cursor           int64
+	LastProviderCode string
+	Config           json.RawMessage
+	ProviderCodes    []string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type DispatchProfileInput struct {
+	Code          string
+	Name          string
+	Strategy      DispatchStrategy
+	Enabled       bool
+	ProviderCodes []string
 }
 
 type Task struct {
@@ -72,6 +104,9 @@ type Task struct {
 	Source                  string
 	ExternalBatchID         string
 	ProviderExternalBatchID string
+	DispatchProfileID       int64
+	DispatchProfileCode     string
+	DispatchStrategy        DispatchStrategy
 	BizDate                 time.Time
 	Status                  TaskStatus
 	CallbackURL             string
@@ -106,7 +141,6 @@ type CreateTaskInput struct {
 	PlatformUserID int64
 	PlatformCode   string
 	BatchNo        string
-	ProviderCode   string
 	GatewayCode    string
 	Source         string
 	BizDate        string
@@ -310,7 +344,7 @@ type CallbackReadiness struct {
 }
 
 type TaskRepo interface {
-	CreateTask(ctx context.Context, input CreateTaskInput, providerCallbackURL string) (*Task, error)
+	CreateTask(ctx context.Context, input CreateTaskInput, providerCodes []string, providerCallbackBaseURL string) (*Task, error)
 	GetTask(ctx context.Context, id int64) (*Task, error)
 	GetTaskByJobID(ctx context.Context, jobID string, platformUserID int64) (*Task, error)
 	GetTaskByBatchNo(ctx context.Context, batchNo string) (*Task, error)
@@ -351,6 +385,7 @@ type ProviderClient interface {
 
 type ProviderRegistry interface {
 	Get(code string) (ProviderClient, bool)
+	Codes() []string
 }
 
 type ProviderSettings struct {

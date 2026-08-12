@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Drawer, Form, Input, Select, Space, Table, Tooltip, Typography, message } from "antd";
+import { Button, Drawer, Form, Input, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { BarChart3, Edit3, Plus, RefreshCw, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { createPlatformUser, listPlatformUsers, updatePlatformUser } from "../api/client";
+import { createPlatformUser, getDispatchOptions, listPlatformUsers, updatePlatformUser } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import type { PlatformUser, PlatformUserListQuery, PlatformUserPayload } from "../types/admin";
+import type { DispatchStrategyOption, PlatformUser, PlatformUserListQuery, PlatformUserPayload, Provider } from "../types/admin";
 import { compactText, formatDateTime } from "../utils/format";
 
 type FormValues = PlatformUserPayload;
@@ -19,8 +19,11 @@ export function PlatformUsersPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dispatchOptionsLoading, setDispatchOptionsLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<PlatformUser | null>(null);
+  const [dispatchStrategies, setDispatchStrategies] = useState<DispatchStrategyOption[]>([]);
+  const [dispatchProviders, setDispatchProviders] = useState<Provider[]>([]);
 
   const load = async (nextQuery = query) => {
     setLoading(true);
@@ -38,8 +41,22 @@ export function PlatformUsersPage() {
 
   useEffect(() => {
     void load(query);
+    void loadDispatchOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const loadDispatchOptions = async () => {
+    setDispatchOptionsLoading(true);
+    try {
+      const data = await getDispatchOptions();
+      setDispatchStrategies(data.strategies);
+      setDispatchProviders(data.providers);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "加载调度选项失败");
+    } finally {
+      setDispatchOptionsLoading(false);
+    }
+  };
 
   const handleSearch = () => {
     const values = filterForm.getFieldsValue();
@@ -56,7 +73,12 @@ export function PlatformUsersPage() {
     editForm.resetFields();
     editForm.setFieldsValue({
       status: "ACTIVE",
-      callbackMode: "DEFAULT_HTTP"
+      callbackMode: "DEFAULT_HTTP",
+      dispatchProfile: {
+        strategy: "ROUND_ROBIN",
+        enabled: true,
+        providerCodes: []
+      }
     });
     setDrawerOpen(true);
   };
@@ -67,9 +89,15 @@ export function PlatformUsersPage() {
       platformCode: user.platformCode,
       name: user.name,
       status: user.status,
-      defaultProviderCode: user.defaultProviderCode,
       callbackMode: user.callbackMode,
-      callbackUrl: user.callbackUrl
+      callbackUrl: user.callbackUrl,
+      dispatchProfile: {
+        code: user.dispatchProfile?.code,
+        name: user.dispatchProfile?.name,
+        strategy: user.dispatchProfile?.strategy || "ROUND_ROBIN",
+        enabled: user.dispatchProfile?.enabled ?? true,
+        providerCodes: user.dispatchProfile?.providerCodes ?? []
+      }
     });
     setDrawerOpen(true);
   };
@@ -123,9 +151,32 @@ export function PlatformUsersPage() {
         )
       },
       {
-        title: "默认供应商",
-        dataIndex: "defaultProviderCode",
-        width: 140
+        title: "调度策略",
+        dataIndex: ["dispatchProfile", "strategy"],
+        width: 140,
+        render: (_: string, user) => user.dispatchProfile?.strategy || "-"
+      },
+      {
+        title: "供应商池",
+        dataIndex: ["dispatchProfile", "providerCodes"],
+        width: 260,
+        render: (_: string[], user) => {
+          const providerCodes = user.dispatchProfile?.providerCodes ?? [];
+          if (providerCodes.length === 0) return "-";
+          return (
+            <Space size={[4, 4]} wrap>
+              {providerCodes.map((code) => (
+                <Tag key={code}>{code}</Tag>
+              ))}
+            </Space>
+          );
+        }
+      },
+      {
+        title: "调度",
+        dataIndex: ["dispatchProfile", "enabled"],
+        width: 100,
+        render: (_: boolean, user) => (user.dispatchProfile?.enabled ? "启用" : "停用")
       },
       {
         title: "回调方式",
@@ -174,7 +225,7 @@ export function PlatformUsersPage() {
     <section>
       <PageHeader
         title="接入方管理"
-        description="维护业务接入方、默认供应商和任务完成回调方式。"
+        description="维护业务接入方、任务调度和任务完成回调方式。"
         extra={
           <Space>
             <Button icon={<RefreshCw size={16} />} onClick={() => load(query)}>
@@ -248,12 +299,31 @@ export function PlatformUsersPage() {
           <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
             <Input placeholder="Mainland Default" />
           </Form.Item>
+          <Form.Item name={["dispatchProfile", "enabled"]} label="任务调度" valuePropName="checked">
+            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          </Form.Item>
+          <Form.Item name={["dispatchProfile", "strategy"]} label="调度策略" rules={[{ required: true, message: "请选择调度策略" }]}>
+            <Select
+              loading={dispatchOptionsLoading}
+              options={dispatchStrategies.map((strategy) => ({ label: strategy.name, value: strategy.code }))}
+              onFocus={loadDispatchOptions}
+            />
+          </Form.Item>
           <Form.Item
-            name="defaultProviderCode"
-            label="默认供应商"
-            rules={[{ required: true, message: "请输入默认供应商编码" }]}
+            name={["dispatchProfile", "providerCodes"]}
+            label="供应商池"
+            rules={[{ required: true, message: "请选择供应商" }]}
           >
-            <Input placeholder="mpzdata" />
+            <Select
+              mode="multiple"
+              loading={dispatchOptionsLoading}
+              placeholder="选择供应商"
+              options={dispatchProviders.map((provider) => ({
+                label: `${provider.providerCode} · ${provider.displayName}`,
+                value: provider.providerCode
+              }))}
+              onFocus={loadDispatchOptions}
+            />
           </Form.Item>
           <Form.Item name="status" label="状态">
             <Select

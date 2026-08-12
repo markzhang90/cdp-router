@@ -166,12 +166,12 @@ type AdminPlatformUserList struct {
 }
 
 type AdminPlatformUserInput struct {
-	PlatformCode        string
-	Name                string
-	Status              string
-	DefaultProviderCode string
-	CallbackMode        string
-	CallbackURL         string
+	PlatformCode    string
+	Name            string
+	Status          string
+	CallbackMode    string
+	CallbackURL     string
+	DispatchProfile DispatchProfileInput
 }
 
 type AdminPlatformUserMetricsFilter struct {

@@ -370,17 +370,19 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("platform_users.%s.api_key duplicates platform_users.%s.api_key", code, existing)
 		}
 		seenAPIKeys[user.APIKey] = code
-		if user.DefaultProviderCode == "" {
-			return fmt.Errorf("platform_users.%s.default_provider_code is required", code)
-		}
-		if _, ok := c.Provider[user.DefaultProviderCode]; !ok {
-			return fmt.Errorf("platform_users.%s.default_provider_code references unknown provider %s", code, user.DefaultProviderCode)
-		}
 		if user.Status == "" {
 			return fmt.Errorf("platform_users.%s.status is required", code)
 		}
 		if user.CallbackMode == "" {
 			return fmt.Errorf("platform_users.%s.callback_mode is required", code)
+		}
+	}
+	for code, user := range c.PlatformUsers {
+		if user.DefaultProviderCode == "" {
+			continue
+		}
+		if _, ok := c.Provider[user.DefaultProviderCode]; !ok {
+			return fmt.Errorf("platform_users.%s.default_provider_code references unknown provider %s", code, user.DefaultProviderCode)
 		}
 	}
 	if c.Callback.MaxRetry <= 0 {

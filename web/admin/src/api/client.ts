@@ -2,6 +2,7 @@ import { clearSession, getCSRFToken } from "./session";
 import type {
   ApiResponse,
   CheckResultData,
+  DispatchOptionsData,
   ExportTaskItemsData,
   LoginData,
   MeData,
@@ -112,6 +113,10 @@ export function retryTaskCallback(id: number, force = false): Promise<RetryCallb
 
 export function listProviders(): Promise<ProviderListData> {
   return request<ProviderListData>("/providers");
+}
+
+export function getDispatchOptions(): Promise<DispatchOptionsData> {
+  return request<DispatchOptionsData>("/dispatch-options");
 }
 
 export function getProviderMetrics(providerCode: string, query: ProviderMetricsQuery): Promise<ProviderMetricsData> {

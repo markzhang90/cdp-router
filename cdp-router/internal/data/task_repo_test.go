@@ -45,27 +45,47 @@ func TestTaskTotalCountUsesPersistedItemCount(t *testing.T) {
 	}
 
 	batchNo := fmt.Sprintf("data-count-test-%d", time.Now().UnixNano())
+	platformCode := "data_count_" + fmt.Sprint(time.Now().UnixNano())
 	defer func() {
-		statements := []string{
+		taskStatements := []string{
 			`delete from cdp_task_callbacks where task_id in (select id from cdp_tasks where batch_no=$1)`,
 			`delete from cdp_task_events where task_id in (select id from cdp_tasks where batch_no=$1)`,
 			`delete from cdp_task_items where task_id in (select id from cdp_tasks where batch_no=$1)`,
 			`delete from cdp_tasks where batch_no=$1`,
 		}
-		for _, statement := range statements {
+		for _, statement := range taskStatements {
 			if _, err := db.Exec(context.Background(), statement, batchNo); err != nil {
 				t.Logf("cleanup failed: %v", err)
 			}
 		}
+		if _, err := db.Exec(context.Background(), `delete from cdp_dispatch_profiles where platform_user_id in (select id from platform_users where platform_code=$1)`, platformCode); err != nil {
+			t.Logf("cleanup failed: %v", err)
+		}
+		if _, err := db.Exec(context.Background(), `delete from platform_users where platform_code=$1`, platformCode); err != nil {
+			t.Logf("cleanup failed: %v", err)
+		}
 	}()
+	var platformUserID int64
+	if err := db.QueryRow(ctx, `
+insert into platform_users (platform_code,name,api_key,status,default_provider_code,callback_mode,callback_config)
+values ($1,$2,$3,'ACTIVE',null,'DEFAULT_HTTP','{}'::jsonb)
+returning id
+`, platformCode, "Data Count Test", "api-key-"+platformCode).Scan(&platformUserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+insert into cdp_dispatch_profiles (platform_user_id, code, name, strategy, enabled, config)
+values ($1,$2,$3,'ROUND_ROBIN',true,'{"providers":[{"code":"vendor_a"}]}'::jsonb)
+`, platformUserID, platformCode+"_default", "Data Count Test Dispatch"); err != nil {
+		t.Fatal(err)
+	}
 
 	repo := NewTaskRepo(db)
 	task, err := repo.CreateTask(ctx, biz.CreateTaskInput{
 		JobID:          "job-" + batchNo,
-		PlatformUserID: 1,
-		PlatformCode:   "mainland",
+		PlatformUserID: platformUserID,
+		PlatformCode:   platformCode,
 		BatchNo:        batchNo,
-		ProviderCode:   "vendor_a",
 		BizDate:        time.Now().Format("2006-01-02"),
 		CallbackURL:    "https://example.com/callback",
 		RawRequest:     json.RawMessage(`{}`),
@@ -74,7 +94,7 @@ func TestTaskTotalCountUsesPersistedItemCount(t *testing.T) {
 			{ItemID: "item-2", PlatformCode: "yuanbao", Seq: 2, Question: "q2"},
 			{ItemID: "item-2", PlatformCode: "yuanbao", Seq: 3, Question: "duplicate should not expand persisted total"},
 		},
-	}, "https://gateway.example.com/external/callback/vendor_a")
+	}, []string{"vendor_a"}, "https://gateway.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

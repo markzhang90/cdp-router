@@ -17,6 +17,24 @@ create extension if not exists pg_trgm;
 create unique index if not exists idx_platform_users_platform_code on platform_users(platform_code);
 create unique index if not exists idx_platform_users_api_key on platform_users(api_key);
 create index if not exists idx_platform_users_status on platform_users(status);
+alter table platform_users alter column default_provider_code drop not null;
+
+create table if not exists cdp_dispatch_profiles (
+  id bigserial primary key,
+  platform_user_id bigint not null,
+  code varchar(64) not null,
+  name varchar(128) not null,
+  strategy varchar(32) not null default 'ROUND_ROBIN',
+  enabled boolean not null default true,
+  cursor bigint not null default 0,
+  last_provider_code varchar(64),
+  config jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_cdp_dispatch_profiles_platform_user_id on cdp_dispatch_profiles(platform_user_id);
+create unique index if not exists idx_cdp_dispatch_profiles_code on cdp_dispatch_profiles(code);
 
 create table if not exists cdp_tasks (
   id bigserial primary key,
@@ -29,6 +47,9 @@ create table if not exists cdp_tasks (
   source varchar(128),
   external_batch_id varchar(128),
   provider_external_batch_id varchar(128),
+  dispatch_profile_id bigint,
+  dispatch_profile_code varchar(64),
+  dispatch_strategy varchar(32),
   biz_date date,
   status varchar(32) not null,
   callback_url text,
@@ -67,6 +88,9 @@ alter table cdp_tasks add column if not exists job_id varchar(64);
 alter table cdp_tasks add column if not exists platform_user_id bigint;
 alter table cdp_tasks add column if not exists platform_code varchar(64);
 alter table cdp_tasks add column if not exists provider_external_batch_id varchar(128);
+alter table cdp_tasks add column if not exists dispatch_profile_id bigint;
+alter table cdp_tasks add column if not exists dispatch_profile_code varchar(64);
+alter table cdp_tasks add column if not exists dispatch_strategy varchar(32);
 alter table cdp_tasks add column if not exists result_row_count int not null default 0;
 alter table cdp_tasks add column if not exists source varchar(128);
 update cdp_tasks set source = gateway_code where source is null and gateway_code is not null;
@@ -77,6 +101,7 @@ create unique index if not exists idx_cdp_tasks_job_id on cdp_tasks(job_id) wher
 create index if not exists idx_cdp_tasks_platform_user_created_at on cdp_tasks(platform_user_id, created_at) where platform_user_id is not null;
 create index if not exists idx_cdp_tasks_platform_code_created_at on cdp_tasks(platform_code, created_at) where platform_code is not null;
 create index if not exists idx_cdp_tasks_provider_external_batch_id on cdp_tasks(provider_external_batch_id) where provider_external_batch_id is not null;
+create index if not exists idx_cdp_tasks_dispatch_profile_created_at on cdp_tasks(dispatch_profile_id, created_at) where dispatch_profile_id is not null;
 create index if not exists idx_cdp_tasks_source_created_at on cdp_tasks(source, created_at) where source is not null;
 create index if not exists idx_cdp_tasks_batch_no_pattern on cdp_tasks(batch_no text_pattern_ops);
 create index if not exists idx_cdp_tasks_batch_no_trgm on cdp_tasks using gin (batch_no gin_trgm_ops);
@@ -135,6 +160,30 @@ create table if not exists cdp_task_events (
 
 create index if not exists idx_cdp_task_events_task_id on cdp_task_events(task_id, created_at);
 create index if not exists idx_cdp_task_events_type_created_at on cdp_task_events(event_type, created_at);
+
+insert into cdp_dispatch_profiles (
+  platform_user_id,
+  code,
+  name,
+  strategy,
+  enabled,
+  cursor,
+  last_provider_code,
+  config
+)
+select
+  id,
+  platform_code || '_default',
+  name || ' 默认调度',
+  'ROUND_ROBIN',
+  true,
+  0,
+  default_provider_code,
+  jsonb_build_object('providers', jsonb_build_array(jsonb_build_object('code', default_provider_code)))
+from platform_users
+where default_provider_code is not null
+  and default_provider_code <> ''
+on conflict (platform_user_id) do nothing;
 
 drop table if exists cdp_result_fetch_attempts;
 
