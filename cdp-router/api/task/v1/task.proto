@@ -1,0 +1,292 @@
+syntax = "proto3";
+
+package api.task.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/GitMarkZhang/cdp-router/api/task/v1;taskv1";
+
+service TaskAPI {
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/tasks"
+      body: "*"
+    };
+  }
+
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/tasks/{id}"
+    };
+  }
+
+  rpc GetExternalTask(GetExternalTaskRequest) returns (GetTaskResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/external-tasks/{external_batch_id}"
+    };
+  }
+
+  rpc GetExternalTaskResult(GetExternalTaskResultRequest) returns (GetExternalTaskResultResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/external-tasks/{external_batch_id}/result"
+    };
+  }
+
+  rpc GetUploadURL(GetUploadURLRequest) returns (GetUploadURLResponse) {
+    option (google.api.http) = {
+      post: "/external/oss/{provider_code}/upload-url"
+      body: "*"
+    };
+  }
+
+  rpc ProviderCallback(ProviderCallbackRequest) returns (ProviderCallbackResponse) {
+    option (google.api.http) = {
+      post: "/external/callback/{provider_code}"
+      body: "*"
+    };
+  }
+
+  rpc GetProviderStatus(GetProviderStatusRequest) returns (GetProviderStatusResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/tasks/{id}/provider-status"
+    };
+  }
+
+  rpc GetProviderResultFiles(GetProviderResultFilesRequest) returns (GetProviderResultFilesResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/tasks/{id}/provider-result-files"
+    };
+  }
+
+  rpc RefetchTaskResult(RefetchTaskResultRequest) returns (RefetchTaskResultResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/tasks/{id}/refetch-result"
+      body: "*"
+    };
+  }
+
+  rpc SyncProviderResult(SyncProviderResultRequest) returns (SyncProviderResultResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/tasks/{id}/sync-provider-result"
+      body: "*"
+    };
+  }
+}
+
+message TaskItem {
+  string item_id = 1 [json_name = "itemId"];
+  string platform_code = 2 [json_name = "platformCode"];
+  int32 seq = 3;
+  string question = 4;
+  bool deepthink = 5;
+  bool web_search = 6 [json_name = "webSearch"];
+}
+
+message CreateTaskRequest {
+  string batch_no = 1 [json_name = "batchNo"];
+  string provider_code = 2 [json_name = "providerCode"];
+  string biz_date = 3 [json_name = "bizDate"];
+  string callback_url = 4 [json_name = "callbackUrl"];
+  repeated TaskItem items = 5;
+  string source = 6;
+}
+
+message CreateTaskResponse {
+  int32 code = 1;
+  string message = 2;
+  CreateTaskData data = 3;
+}
+
+message CreateTaskData {
+  string external_batch_id = 1 [json_name = "externalBatchId"];
+  int32 accepted_count = 2 [json_name = "acceptedCount"];
+}
+
+message GetTaskRequest {
+  int64 id = 1;
+}
+
+message GetTaskResponse {
+  int32 status = 1;
+  string message = 2;
+  TaskData data = 3;
+}
+
+message TaskData {
+  int64 task_id = 1 [json_name = "taskId"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string provider_code = 3 [json_name = "providerCode"];
+  string external_batch_id = 4 [json_name = "externalBatchId"];
+  string status = 5;
+  int32 total_count = 6 [json_name = "totalCount"];
+  int32 success_count = 7 [json_name = "successCount"];
+  int32 failed_count = 8 [json_name = "failedCount"];
+  string result_object_key = 9 [json_name = "resultObjectKey"];
+  string last_error = 10 [json_name = "lastError"];
+  int32 result_row_count = 11 [json_name = "resultRowCount"];
+  string source = 12;
+  string provider_external_batch_id = 13 [json_name = "providerExternalBatchId"];
+  string result_url = 14 [json_name = "resultUrl"];
+}
+
+message GetExternalTaskRequest {
+  string external_batch_id = 1 [json_name = "externalBatchId"];
+}
+
+message GetExternalTaskResultRequest {
+  string external_batch_id = 1 [json_name = "externalBatchId"];
+}
+
+message GetExternalTaskResultResponse {
+  int32 status = 1;
+  string message = 2;
+  ExternalTaskResultData data = 3;
+}
+
+message ExternalTaskResultData {
+  string external_batch_id = 1 [json_name = "externalBatchId"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string task_status = 3 [json_name = "taskStatus"];
+  string result_url = 4 [json_name = "resultUrl"];
+  int32 total_count = 5 [json_name = "totalCount"];
+  int32 success_count = 6 [json_name = "successCount"];
+  int32 failed_count = 7 [json_name = "failedCount"];
+  repeated ExternalTaskResultItem items = 8;
+}
+
+message ExternalTaskResultItem {
+  string item_id = 1 [json_name = "itemId"];
+  string platform_code = 2 [json_name = "platformCode"];
+  int32 seq = 3;
+  string question = 4;
+  int32 provider_status = 5 [json_name = "providerStatus"];
+  string result_status = 6 [json_name = "resultStatus"];
+  string answer_text = 7 [json_name = "answerText"];
+  string thinking_process = 8 [json_name = "thinkingProcess"];
+  string generated_at = 9 [json_name = "generatedAt"];
+  string generated_at_text = 10 [json_name = "generatedAtText"];
+  string recommended_questions_json = 11 [json_name = "recommendedQuestionsJson"];
+  string references_json = 12 [json_name = "referencesJson"];
+  int32 reference_count = 13 [json_name = "referenceCount"];
+  string parse_status = 14 [json_name = "parseStatus"];
+  string parse_error = 15 [json_name = "parseError"];
+}
+
+message GetUploadURLRequest {
+  string provider_code = 1 [json_name = "providerCode"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string file_name = 3 [json_name = "fileName"];
+}
+
+message GetUploadURLResponse {
+  int32 status = 1;
+  string message = 2;
+  UploadURLData data = 3;
+}
+
+message UploadURLData {
+  string bucket = 1;
+  string key = 2;
+  string upload_url = 3 [json_name = "uploadUrl"];
+  string method = 4;
+  string expires_at = 5 [json_name = "expiresAt"];
+  map<string, string> headers = 6;
+}
+
+message ProviderCallbackRequest {
+  string provider_code = 1 [json_name = "providerCode"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string external_batch_id = 3 [json_name = "externalBatchId"];
+  string status = 4;
+  int32 total_count = 5 [json_name = "totalCount"];
+  int32 success_count = 6 [json_name = "successCount"];
+  int32 failed_count = 7 [json_name = "failedCount"];
+  string finished_at = 8 [json_name = "finishedAt"];
+}
+
+message ProviderCallbackResponse {
+  int32 status = 1;
+  string message = 2;
+  ProviderCallbackData data = 3;
+}
+
+message ProviderCallbackData {
+  string batch_no = 1 [json_name = "batchNo"];
+  bool accepted = 2;
+}
+
+message GetProviderStatusRequest {
+  int64 id = 1;
+}
+
+message GetProviderStatusResponse {
+  int32 status = 1;
+  string message = 2;
+  ProviderStatusData data = 3;
+}
+
+message ProviderStatusData {
+  string external_batch_id = 1 [json_name = "externalBatchId"];
+  repeated ProviderQuestionStatus questions = 2;
+}
+
+message ProviderQuestionStatus {
+  string question_id = 1 [json_name = "questionId"];
+  int32 status = 2;
+}
+
+message GetProviderResultFilesRequest {
+  int64 id = 1;
+}
+
+message GetProviderResultFilesResponse {
+  int32 status = 1;
+  string message = 2;
+  ProviderResultFilesData data = 3;
+}
+
+message ProviderResultFilesData {
+  string external_batch_id = 1 [json_name = "externalBatchId"];
+  repeated string file_urls = 2 [json_name = "fileUrls"];
+}
+
+message RefetchTaskResultRequest {
+  int64 id = 1;
+  bool force = 2;
+  bool notify_callback = 3 [json_name = "notifyCallback"];
+}
+
+message RefetchTaskResultResponse {
+  int32 status = 1;
+  string message = 2;
+  RefetchTaskResultData data = 3;
+}
+
+message RefetchTaskResultData {
+  int64 task_id = 1 [json_name = "taskId"];
+  string batch_no = 2 [json_name = "batchNo"];
+  int32 file_count = 3 [json_name = "fileCount"];
+  int32 row_count = 4 [json_name = "rowCount"];
+}
+
+message SyncProviderResultRequest {
+  int64 id = 1;
+  bool force = 2;
+  bool notify_callback = 3 [json_name = "notifyCallback"];
+}
+
+message SyncProviderResultResponse {
+  int32 status = 1;
+  string message = 2;
+  SyncProviderResultData data = 3;
+}
+
+message SyncProviderResultData {
+  int64 task_id = 1 [json_name = "taskId"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string task_status = 3 [json_name = "taskStatus"];
+  bool provider_done = 4 [json_name = "providerDone"];
+  int32 file_count = 5 [json_name = "fileCount"];
+  int32 row_count = 6 [json_name = "rowCount"];
+  string msg = 7;
+}

@@ -1,0 +1,47 @@
+package callback
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/GitMarkZhang/cdp-router/internal/biz"
+	"github.com/GitMarkZhang/cdp-router/internal/config"
+)
+
+type Router struct {
+	defaultClient *HTTPClient
+	yangshi       *YangshiClient
+	users         map[string]config.PlatformUserConfig
+}
+
+func NewClient(timeout time.Duration, users map[string]config.PlatformUserConfig, store biz.ObjectStore, ownOSSHosts ...string) *Router {
+	copied := make(map[string]config.PlatformUserConfig, len(users))
+	for code, user := range users {
+		copied[code] = user
+	}
+	return &Router{
+		defaultClient: NewHTTPClient(timeout),
+		yangshi:       NewYangshiClient(timeout, store, ownOSSHosts...),
+		users:         copied,
+	}
+}
+
+func (r *Router) Deliver(ctx context.Context, task *biz.Task, payload biz.CallbackDelivery) (biz.CallbackResult, error) {
+	user := r.users[task.PlatformCode]
+	mode := strings.ToUpper(strings.TrimSpace(user.CallbackMode))
+	platformCode := strings.ToLower(strings.TrimSpace(task.PlatformCode))
+
+	switch {
+	case matchYangshiKeyword(platformCode) || matchYangshiKeyword(mode):
+		return r.yangshi.Deliver(ctx, task, payload, user)
+	default:
+		return r.defaultClient.Deliver(ctx, task, payload)
+	}
+}
+
+func matchYangshiKeyword(code string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(code)), "yangshi")
+}
+
+var _ biz.CallbackClient = (*Router)(nil)

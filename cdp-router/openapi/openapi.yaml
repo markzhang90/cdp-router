@@ -1,0 +1,1855 @@
+# Generated with protoc-gen-openapi
+# https://github.com/google/gnostic/tree/master/cmd/protoc-gen-openapi
+
+openapi: 3.0.3
+info:
+    title: ""
+    version: 0.0.1
+paths:
+    /api/admin/v1/login:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_Login
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/LoginRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/LoginResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/logout:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_Logout
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/LogoutRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/LogoutResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/me:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_Me
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/MeResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/platform-users:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_ListPlatformUsers
+            parameters:
+                - name: keyword
+                  in: query
+                  schema:
+                    type: string
+                - name: status
+                  in: query
+                  schema:
+                    type: string
+                - name: page
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListPlatformUsersResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_CreatePlatformUser
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreatePlatformUserRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreatePlatformUserResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/platform-users/{id}:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_GetPlatformUser
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetPlatformUserResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+        put:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_UpdatePlatformUser
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdatePlatformUserRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UpdatePlatformUserResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/platform-users/{id}/metrics:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_GetPlatformUserMetrics
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: createdFrom
+                  in: query
+                  schema:
+                    type: string
+                - name: createdTo
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetPlatformUserMetricsResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/providers:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_ListProviders
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListProvidersResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/providers/{providerCode}/metrics:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_GetProviderMetrics
+            parameters:
+                - name: providerCode
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: createdFrom
+                  in: query
+                  schema:
+                    type: string
+                - name: createdTo
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetProviderMetricsResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/tasks:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_ListTasks
+            parameters:
+                - name: batchNo
+                  in: query
+                  schema:
+                    type: string
+                - name: source
+                  in: query
+                  schema:
+                    type: string
+                - name: resultStatus
+                  in: query
+                  schema:
+                    type: string
+                - name: createdFrom
+                  in: query
+                  schema:
+                    type: string
+                - name: createdTo
+                  in: query
+                  schema:
+                    type: string
+                - name: page
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: pageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: platformCode
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListTasksResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/tasks/{id}:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_GetTaskDetail
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: itemPage
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: itemPageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetTaskDetailResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/tasks/{id}/check-result:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_CheckTaskResult
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CheckTaskResultRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CheckTaskResultResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/tasks/{id}/items-export:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_ExportTaskItems
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ExportTaskItemsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ExportTaskItemsResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/tasks/{id}/retry-callback:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_RetryTaskCallback
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/RetryTaskCallbackRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RetryTaskCallbackResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/external-tasks/{externalBatchId}:
+        get:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_GetExternalTask
+            parameters:
+                - name: externalBatchId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetTaskResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/external-tasks/{externalBatchId}/result:
+        get:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_GetExternalTaskResult
+            parameters:
+                - name: externalBatchId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetExternalTaskResultResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/tasks:
+        post:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_CreateTask
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateTaskRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateTaskResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/tasks/{id}:
+        get:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_GetTask
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetTaskResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/tasks/{id}/provider-result-files:
+        get:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_GetProviderResultFiles
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetProviderResultFilesResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/tasks/{id}/provider-status:
+        get:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_GetProviderStatus
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetProviderStatusResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/tasks/{id}/refetch-result:
+        post:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_RefetchTaskResult
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/RefetchTaskResultRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RefetchTaskResultResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/tasks/{id}/sync-provider-result:
+        post:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_SyncProviderResult
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SyncProviderResultRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SyncProviderResultResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /external/callback/{providerCode}:
+        post:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_ProviderCallback
+            parameters:
+                - name: providerCode
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ProviderCallbackRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ProviderCallbackResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /external/oss/{providerCode}/upload-url:
+        post:
+            tags:
+                - TaskAPI
+            operationId: TaskAPI_GetUploadURL
+            parameters:
+                - name: providerCode
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/GetUploadURLRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/GetUploadURLResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+components:
+    schemas:
+        AdminTaskItem:
+            type: object
+            properties:
+                taskItemId:
+                    type: string
+                itemId:
+                    type: string
+                platformCode:
+                    type: string
+                seq:
+                    type: integer
+                    format: int32
+                question:
+                    type: string
+                providerStatus:
+                    type: integer
+                    format: int32
+                resultStatus:
+                    type: string
+                answerText:
+                    type: string
+                thinkingProcess:
+                    type: string
+                generatedAt:
+                    type: string
+                generatedAtText:
+                    type: string
+                recommendedQuestionsJson:
+                    type: string
+                deviceId:
+                    type: string
+                recordingUrl:
+                    type: string
+                referencesJson:
+                    type: string
+                referenceCount:
+                    type: integer
+                    format: int32
+                parseStatus:
+                    type: string
+                parseError:
+                    type: string
+                resultImportedAt:
+                    type: string
+        AdminTaskSummary:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                taskName:
+                    type: string
+                batchNo:
+                    type: string
+                source:
+                    type: string
+                providerCode:
+                    type: string
+                status:
+                    type: string
+                questionCount:
+                    type: integer
+                    format: int32
+                completedCount:
+                    type: integer
+                    format: int32
+                successCount:
+                    type: integer
+                    format: int32
+                failedCount:
+                    type: integer
+                    format: int32
+                progress:
+                    type: number
+                    format: double
+                createdAt:
+                    type: string
+                updatedAt:
+                    type: string
+                externalBatchId:
+                    type: string
+                platformCode:
+                    type: string
+                executionDurationSeconds:
+                    type: integer
+                    format: int32
+                executionDurationText:
+                    type: string
+        AdminUser:
+            type: object
+            properties:
+                userId:
+                    type: string
+                username:
+                    type: string
+                role:
+                    type: string
+        CheckTaskResultData:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                batchNo:
+                    type: string
+                taskStatus:
+                    type: string
+                providerDone:
+                    type: boolean
+                fileCount:
+                    type: integer
+                    format: int32
+                rowCount:
+                    type: integer
+                    format: int32
+                msg:
+                    type: string
+        CheckTaskResultRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                force:
+                    type: boolean
+                notifyCallback:
+                    type: boolean
+        CheckTaskResultResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/CheckTaskResultData'
+        CreatePlatformUserRequest:
+            type: object
+            properties:
+                platformCode:
+                    type: string
+                name:
+                    type: string
+                status:
+                    type: string
+                defaultProviderCode:
+                    type: string
+                callbackMode:
+                    type: string
+                callbackUrl:
+                    type: string
+        CreatePlatformUserResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/PlatformUser'
+        CreateTaskData:
+            type: object
+            properties:
+                externalBatchId:
+                    type: string
+                acceptedCount:
+                    type: integer
+                    format: int32
+        CreateTaskRequest:
+            type: object
+            properties:
+                batchNo:
+                    type: string
+                providerCode:
+                    type: string
+                bizDate:
+                    type: string
+                callbackUrl:
+                    type: string
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TaskItem'
+                source:
+                    type: string
+        CreateTaskResponse:
+            type: object
+            properties:
+                code:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/CreateTaskData'
+        EmptyData:
+            type: object
+            properties:
+                ok:
+                    type: boolean
+        ExportTaskItemsData:
+            type: object
+            properties:
+                downloadUrl:
+                    type: string
+                objectKey:
+                    type: string
+                expiresAt:
+                    type: string
+        ExportTaskItemsRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+        ExportTaskItemsResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ExportTaskItemsData'
+        ExternalTaskResultData:
+            type: object
+            properties:
+                externalBatchId:
+                    type: string
+                batchNo:
+                    type: string
+                taskStatus:
+                    type: string
+                resultUrl:
+                    type: string
+                totalCount:
+                    type: integer
+                    format: int32
+                successCount:
+                    type: integer
+                    format: int32
+                failedCount:
+                    type: integer
+                    format: int32
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ExternalTaskResultItem'
+        ExternalTaskResultItem:
+            type: object
+            properties:
+                itemId:
+                    type: string
+                platformCode:
+                    type: string
+                seq:
+                    type: integer
+                    format: int32
+                question:
+                    type: string
+                providerStatus:
+                    type: integer
+                    format: int32
+                resultStatus:
+                    type: string
+                answerText:
+                    type: string
+                thinkingProcess:
+                    type: string
+                generatedAt:
+                    type: string
+                generatedAtText:
+                    type: string
+                recommendedQuestionsJson:
+                    type: string
+                referencesJson:
+                    type: string
+                referenceCount:
+                    type: integer
+                    format: int32
+                parseStatus:
+                    type: string
+                parseError:
+                    type: string
+        GetExternalTaskResultResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ExternalTaskResultData'
+        GetPlatformUserMetricsResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/PlatformUserMetricsData'
+        GetPlatformUserResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/PlatformUser'
+        GetProviderMetricsResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ProviderMetricsData'
+        GetProviderResultFilesResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ProviderResultFilesData'
+        GetProviderStatusResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ProviderStatusData'
+        GetTaskDetailResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/TaskDetailData'
+        GetTaskResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/TaskData'
+        GetUploadURLRequest:
+            type: object
+            properties:
+                providerCode:
+                    type: string
+                batchNo:
+                    type: string
+                fileName:
+                    type: string
+        GetUploadURLResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/UploadURLData'
+        GoogleProtobufAny:
+            type: object
+            properties:
+                '@type':
+                    type: string
+                    description: The type of the serialized message.
+            additionalProperties: true
+            description: Contains an arbitrary serialized message along with a @type that describes the type of the serialized message.
+        ListPlatformUsersResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/PlatformUserListData'
+        ListProvidersResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ProviderListData'
+        ListTasksResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/TaskListData'
+        LoginData:
+            type: object
+            properties:
+                user:
+                    $ref: '#/components/schemas/AdminUser'
+                csrfToken:
+                    type: string
+                expiresAt:
+                    type: string
+        LoginRequest:
+            type: object
+            properties:
+                username:
+                    type: string
+                password:
+                    type: string
+        LoginResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/LoginData'
+        LogoutRequest:
+            type: object
+            properties: {}
+        LogoutResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/EmptyData'
+        MeData:
+            type: object
+            properties:
+                user:
+                    $ref: '#/components/schemas/AdminUser'
+                csrfToken:
+                    type: string
+        MeResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/MeData'
+        MetricBreakdown:
+            type: object
+            properties:
+                label:
+                    type: string
+                value:
+                    type: integer
+                    format: int32
+                ratio:
+                    type: number
+                    format: double
+        PlatformCallbackMetrics:
+            type: object
+            properties:
+                callbackCount:
+                    type: integer
+                    format: int32
+                callbackSuccessCount:
+                    type: integer
+                    format: int32
+                callbackFailedCount:
+                    type: integer
+                    format: int32
+                callbackSuccessRate:
+                    type: number
+                    format: double
+        PlatformQuestionMetrics:
+            type: object
+            properties:
+                submittedQuestionCount:
+                    type: integer
+                    format: int32
+                completedAnswerCount:
+                    type: integer
+                    format: int32
+                providerDoneQuestionCount:
+                    type: integer
+                    format: int32
+                failedQuestionCount:
+                    type: integer
+                    format: int32
+                answerCompletionRate:
+                    type: number
+                    format: double
+                averageQuestionsPerTask:
+                    type: number
+                    format: double
+                activeQuestionPlatformCount:
+                    type: integer
+                    format: int32
+        PlatformResultMetrics:
+            type: object
+            properties:
+                resultFileCount:
+                    type: integer
+                    format: int32
+                parsedFileCount:
+                    type: integer
+                    format: int32
+                parseFailedFileCount:
+                    type: integer
+                    format: int32
+                rowCount:
+                    type: integer
+                    format: int32
+                validRowCount:
+                    type: integer
+                    format: int32
+                invalidRowCount:
+                    type: integer
+                    format: int32
+                validRowRate:
+                    type: number
+                    format: double
+        PlatformTaskMetrics:
+            type: object
+            properties:
+                submittedTaskCount:
+                    type: integer
+                    format: int32
+                completedTaskCount:
+                    type: integer
+                    format: int32
+                processingTaskCount:
+                    type: integer
+                    format: int32
+                failedTaskCount:
+                    type: integer
+                    format: int32
+                taskSuccessRate:
+                    type: number
+                    format: double
+                averageDurationSeconds:
+                    type: integer
+                    format: int32
+                averageDurationText:
+                    type: string
+                longestProcessingSeconds:
+                    type: integer
+                    format: int32
+                longestProcessingText:
+                    type: string
+        PlatformUser:
+            type: object
+            properties:
+                id:
+                    type: string
+                platformCode:
+                    type: string
+                name:
+                    type: string
+                apiKey:
+                    type: string
+                status:
+                    type: string
+                defaultProviderCode:
+                    type: string
+                callbackMode:
+                    type: string
+                callbackUrl:
+                    type: string
+                createdAt:
+                    type: string
+                updatedAt:
+                    type: string
+        PlatformUserListData:
+            type: object
+            properties:
+                users:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/PlatformUser'
+                total:
+                    type: integer
+                    format: int32
+                page:
+                    type: integer
+                    format: int32
+                pageSize:
+                    type: integer
+                    format: int32
+        PlatformUserMetricsData:
+            type: object
+            properties:
+                user:
+                    $ref: '#/components/schemas/PlatformUser'
+                createdFrom:
+                    type: string
+                createdTo:
+                    type: string
+                taskMetrics:
+                    $ref: '#/components/schemas/PlatformTaskMetrics'
+                questionMetrics:
+                    $ref: '#/components/schemas/PlatformQuestionMetrics'
+                resultMetrics:
+                    $ref: '#/components/schemas/PlatformResultMetrics'
+                callbackMetrics:
+                    $ref: '#/components/schemas/PlatformCallbackMetrics'
+                statusBreakdown:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/MetricBreakdown'
+                failureReasons:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/MetricBreakdown'
+                recentTasks:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AdminTaskSummary'
+                providerDailyMetrics:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProviderDailyMetric'
+        Provider:
+            type: object
+            properties:
+                providerCode:
+                    type: string
+                displayName:
+                    type: string
+                enabled:
+                    type: boolean
+                resultMode:
+                    type: string
+                timeoutSeconds:
+                    type: integer
+                    format: int32
+                qpsLimit:
+                    type: integer
+                    format: int32
+                concurrencyLimit:
+                    type: integer
+                    format: int32
+                bucketPathPrefix:
+                    type: string
+                submitUrlConfigured:
+                    type: boolean
+                statusUrlConfigured:
+                    type: boolean
+                filesUrlConfigured:
+                    type: boolean
+        ProviderCallbackData:
+            type: object
+            properties:
+                batchNo:
+                    type: string
+                accepted:
+                    type: boolean
+        ProviderCallbackRequest:
+            type: object
+            properties:
+                providerCode:
+                    type: string
+                batchNo:
+                    type: string
+                externalBatchId:
+                    type: string
+                status:
+                    type: string
+                totalCount:
+                    type: integer
+                    format: int32
+                successCount:
+                    type: integer
+                    format: int32
+                failedCount:
+                    type: integer
+                    format: int32
+                finishedAt:
+                    type: string
+        ProviderCallbackResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ProviderCallbackData'
+        ProviderDailyMetric:
+            type: object
+            properties:
+                metricDate:
+                    type: string
+                providerCode:
+                    type: string
+                taskCount:
+                    type: integer
+                    format: int32
+                questionCount:
+                    type: integer
+                    format: int32
+                successAnswerCount:
+                    type: integer
+                    format: int32
+                failedAnswerCount:
+                    type: integer
+                    format: int32
+        ProviderListData:
+            type: object
+            properties:
+                providers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Provider'
+        ProviderMetricsData:
+            type: object
+            properties:
+                provider:
+                    $ref: '#/components/schemas/Provider'
+                createdFrom:
+                    type: string
+                createdTo:
+                    type: string
+                summary:
+                    $ref: '#/components/schemas/ProviderMetricsSummary'
+                dailyMetrics:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProviderDailyMetric'
+        ProviderMetricsSummary:
+            type: object
+            properties:
+                taskCount:
+                    type: integer
+                    format: int32
+                questionCount:
+                    type: integer
+                    format: int32
+                successAnswerCount:
+                    type: integer
+                    format: int32
+                failedAnswerCount:
+                    type: integer
+                    format: int32
+                answerSuccessRate:
+                    type: number
+                    format: double
+        ProviderQuestionStatus:
+            type: object
+            properties:
+                questionId:
+                    type: string
+                status:
+                    type: integer
+                    format: int32
+        ProviderResultFilesData:
+            type: object
+            properties:
+                externalBatchId:
+                    type: string
+                fileUrls:
+                    type: array
+                    items:
+                        type: string
+        ProviderStatusData:
+            type: object
+            properties:
+                externalBatchId:
+                    type: string
+                questions:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProviderQuestionStatus'
+        RefetchTaskResultData:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                batchNo:
+                    type: string
+                fileCount:
+                    type: integer
+                    format: int32
+                rowCount:
+                    type: integer
+                    format: int32
+        RefetchTaskResultRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                force:
+                    type: boolean
+                notifyCallback:
+                    type: boolean
+        RefetchTaskResultResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/RefetchTaskResultData'
+        ResultFile:
+            type: object
+            properties:
+                id:
+                    type: string
+                sourceType:
+                    type: string
+                objectKey:
+                    type: string
+                fileUrl:
+                    type: string
+                fileName:
+                    type: string
+                parseStatus:
+                    type: string
+                rowCount:
+                    type: integer
+                    format: int32
+                validRowCount:
+                    type: integer
+                    format: int32
+                invalidRowCount:
+                    type: integer
+                    format: int32
+                createdAt:
+                    type: string
+        RetryTaskCallbackData:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                batchNo:
+                    type: string
+                taskStatus:
+                    type: string
+                delivered:
+                    type: boolean
+                ready:
+                    type: boolean
+                forceRequired:
+                    type: boolean
+                reason:
+                    type: string
+                totalCount:
+                    type: integer
+                    format: int32
+                successCount:
+                    type: integer
+                    format: int32
+                failedCount:
+                    type: integer
+                    format: int32
+                importedCount:
+                    type: integer
+                    format: int32
+                taskItemCount:
+                    type: integer
+                    format: int32
+        RetryTaskCallbackRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                force:
+                    type: boolean
+        RetryTaskCallbackResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/RetryTaskCallbackData'
+        Status:
+            type: object
+            properties:
+                code:
+                    type: integer
+                    description: The status code, which should be an enum value of [google.rpc.Code][google.rpc.Code].
+                    format: int32
+                message:
+                    type: string
+                    description: A developer-facing error message, which should be in English. Any user-facing error message should be localized and sent in the [google.rpc.Status.details][google.rpc.Status.details] field, or localized by the client.
+                details:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/GoogleProtobufAny'
+                    description: A list of messages that carry the error details.  There is a common set of message types for APIs to use.
+            description: 'The `Status` type defines a logical error model that is suitable for different programming environments, including REST APIs and RPC APIs. It is used by [gRPC](https://github.com/grpc). Each `Status` message contains three pieces of data: error code, error message, and error details. You can find out more about this error model and how to work with it in the [API Design Guide](https://cloud.google.com/apis/design/errors).'
+        SyncProviderResultData:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                batchNo:
+                    type: string
+                taskStatus:
+                    type: string
+                providerDone:
+                    type: boolean
+                fileCount:
+                    type: integer
+                    format: int32
+                rowCount:
+                    type: integer
+                    format: int32
+                msg:
+                    type: string
+        SyncProviderResultRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                force:
+                    type: boolean
+                notifyCallback:
+                    type: boolean
+        SyncProviderResultResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/SyncProviderResultData'
+        TaskCallback:
+            type: object
+            properties:
+                id:
+                    type: string
+                targetUrl:
+                    type: string
+                requestPayloadJson:
+                    type: string
+                responseStatus:
+                    type: integer
+                    format: int32
+                responseBody:
+                    type: string
+                status:
+                    type: string
+                retryCount:
+                    type: integer
+                    format: int32
+                lastError:
+                    type: string
+                createdAt:
+                    type: string
+                updatedAt:
+                    type: string
+        TaskData:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                batchNo:
+                    type: string
+                providerCode:
+                    type: string
+                externalBatchId:
+                    type: string
+                status:
+                    type: string
+                totalCount:
+                    type: integer
+                    format: int32
+                successCount:
+                    type: integer
+                    format: int32
+                failedCount:
+                    type: integer
+                    format: int32
+                resultObjectKey:
+                    type: string
+                lastError:
+                    type: string
+                resultRowCount:
+                    type: integer
+                    format: int32
+                source:
+                    type: string
+                providerExternalBatchId:
+                    type: string
+                resultUrl:
+                    type: string
+        TaskDetailData:
+            type: object
+            properties:
+                task:
+                    $ref: '#/components/schemas/AdminTaskSummary'
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AdminTaskItem'
+                files:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ResultFile'
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TaskEvent'
+                callbacks:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TaskCallback'
+                itemTotal:
+                    type: integer
+                    format: int32
+                itemPage:
+                    type: integer
+                    format: int32
+                itemPageSize:
+                    type: integer
+                    format: int32
+        TaskEvent:
+            type: object
+            properties:
+                id:
+                    type: string
+                eventType:
+                    type: string
+                payloadJson:
+                    type: string
+                createdAt:
+                    type: string
+        TaskItem:
+            type: object
+            properties:
+                itemId:
+                    type: string
+                platformCode:
+                    type: string
+                seq:
+                    type: integer
+                    format: int32
+                question:
+                    type: string
+                deepthink:
+                    type: boolean
+                webSearch:
+                    type: boolean
+        TaskListData:
+            type: object
+            properties:
+                tasks:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AdminTaskSummary'
+                total:
+                    type: integer
+                    format: int32
+                page:
+                    type: integer
+                    format: int32
+                pageSize:
+                    type: integer
+                    format: int32
+        UpdatePlatformUserRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                platformCode:
+                    type: string
+                name:
+                    type: string
+                status:
+                    type: string
+                defaultProviderCode:
+                    type: string
+                callbackMode:
+                    type: string
+                callbackUrl:
+                    type: string
+        UpdatePlatformUserResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/PlatformUser'
+        UploadURLData:
+            type: object
+            properties:
+                bucket:
+                    type: string
+                key:
+                    type: string
+                uploadUrl:
+                    type: string
+                method:
+                    type: string
+                expiresAt:
+                    type: string
+                headers:
+                    type: object
+                    additionalProperties:
+                        type: string
+tags:
+    - name: AdminAPI
+    - name: TaskAPI

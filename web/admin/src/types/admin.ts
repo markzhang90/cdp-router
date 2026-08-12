@@ -1,0 +1,310 @@
+export interface ApiResponse<T> {
+  status: number;
+  message: string;
+  data: T;
+}
+
+export interface AdminUser {
+  userId: string;
+  username: string;
+  role: string;
+}
+
+export interface LoginData {
+  user: AdminUser;
+  csrfToken: string;
+  expiresAt: string;
+}
+
+export interface MeData {
+  user: AdminUser;
+  csrfToken: string;
+}
+
+export interface TaskSummary {
+  taskId: number;
+  taskName: string;
+  batchNo: string;
+  source: string;
+  platformCode: string;
+  externalBatchId: string;
+  providerCode: string;
+  status: string;
+  questionCount: number;
+  completedCount: number;
+  successCount: number;
+  failedCount: number;
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+  executionDurationSeconds: number;
+  executionDurationText: string;
+}
+
+export interface TaskListData {
+  tasks: TaskSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface TaskListQuery {
+  batchNo?: string;
+  source?: string;
+  platformCode?: string;
+  resultStatus?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface TaskItem {
+  taskItemId: number;
+  itemId: string;
+  platformCode: string;
+  seq: number;
+  question: string;
+  providerStatus: number;
+  resultStatus: string;
+  answerText: string;
+  thinkingProcess: string;
+  generatedAt: string;
+  generatedAtText: string;
+  recommendedQuestionsJson: string;
+  deviceId: string;
+  recordingUrl: string;
+  referencesJson: string;
+  referenceCount: number;
+  parseStatus: string;
+  parseError: string;
+  resultImportedAt: string;
+}
+
+export interface ResultFile {
+  id: number;
+  sourceType: string;
+  objectKey: string;
+  fileUrl: string;
+  fileName: string;
+  parseStatus: string;
+  rowCount: number;
+  validRowCount: number;
+  invalidRowCount: number;
+  createdAt: string;
+}
+
+export interface TaskEvent {
+  id: number;
+  eventType: string;
+  payloadJson: string;
+  createdAt: string;
+}
+
+export interface TaskCallback {
+  id: number;
+  targetUrl: string;
+  requestPayloadJson: string;
+  responseStatus: number;
+  responseBody: string;
+  status: string;
+  retryCount: number;
+  lastError: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskDetailData {
+  task: TaskSummary;
+  items: TaskItem[];
+  itemTotal: number;
+  itemPage: number;
+  itemPageSize: number;
+  files: ResultFile[];
+  events: TaskEvent[];
+  callbacks: TaskCallback[];
+}
+
+export interface TaskDetailQuery {
+  itemPage?: number;
+  itemPageSize?: number;
+}
+
+export interface ExportTaskItemsData {
+  downloadUrl: string;
+  objectKey: string;
+  expiresAt: string;
+}
+
+export interface CheckResultData {
+  taskId: number;
+  batchNo: string;
+  taskStatus: string;
+  providerDone: boolean;
+  fileCount: number;
+  rowCount: number;
+  msg: string;
+}
+
+export interface RetryCallbackData {
+  taskId: number;
+  batchNo: string;
+  taskStatus: string;
+  delivered: boolean;
+  ready: boolean;
+  forceRequired: boolean;
+  reason: string;
+  totalCount: number;
+  successCount: number;
+  failedCount: number;
+  importedCount: number;
+  taskItemCount: number;
+}
+
+export interface Provider {
+  providerCode: string;
+  displayName: string;
+  enabled: boolean;
+  resultMode: string;
+  timeoutSeconds: number;
+  qpsLimit: number;
+  concurrencyLimit: number;
+  bucketPathPrefix: string;
+  submitUrlConfigured: boolean;
+  statusUrlConfigured: boolean;
+  filesUrlConfigured: boolean;
+}
+
+export interface ProviderListData {
+  providers: Provider[];
+}
+
+export interface ProviderMetricsQuery {
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+export interface ProviderMetricsSummary {
+  taskCount: number;
+  questionCount: number;
+  successAnswerCount: number;
+  failedAnswerCount: number;
+  answerSuccessRate: number;
+}
+
+export interface ProviderMetricsData {
+  provider: Provider;
+  createdFrom: string;
+  createdTo: string;
+  summary: ProviderMetricsSummary;
+  dailyMetrics: ProviderDailyMetric[];
+}
+
+export interface PlatformUser {
+  id: number;
+  platformCode: string;
+  name: string;
+  apiKey: string;
+  status: string;
+  defaultProviderCode: string;
+  callbackMode: string;
+  callbackUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlatformUserListData {
+  users: PlatformUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface PlatformUserListQuery {
+  keyword?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PlatformUserMetricsQuery {
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+export interface PlatformTaskMetrics {
+  submittedTaskCount: number;
+  completedTaskCount: number;
+  processingTaskCount: number;
+  failedTaskCount: number;
+  taskSuccessRate: number;
+  averageDurationSeconds: number;
+  averageDurationText: string;
+  longestProcessingSeconds: number;
+  longestProcessingText: string;
+}
+
+export interface PlatformQuestionMetrics {
+  submittedQuestionCount: number;
+  completedAnswerCount: number;
+  providerDoneQuestionCount: number;
+  failedQuestionCount: number;
+  answerCompletionRate: number;
+  averageQuestionsPerTask: number;
+  activeQuestionPlatformCount: number;
+}
+
+export interface PlatformResultMetrics {
+  resultFileCount: number;
+  parsedFileCount: number;
+  parseFailedFileCount: number;
+  rowCount: number;
+  validRowCount: number;
+  invalidRowCount: number;
+  validRowRate: number;
+}
+
+export interface PlatformCallbackMetrics {
+  callbackCount: number;
+  callbackSuccessCount: number;
+  callbackFailedCount: number;
+  callbackSuccessRate: number;
+}
+
+export interface MetricBreakdown {
+  label: string;
+  value: number;
+  ratio: number;
+}
+
+export interface ProviderDailyMetric {
+  metricDate: string;
+  providerCode: string;
+  taskCount: number;
+  questionCount: number;
+  successAnswerCount: number;
+  failedAnswerCount: number;
+}
+
+export interface PlatformUserMetricsData {
+  user: PlatformUser;
+  createdFrom: string;
+  createdTo: string;
+  taskMetrics: PlatformTaskMetrics;
+  questionMetrics: PlatformQuestionMetrics;
+  resultMetrics: PlatformResultMetrics;
+  callbackMetrics: PlatformCallbackMetrics;
+  statusBreakdown: MetricBreakdown[];
+  failureReasons: MetricBreakdown[];
+  recentTasks: TaskSummary[];
+  providerDailyMetrics: ProviderDailyMetric[];
+}
+
+export interface PlatformUserPayload {
+  platformCode: string;
+  name: string;
+  status?: string;
+  defaultProviderCode: string;
+  callbackMode?: string;
+  callbackUrl?: string;
+}

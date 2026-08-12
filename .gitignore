@@ -1,0 +1,57 @@
+.DS_Store
+
+# Local editor and environment files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+*.log
+.env
+.env.*
+!.env.example
+
+# Project configuration files with environment-specific secrets
+cdp-router/configs/
+cdp-router/deploy/*.conf
+cdp-router/deploy/.env
+cdp-router/deploy/*.env
+
+# Docker and compose files are kept local for this project
+**/Dockerfile
+**/Dockerfile.*
+**/.dockerignore
+**/docker-compose*.yml
+**/docker-compose*.yaml
+cdp-router/deploy/build.sh
+cdp-router/deploy/deploy.sh
+
+# Local operation scripts with environment-specific credentials
+cdp-router/scripts/create_yangshi_dev_cn_200.sh
+
+# Local runtime and test artifacts
+tmp/
+temp/
+coverage/
+*.cover
+*.out
+
+# Go service build outputs
+cdp-router/bin/
+cdp-router/tmp/
+cdp-router/coverage/
+cdp-router/*.test
+
+# Admin frontend dependencies and build outputs
+web/admin/node_modules/
+web/admin/dist/
+web/admin/.vite/
+web/admin/coverage/
+
+# Admin frontend runtime artifacts copied into the Go service image context
+cdp-router/web/admin/dist/
+
+# Local ad-hoc data exports in the repository root.
+/*.xlsx
+/*.xls
+/*.csv

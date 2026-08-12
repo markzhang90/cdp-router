@@ -1,0 +1,548 @@
+syntax = "proto3";
+
+package api.admin.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/GitMarkZhang/cdp-router/api/admin/v1;adminv1";
+
+service AdminAPI {
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/login"
+      body: "*"
+    };
+  }
+
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/logout"
+      body: "*"
+    };
+  }
+
+  rpc Me(MeRequest) returns (MeResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/me"
+    };
+  }
+
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/tasks"
+    };
+  }
+
+  rpc GetTaskDetail(GetTaskDetailRequest) returns (GetTaskDetailResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/tasks/{id}"
+    };
+  }
+
+  rpc ExportTaskItems(ExportTaskItemsRequest) returns (ExportTaskItemsResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/tasks/{id}/items-export"
+      body: "*"
+    };
+  }
+
+  rpc CheckTaskResult(CheckTaskResultRequest) returns (CheckTaskResultResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/tasks/{id}/check-result"
+      body: "*"
+    };
+  }
+
+  rpc RetryTaskCallback(RetryTaskCallbackRequest) returns (RetryTaskCallbackResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/tasks/{id}/retry-callback"
+      body: "*"
+    };
+  }
+
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/providers"
+    };
+  }
+
+  rpc GetProviderMetrics(GetProviderMetricsRequest) returns (GetProviderMetricsResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/providers/{provider_code}/metrics"
+    };
+  }
+
+  rpc ListPlatformUsers(ListPlatformUsersRequest) returns (ListPlatformUsersResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/platform-users"
+    };
+  }
+
+  rpc GetPlatformUser(GetPlatformUserRequest) returns (GetPlatformUserResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/platform-users/{id}"
+    };
+  }
+
+  rpc GetPlatformUserMetrics(GetPlatformUserMetricsRequest) returns (GetPlatformUserMetricsResponse) {
+    option (google.api.http) = {
+      get: "/api/admin/v1/platform-users/{id}/metrics"
+    };
+  }
+
+  rpc CreatePlatformUser(CreatePlatformUserRequest) returns (CreatePlatformUserResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/platform-users"
+      body: "*"
+    };
+  }
+
+  rpc UpdatePlatformUser(UpdatePlatformUserRequest) returns (UpdatePlatformUserResponse) {
+    option (google.api.http) = {
+      put: "/api/admin/v1/platform-users/{id}"
+      body: "*"
+    };
+  }
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  int32 status = 1;
+  string message = 2;
+  LoginData data = 3;
+}
+
+message LoginData {
+  AdminUser user = 1;
+  string csrf_token = 2 [json_name = "csrfToken"];
+  string expires_at = 3 [json_name = "expiresAt"];
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {
+  int32 status = 1;
+  string message = 2;
+  EmptyData data = 3;
+}
+
+message MeRequest {}
+
+message MeResponse {
+  int32 status = 1;
+  string message = 2;
+  MeData data = 3;
+}
+
+message MeData {
+  AdminUser user = 1;
+  string csrf_token = 2 [json_name = "csrfToken"];
+}
+
+message AdminUser {
+  string user_id = 1 [json_name = "userId"];
+  string username = 2;
+  string role = 3;
+}
+
+message EmptyData {
+  bool ok = 1;
+}
+
+message ListTasksRequest {
+  string batch_no = 1 [json_name = "batchNo"];
+  string source = 2;
+  string result_status = 3 [json_name = "resultStatus"];
+  string created_from = 4 [json_name = "createdFrom"];
+  string created_to = 5 [json_name = "createdTo"];
+  int32 page = 6;
+  int32 page_size = 7 [json_name = "pageSize"];
+  string platform_code = 8 [json_name = "platformCode"];
+}
+
+message ListTasksResponse {
+  int32 status = 1;
+  string message = 2;
+  TaskListData data = 3;
+}
+
+message TaskListData {
+  repeated AdminTaskSummary tasks = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4 [json_name = "pageSize"];
+}
+
+message AdminTaskSummary {
+  int64 task_id = 1 [json_name = "taskId"];
+  string task_name = 2 [json_name = "taskName"];
+  string batch_no = 3 [json_name = "batchNo"];
+  string source = 4;
+  string provider_code = 5 [json_name = "providerCode"];
+  string status = 6;
+  int32 question_count = 7 [json_name = "questionCount"];
+  int32 completed_count = 8 [json_name = "completedCount"];
+  int32 success_count = 9 [json_name = "successCount"];
+  int32 failed_count = 10 [json_name = "failedCount"];
+  double progress = 11;
+  string created_at = 12 [json_name = "createdAt"];
+  string updated_at = 13 [json_name = "updatedAt"];
+  string external_batch_id = 14 [json_name = "externalBatchId"];
+  string platform_code = 15 [json_name = "platformCode"];
+  int32 execution_duration_seconds = 16 [json_name = "executionDurationSeconds"];
+  string execution_duration_text = 17 [json_name = "executionDurationText"];
+}
+
+message GetTaskDetailRequest {
+  int64 id = 1;
+  int32 item_page = 2 [json_name = "itemPage"];
+  int32 item_page_size = 3 [json_name = "itemPageSize"];
+}
+
+message GetTaskDetailResponse {
+  int32 status = 1;
+  string message = 2;
+  TaskDetailData data = 3;
+}
+
+message ExportTaskItemsRequest {
+  int64 id = 1;
+}
+
+message ExportTaskItemsResponse {
+  int32 status = 1;
+  string message = 2;
+  ExportTaskItemsData data = 3;
+}
+
+message ExportTaskItemsData {
+  string download_url = 1 [json_name = "downloadUrl"];
+  string object_key = 2 [json_name = "objectKey"];
+  string expires_at = 3 [json_name = "expiresAt"];
+}
+
+message TaskDetailData {
+  AdminTaskSummary task = 1;
+  repeated AdminTaskItem items = 2;
+  repeated ResultFile files = 3;
+  repeated TaskEvent events = 4;
+  repeated TaskCallback callbacks = 5;
+  int32 item_total = 6 [json_name = "itemTotal"];
+  int32 item_page = 7 [json_name = "itemPage"];
+  int32 item_page_size = 8 [json_name = "itemPageSize"];
+}
+
+message AdminTaskItem {
+  int64 task_item_id = 1 [json_name = "taskItemId"];
+  string item_id = 2 [json_name = "itemId"];
+  string platform_code = 3 [json_name = "platformCode"];
+  int32 seq = 4;
+  string question = 5;
+  int32 provider_status = 6 [json_name = "providerStatus"];
+  string result_status = 7 [json_name = "resultStatus"];
+  string answer_text = 8 [json_name = "answerText"];
+  string thinking_process = 9 [json_name = "thinkingProcess"];
+  string generated_at = 10 [json_name = "generatedAt"];
+  string generated_at_text = 11 [json_name = "generatedAtText"];
+  string recommended_questions_json = 12 [json_name = "recommendedQuestionsJson"];
+  string device_id = 13 [json_name = "deviceId"];
+  string recording_url = 14 [json_name = "recordingUrl"];
+  string references_json = 15 [json_name = "referencesJson"];
+  int32 reference_count = 16 [json_name = "referenceCount"];
+  string parse_status = 17 [json_name = "parseStatus"];
+  string parse_error = 18 [json_name = "parseError"];
+  string result_imported_at = 19 [json_name = "resultImportedAt"];
+}
+
+message ResultFile {
+  int64 id = 1;
+  string source_type = 2 [json_name = "sourceType"];
+  string object_key = 3 [json_name = "objectKey"];
+  string file_url = 4 [json_name = "fileUrl"];
+  string file_name = 5 [json_name = "fileName"];
+  string parse_status = 6 [json_name = "parseStatus"];
+  int32 row_count = 7 [json_name = "rowCount"];
+  int32 valid_row_count = 8 [json_name = "validRowCount"];
+  int32 invalid_row_count = 9 [json_name = "invalidRowCount"];
+  string created_at = 10 [json_name = "createdAt"];
+}
+
+message TaskEvent {
+  int64 id = 1;
+  string event_type = 2 [json_name = "eventType"];
+  string payload_json = 3 [json_name = "payloadJson"];
+  string created_at = 4 [json_name = "createdAt"];
+}
+
+message TaskCallback {
+  int64 id = 1;
+  string target_url = 2 [json_name = "targetUrl"];
+  string request_payload_json = 3 [json_name = "requestPayloadJson"];
+  int32 response_status = 4 [json_name = "responseStatus"];
+  string response_body = 5 [json_name = "responseBody"];
+  string status = 6;
+  int32 retry_count = 7 [json_name = "retryCount"];
+  string last_error = 8 [json_name = "lastError"];
+  string created_at = 9 [json_name = "createdAt"];
+  string updated_at = 10 [json_name = "updatedAt"];
+}
+
+message CheckTaskResultRequest {
+  int64 id = 1;
+  bool force = 2;
+  bool notify_callback = 3 [json_name = "notifyCallback"];
+}
+
+message CheckTaskResultResponse {
+  int32 status = 1;
+  string message = 2;
+  CheckTaskResultData data = 3;
+}
+
+message CheckTaskResultData {
+  int64 task_id = 1 [json_name = "taskId"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string task_status = 3 [json_name = "taskStatus"];
+  bool provider_done = 4 [json_name = "providerDone"];
+  int32 file_count = 5 [json_name = "fileCount"];
+  int32 row_count = 6 [json_name = "rowCount"];
+  string msg = 7;
+}
+
+message RetryTaskCallbackRequest {
+  int64 id = 1;
+  bool force = 2;
+}
+
+message RetryTaskCallbackResponse {
+  int32 status = 1;
+  string message = 2;
+  RetryTaskCallbackData data = 3;
+}
+
+message RetryTaskCallbackData {
+  int64 task_id = 1 [json_name = "taskId"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string task_status = 3 [json_name = "taskStatus"];
+  bool delivered = 4;
+  bool ready = 5;
+  bool force_required = 6 [json_name = "forceRequired"];
+  string reason = 7;
+  int32 total_count = 8 [json_name = "totalCount"];
+  int32 success_count = 9 [json_name = "successCount"];
+  int32 failed_count = 10 [json_name = "failedCount"];
+  int32 imported_count = 11 [json_name = "importedCount"];
+  int32 task_item_count = 12 [json_name = "taskItemCount"];
+}
+
+message ListProvidersRequest {}
+
+message ListProvidersResponse {
+  int32 status = 1;
+  string message = 2;
+  ProviderListData data = 3;
+}
+
+message ProviderListData {
+  repeated Provider providers = 1;
+}
+
+message Provider {
+  string provider_code = 1 [json_name = "providerCode"];
+  string display_name = 2 [json_name = "displayName"];
+  bool enabled = 3;
+  string result_mode = 4 [json_name = "resultMode"];
+  int32 timeout_seconds = 5 [json_name = "timeoutSeconds"];
+  int32 qps_limit = 6 [json_name = "qpsLimit"];
+  int32 concurrency_limit = 7 [json_name = "concurrencyLimit"];
+  string bucket_path_prefix = 8 [json_name = "bucketPathPrefix"];
+  bool submit_url_configured = 9 [json_name = "submitUrlConfigured"];
+  bool status_url_configured = 10 [json_name = "statusUrlConfigured"];
+  bool files_url_configured = 11 [json_name = "filesUrlConfigured"];
+}
+
+message GetProviderMetricsRequest {
+  string provider_code = 1 [json_name = "providerCode"];
+  string created_from = 2 [json_name = "createdFrom"];
+  string created_to = 3 [json_name = "createdTo"];
+}
+
+message GetProviderMetricsResponse {
+  int32 status = 1;
+  string message = 2;
+  ProviderMetricsData data = 3;
+}
+
+message ProviderMetricsData {
+  Provider provider = 1;
+  string created_from = 2 [json_name = "createdFrom"];
+  string created_to = 3 [json_name = "createdTo"];
+  ProviderMetricsSummary summary = 4;
+  repeated ProviderDailyMetric daily_metrics = 5 [json_name = "dailyMetrics"];
+}
+
+message ProviderMetricsSummary {
+  int32 task_count = 1 [json_name = "taskCount"];
+  int32 question_count = 2 [json_name = "questionCount"];
+  int32 success_answer_count = 3 [json_name = "successAnswerCount"];
+  int32 failed_answer_count = 4 [json_name = "failedAnswerCount"];
+  double answer_success_rate = 5 [json_name = "answerSuccessRate"];
+}
+
+message PlatformUser {
+  int64 id = 1;
+  string platform_code = 2 [json_name = "platformCode"];
+  string name = 3;
+  string api_key = 4 [json_name = "apiKey"];
+  string status = 5;
+  string default_provider_code = 6 [json_name = "defaultProviderCode"];
+  string callback_mode = 7 [json_name = "callbackMode"];
+  string callback_url = 8 [json_name = "callbackUrl"];
+  string created_at = 9 [json_name = "createdAt"];
+  string updated_at = 10 [json_name = "updatedAt"];
+}
+
+message ListPlatformUsersRequest {
+  string keyword = 1;
+  string status = 2;
+  int32 page = 3;
+  int32 page_size = 4 [json_name = "pageSize"];
+}
+
+message PlatformUserListData {
+  repeated PlatformUser users = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4 [json_name = "pageSize"];
+}
+
+message ListPlatformUsersResponse {
+  int32 status = 1;
+  string message = 2;
+  PlatformUserListData data = 3;
+}
+
+message GetPlatformUserRequest {
+  int64 id = 1;
+}
+
+message GetPlatformUserResponse {
+  int32 status = 1;
+  string message = 2;
+  PlatformUser data = 3;
+}
+
+message GetPlatformUserMetricsRequest {
+  int64 id = 1;
+  string created_from = 2 [json_name = "createdFrom"];
+  string created_to = 3 [json_name = "createdTo"];
+}
+
+message GetPlatformUserMetricsResponse {
+  int32 status = 1;
+  string message = 2;
+  PlatformUserMetricsData data = 3;
+}
+
+message PlatformUserMetricsData {
+  PlatformUser user = 1;
+  string created_from = 2 [json_name = "createdFrom"];
+  string created_to = 3 [json_name = "createdTo"];
+  PlatformTaskMetrics task_metrics = 4 [json_name = "taskMetrics"];
+  PlatformQuestionMetrics question_metrics = 5 [json_name = "questionMetrics"];
+  PlatformResultMetrics result_metrics = 6 [json_name = "resultMetrics"];
+  PlatformCallbackMetrics callback_metrics = 7 [json_name = "callbackMetrics"];
+  repeated MetricBreakdown status_breakdown = 8 [json_name = "statusBreakdown"];
+  repeated MetricBreakdown failure_reasons = 9 [json_name = "failureReasons"];
+  repeated AdminTaskSummary recent_tasks = 10 [json_name = "recentTasks"];
+  repeated ProviderDailyMetric provider_daily_metrics = 11 [json_name = "providerDailyMetrics"];
+}
+
+message PlatformTaskMetrics {
+  int32 submitted_task_count = 1 [json_name = "submittedTaskCount"];
+  int32 completed_task_count = 2 [json_name = "completedTaskCount"];
+  int32 processing_task_count = 3 [json_name = "processingTaskCount"];
+  int32 failed_task_count = 4 [json_name = "failedTaskCount"];
+  double task_success_rate = 5 [json_name = "taskSuccessRate"];
+  int32 average_duration_seconds = 6 [json_name = "averageDurationSeconds"];
+  string average_duration_text = 7 [json_name = "averageDurationText"];
+  int32 longest_processing_seconds = 8 [json_name = "longestProcessingSeconds"];
+  string longest_processing_text = 9 [json_name = "longestProcessingText"];
+}
+
+message PlatformQuestionMetrics {
+  int32 submitted_question_count = 1 [json_name = "submittedQuestionCount"];
+  int32 completed_answer_count = 2 [json_name = "completedAnswerCount"];
+  int32 provider_done_question_count = 3 [json_name = "providerDoneQuestionCount"];
+  int32 failed_question_count = 4 [json_name = "failedQuestionCount"];
+  double answer_completion_rate = 5 [json_name = "answerCompletionRate"];
+  double average_questions_per_task = 6 [json_name = "averageQuestionsPerTask"];
+  int32 active_question_platform_count = 7 [json_name = "activeQuestionPlatformCount"];
+}
+
+message PlatformResultMetrics {
+  int32 result_file_count = 1 [json_name = "resultFileCount"];
+  int32 parsed_file_count = 2 [json_name = "parsedFileCount"];
+  int32 parse_failed_file_count = 3 [json_name = "parseFailedFileCount"];
+  int32 row_count = 4 [json_name = "rowCount"];
+  int32 valid_row_count = 5 [json_name = "validRowCount"];
+  int32 invalid_row_count = 6 [json_name = "invalidRowCount"];
+  double valid_row_rate = 7 [json_name = "validRowRate"];
+}
+
+message PlatformCallbackMetrics {
+  int32 callback_count = 1 [json_name = "callbackCount"];
+  int32 callback_success_count = 2 [json_name = "callbackSuccessCount"];
+  int32 callback_failed_count = 3 [json_name = "callbackFailedCount"];
+  double callback_success_rate = 4 [json_name = "callbackSuccessRate"];
+}
+
+message MetricBreakdown {
+  string label = 1;
+  int32 value = 2;
+  double ratio = 3;
+}
+
+message ProviderDailyMetric {
+  string metric_date = 1 [json_name = "metricDate"];
+  string provider_code = 2 [json_name = "providerCode"];
+  int32 task_count = 3 [json_name = "taskCount"];
+  int32 question_count = 4 [json_name = "questionCount"];
+  int32 success_answer_count = 5 [json_name = "successAnswerCount"];
+  int32 failed_answer_count = 6 [json_name = "failedAnswerCount"];
+}
+
+message CreatePlatformUserRequest {
+  string platform_code = 1 [json_name = "platformCode"];
+  string name = 2;
+  string status = 3;
+  string default_provider_code = 4 [json_name = "defaultProviderCode"];
+  string callback_mode = 5 [json_name = "callbackMode"];
+  string callback_url = 6 [json_name = "callbackUrl"];
+}
+
+message CreatePlatformUserResponse {
+  int32 status = 1;
+  string message = 2;
+  PlatformUser data = 3;
+}
+
+message UpdatePlatformUserRequest {
+  int64 id = 1;
+  string platform_code = 2 [json_name = "platformCode"];
+  string name = 3;
+  string status = 4;
+  string default_provider_code = 5 [json_name = "defaultProviderCode"];
+  string callback_mode = 6 [json_name = "callbackMode"];
+  string callback_url = 7 [json_name = "callbackUrl"];
+}
+
+message UpdatePlatformUserResponse {
+  int32 status = 1;
+  string message = 2;
+  PlatformUser data = 3;
+}
