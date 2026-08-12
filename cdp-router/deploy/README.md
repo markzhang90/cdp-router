@@ -206,3 +206,41 @@ ACME HTTP 验证目录：
 部署脚本默认上传 `deploy/cdp-router.conf`。该文件使用 compose 网络内的 `postgres:5432`，本地开发配置仍保留在 `configs/cdp-router.conf`。
 
 provider 当前通过配置文件维护，启动时加载到内存常驻。修改 provider token、接口地址或 `bucket_path_prefix` 后，需要重启 `cdp-router` 容器生效。
+
+任务调度配置不再从配置文件读取。接入方的整任务级供应商候选池维护在 PostgreSQL 的 `cdp_dispatch_profiles` 表中，由后台页面或管理 API 写入；部署配置中不再维护 `[dispatch_profiles.*]`。
+
+调度配置口径：
+
+- 每个 `platform_users.id` 绑定一条 `cdp_dispatch_profiles`。
+- 当前仅支持 `ROUND_ROBIN`。
+- `config.providers` 是按顺序轮询的 provider code 数组，例如 `{"providers":[{"code":"mpzdata"},{"code":"liuandata"}]}`。
+- 只有运行配置中已启用且可下发的 provider 会被调度选择；如果配置池内所有 provider 都不可用，创建任务会失败并返回“供应商服务不可用”。
+- `platform_users.default_provider_code` 仅保留历史兼容，后续不再作为运行期调度来源。
+
+首次部署新调度版本前，需要先更新数据库结构并为线上接入方 seed 调度配置。历史 `cdp_tasks` 不需要回填 dispatch 字段；已提交或进行中的任务继续按任务行上的 `provider_code` 处理，因此上线配置必须保留这些任务正在使用的 provider code。
+
+上线前建议检查：
+
+```bash
+docker exec -i cdp-router-postgres psql -U test_myself -d cdp-admin -c "
+select provider_code, status, count(*)
+from cdp_tasks
+where status in ('CREATED','SUBMITTED','PROVIDER_DONE','RESULT_IMPORTED','CALLBACK_PENDING')
+group by provider_code, status
+order by provider_code, status;
+
+select
+  u.platform_code,
+  u.status,
+  dp.code,
+  dp.strategy,
+  dp.enabled,
+  dp.cursor,
+  dp.config
+from platform_users u
+left join cdp_dispatch_profiles dp on dp.platform_user_id = u.id
+order by u.platform_code;
+"
+```
+
+如果线上临时把测试 provider 放入某个接入方的轮询池，测试完成后需要通过后台或 SQL 移除，避免真实任务被分发到不可达地址。

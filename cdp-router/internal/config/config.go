@@ -271,8 +271,8 @@ func Load(path string) (*Config, error) {
 		},
 		Session: AdminSessionConfig{
 			CookieName:     adminSession.Key("cookie_name").MustString("cdp_admin_session"),
-			IdleTTL:        time.Duration(adminSession.Key("idle_ttl_seconds").MustInt(1800)) * time.Second,
-			AbsoluteTTL:    time.Duration(adminSession.Key("absolute_ttl_seconds").MustInt(28800)) * time.Second,
+			IdleTTL:        time.Duration(adminSession.Key("idle_ttl_seconds").MustInt(604800)) * time.Second,
+			AbsoluteTTL:    time.Duration(adminSession.Key("absolute_ttl_seconds").MustInt(2592000)) * time.Second,
 			Secure:         adminSession.Key("secure").MustBool(false),
 			SameSite:       adminSession.Key("same_site").MustString("lax"),
 			CSRFHeader:     adminSession.Key("csrf_header").MustString("X-CSRF-Token"),

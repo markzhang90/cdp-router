@@ -8,9 +8,9 @@ CDP Router 是一个 Go 业务网关服务，第一阶段作为 CDP/AI 任务业
 
 - 任务记录：记录任务创建、提交、轮询、回调、导入、清洗、失败重试的完整生命周期。
 - 结果接入：第一版以供应商上传 OSS + 完成通知为主链路，网关负责签发公网 OSS 上传地址、导入结果、回调业务方。
-- 补偿查询：保留对下游任务状态和结果文件的查询能力，当前不启动定时轮询调度。
+- 补偿查询：保留对下游任务状态和结果文件的查询能力；worker 会对已提交任务做低频进度刷新和超时处理，结果导入仍以供应商完成回调或手动同步为入口。
 - 数据清洗：解析下游 Excel/JSON 结果，做字段标准化、去重、校验、映射、聚合和异常行隔离。
-- 高并发代理：提供限流、熔断、超时、重试、连接池、幂等和降级能力，支撑大量并发 API 请求。
+- 出站治理：provider adapter 使用独立 HTTP client、超时、QPS limiter 和并发 semaphore；熔断、透传代理和租户限流属于后续扩展。
 - 可扩展接入：通过 provider adapter 适配不同 CDP、Q2A、AI 平台或数据供应商。
 
 ## 2. 参考架构约定
@@ -54,8 +54,8 @@ HTTP Client
 - Admin Web：Vite + React + TypeScript 构建 SPA，由 Go 服务通过 `/admin/*` 内置托管。
 - 数据库：PostgreSQL 15+，当前数据库名为 `cdp-admin`。
 - DB 访问：`sqlc` 或 `sqlx`。任务状态机和事务边界明确，优先 `sqlc` 获取类型安全 SQL。
-- 缓存/队列协同：Redis，用于分布式锁、限流、幂等短缓存、轮询调度游标。
-- 异步任务：第一阶段使用 worker goroutine + Postgres lease；任务量上来后再评估 Kafka/RabbitMQ。
+- 缓存/会话：Redis 当前用于后台 Session；任务调度游标保存在 PostgreSQL 的 `cdp_dispatch_profiles.cursor`。
+- 异步任务：当前使用同进程 worker goroutine；结果导入、业务回调、`SUBMITTED` 进度刷新和超时处理通过数据库状态驱动。
 - 文件存储：OSS/S3 兼容对象存储，保存下游原始文件、清洗后文件和错误行报告。
 - Excel 解析：`excelize`。
 - 配置：JSON 或 YAML，保持参考项目的 configfile + Validate 模式。
@@ -114,59 +114,41 @@ cdp-router/                  仓库根目录
       httpapi/
         server.go
         middleware.go
-        error.go
-        router.go
         openapi.go
         admin_static.go
       service/
         task_service.go
-        result_service.go
         admin_service.go
       biz/
         task.go
-        task_usecase.go
-        polling_usecase.go
-        cleaning_usecase.go
-        proxy_usecase.go
-        provider.go
-        errors.go
+        usecase.go
+        admin.go
+        customer_adapter.go
       data/
         db.go
-        tx.go
         task_repo.go
-        provider_repo.go
-        result_repo.go
-        oss_store.go
-        downstream_client.go
-      worker/
-        scheduler.go
-        poller.go
-        submitter.go
-        cleaner.go
-        retry.go
+        admin_repo.go
+        platform_user_repo.go
+        redis.go
       provider/
+        http_provider.go
+        file_completion.go
+        mpzdata_provider.go
+      callback/
         adapter.go
-        batch_provider_adapter.go
-        registry.go
+        router.go
+        http_callback.go
+        yangshi_callback.go
       cleaner/
-        excel_reader.go
-        normalize.go
-        dedupe.go
-        validate.go
-        aggregate.go
-      proxy/
-        reverse_proxy.go
-        transport.go
-        limiter.go
-        circuit_breaker.go
+        excel_parser.go
+      worker/
+        worker.go
       pkg/
-        configfile/
         logger/
-        idgen/
-        clock/
-        httputil/
-        retry/
-        semaphore/
+        httphelper/
+        ossutil/
+        timezone/
+        trace/
     migrations/
       000001_init.sql
     scripts/
@@ -183,7 +165,7 @@ cdp-router/                  仓库根目录
 当前阶段不生成、不注册 gRPC server，也不使用 grpc-gateway 运行时。proto 的职责是统一维护：
 
 - 对外 request/response 结构。
-- 枚举，例如任务状态、任务阶段、供应商状态。
+- 枚举，例如任务状态、供应商状态。
 - 错误码和统一响应结构。
 - HTTP 方法、路径、请求体和响应体契约。
 - OpenAPI 生成所需的接口说明。
@@ -312,15 +294,15 @@ openapi:
 关键字段：
 
 - `id`：内部任务 ID。
-- `external_batch_id`：供应商批次 ID，由 `POST /api/v1/ai/batch/create` 返回。
-- `provider_code`：下游供应商或平台编码。
+- `job_id`：网关生成的对外任务 ID，对 API 返回时字段名为 `externalBatchId`。
+- `provider_external_batch_id`：供应商批次 ID，由供应商 `POST /api/v1/ai/batch/create` 返回。
+- `provider_code`：任务实际下发的供应商编码，由接入方绑定的调度配置选出。
 - `batch_no`：业务批次号，作为任务幂等键和业务方查询/回调关联键。
-- `status`：`CREATED`、`SUBMITTED`、`POLLING`、`PROVIDER_DONE`、`IMPORTING`、`CLEANING`、`CALLBACK_PENDING`、`DONE`、`FAILED`、`CANCELED`。
-- `stage`：`submit`、`polling`、`result_fetching`、`import`、`cleaning`、`callback`。
-- `progress`、`completed_count`、`total_count`。任务总量按系统实际生成并下发给供应商的任务明细统计，不直接从 `raw_request` 或接入方原始 `items[].seq` 推导。
-- `raw_request`、`raw_response`：保留必要原始输入输出，方便审计和排障。
-- `next_poll_at`、`last_poll_at`、`poll_count`、`last_error`。
-- `locked_by`、`locked_until`：任务级 Postgres lease，用于多实例并发安全。
+- `platform_user_id`、`platform_code`：接入方归属，来自 `platform_users`。
+- `dispatch_profile_id`、`dispatch_profile_code`、`dispatch_strategy`：创建任务时使用的调度审计信息；历史任务允许为空。
+- `status`：当前实现使用 `CREATED`、`SUBMITTED`、`PROVIDER_DONE`、`RESULT_IMPORTED`、`CALLBACK_PENDING`、`DONE`、`FAILED`。
+- `provider_request`、`provider_response`、`raw_request`：保留必要输入输出，方便审计和排障；供应商提交失败时当前只写事件和 `last_error`，成功提交后写入 provider 请求/响应。
+- `total_count`、`success_count`、`failed_count`、`last_error`。任务总量按系统实际生成并下发给供应商的任务明细统计，不直接从 `raw_request` 或接入方原始 `items[].seq` 推导。
 
 ### TaskItem
 
@@ -454,27 +436,32 @@ openapi:
 ```sql
 create table cdp_tasks (
   id bigserial primary key,
+  job_id varchar(64),
+  platform_user_id bigint,
+  platform_code varchar(64),
   batch_no varchar(128) not null,
   provider_code varchar(64) not null,
   gateway_code varchar(64),
+  source varchar(128),
   external_batch_id varchar(128),
+  provider_external_batch_id varchar(128),
+  dispatch_profile_id bigint,
+  dispatch_profile_code varchar(64),
+  dispatch_strategy varchar(32),
   biz_date date,
   status varchar(32) not null,
-  stage varchar(32),
   callback_url text,
+  provider_callback_url text,
   raw_request jsonb not null,
   provider_request jsonb,
   provider_response jsonb,
+  result_payload jsonb,
+  result_object_key text,
+  result_file_name text,
   total_count int not null default 0,
-  completed_count int not null default 0,
   success_count int not null default 0,
   failed_count int not null default 0,
-  progress int not null default 0,
-  poll_count int not null default 0,
-  next_poll_at timestamptz,
-  last_poll_at timestamptz,
-  locked_by varchar(128),
-  locked_until timestamptz,
+  result_row_count int not null default 0,
   last_error text,
   submitted_at timestamptz,
   provider_finished_at timestamptz,
@@ -485,8 +472,16 @@ create table cdp_tasks (
   unique (batch_no)
 );
 
-create index idx_cdp_tasks_poll
-  on cdp_tasks(status, next_poll_at, locked_until);
+create unique index idx_cdp_tasks_job_id
+  on cdp_tasks(job_id)
+  where job_id is not null;
+
+create index idx_cdp_tasks_status_created_at
+  on cdp_tasks(status, created_at);
+
+create index idx_cdp_tasks_dispatch_profile_created_at
+  on cdp_tasks(dispatch_profile_id, created_at)
+  where dispatch_profile_id is not null;
 
 create table cdp_task_items (
   id bigserial primary key,
@@ -653,6 +648,7 @@ create table platform_users (
   name varchar(128) not null,
   api_key varchar(256) not null,
   status varchar(32) not null default 'ACTIVE',
+  default_provider_code varchar(64),
   callback_mode varchar(64) not null default 'DEFAULT_HTTP',
   callback_url text,
   callback_config jsonb not null default '{}'::jsonb,
@@ -683,6 +679,8 @@ create table cdp_dispatch_profiles (
 );
 ```
 
+`platform_users.default_provider_code` 仅保留为历史兼容字段，迁移期可用于一次性 seed；运行期供应商选择只读取 `cdp_dispatch_profiles`。
+
 `cdp_tasks` 增加接入方归属和网关对外任务 ID：
 
 ```sql
@@ -695,7 +693,8 @@ alter table cdp_tasks add column dispatch_profile_code varchar(64);
 alter table cdp_tasks add column dispatch_strategy varchar(32);
 
 create unique index idx_cdp_tasks_job_id
-  on cdp_tasks(job_id);
+  on cdp_tasks(job_id)
+  where job_id is not null;
 
 create index idx_cdp_tasks_platform_user_created_at
   on cdp_tasks(platform_user_id, created_at);
@@ -735,7 +734,7 @@ X-Provider-Token: <platform_user.api_key>
 
 本项目第一版流程只涉及 3 个服务角色：用户业务系统、CDP 网关服务、供应商。网关内部数据库、worker、OSS client 等实现细节不在该图中展开。
 
-图中红色节点为供应商文档中定义的接口调用点。第一版以 OSS 上传和完成通知为主链路；状态/结果查询只作为补偿接口保留，当前不做定时调度。
+图中红色节点为供应商文档中定义的接口调用点。第一版以 OSS 上传和完成通知为主链路；状态查询用于人工补偿和 worker 低频进度刷新，结果文件导入不依赖全量轮询调度。
 
 ```mermaid
 sequenceDiagram
@@ -763,7 +762,7 @@ sequenceDiagram
     Gateway->>User: HTTP POST callbackUrl<br/>推送 externalBatchId/job 状态/resultUrl
     User-->>Gateway: accepted
 
-    opt 补偿接口，当前不调度
+    opt 补偿接口或 worker 低频进度刷新
         Gateway->>Provider: <span style="color:red"><b>GET /api/v1/ai/batch/external/{externalBatchId}</b></span>
         Provider-->>Gateway: questions[].questionId/status
         Gateway->>Provider: <span style="color:red"><b>GET /api/v1/ai/batch/external/{externalBatchId}/files</b></span>
@@ -774,6 +773,7 @@ sequenceDiagram
 说明：
 
 - 用户业务系统提交任务时，必须带 `X-API-Key` 或兼容 header `X-Provider-Token`；header 值均为 `platform_users.api_key`。请求体 `providerCode` 仅保留协议兼容，不参与供应商选择，网关始终使用绑定在该 `platform_user_id` 上的 `cdp_dispatch_profiles` 做整任务级供应商选择。
+- 文档中存在两个不同上下文的 `providerCode`：业务方调用网关创建任务时的请求体 `providerCode` 是兼容字段，会被忽略；网关调用下游供应商、供应商回调网关时的 `providerCode` 是实际选中的供应商编码，来自 dispatch profile。
 - 请求体 `callbackUrl` 只影响网关处理完成后回调接入方的地址，可覆盖 `platform_users.callback_url`。它不会作为供应商回调网关的地址下发；阳狮定制回调未传 `callbackUrl` 时，fallback 到 `platform_users.<code>.callback_config` 中的 `baseURL + /external/callback/{providerCode}`。
 - 网关创建 `job_id`，对接入方统一返回为 `externalBatchId`；创建任务响应不返回内部 `taskId`。
 - 网关提交给供应商时，使用供应商文档中的 `POST /api/v1/ai/batch/create`；请求里的 `callbackUrl` 由 `server.public_base_url + /external/callback/{providerCode}` 生成，线上为 `https://openapi.mainland.vip/external/callback/{providerCode}`。保存返回的 `externalBatchId` 到 `provider_external_batch_id`。
@@ -782,7 +782,7 @@ sequenceDiagram
 - 供应商任务创建成功后，网关才向业务方返回任务创建成功；供应商创建失败时任务标记 `FAILED` 并返回失败。
 - 供应商完成后先申请 OSS 上传地址，上传 Excel 后再调用完成通知。
 - 网关读取 OSS 文件并保存结构化结果后，再按业务端提交时的 `callbackUrl` 或接入方默认回调地址推送最终状态和结果 URL。
-- 补偿查询接口可手动查询供应商状态和结果文件，但当前不启动定时轮询。
+- 补偿查询接口可手动查询供应商状态和结果文件；worker 只对 `SUBMITTED` 任务做低频状态刷新和超时兜底，不负责重新提交 `CREATED` 任务。
 
 ### 8.1 创建任务
 
@@ -792,7 +792,7 @@ Client
   -> service 通过 X-API-Key 或 X-Provider-Token 识别 platform_user
   -> biz 生成 job_id
   -> data 在事务内锁定 platform_user_id 对应的 cdp_dispatch_profiles
-  -> data 按 ROUND_ROBIN 从 config.providers 选择一个有效供应商并推进 cursor
+  -> data 按 ROUND_ROBIN 从 config.providers 过滤当前进程已加载的 provider code，选择一个有效供应商并推进 cursor
   -> data 在事务内写 platform_user_id + dispatch 审计字段 + provider_code + cdp_tasks + cdp_task_items + cdp_task_events
   -> biz 同步调用 provider submit_url
   -> provider 创建成功后更新 provider_external_batch_id / SUBMITTED
@@ -801,18 +801,18 @@ Client
 
 设计要点：
 
-- 上游可传 `Idempotency-Key`，没有则按业务请求摘要生成。
+- 幂等键当前以 `batch_no` 为准；`job_id` 由网关生成并返回给接入方。`Idempotency-Key` 属于后续扩展，不是当前实现。
 - 分发粒度是整任务维度，不按 `items[]` 或子任务拆分。一个任务选中一个供应商后，全部明细都提交给该供应商。
 - `cdp_dispatch_profiles.enabled=false` 时创建任务失败，返回“任务调度未启用”。
 - 调度配置中的 `config.providers` 为空、格式非法，或所有 provider code 都无法在当前 provider registry 中找到时，创建任务失败，返回“供应商服务不可用”，且不创建 `cdp_tasks`。
 - 幂等命中已有任务时直接返回已有任务，不推进调度游标。
 - 创建接口必须同步完成供应商任务创建；供应商创建失败时，对接入方返回失败。
 - 供应商创建失败的任务仍保留数据库记录，状态为 `FAILED`，用于排障。
-- 创建成功响应只返回 `externalBatchId=job_id`、`batchNo` 和 `accepted`，不返回内部 `taskId`。
+- 创建成功响应只返回 `externalBatchId=job_id` 和 `acceptedCount`，不返回内部 `taskId`。
 
 ### 8.2 提交下游
 
-当前任务创建接口必须同步完成供应商任务创建，只有供应商下发成功后才向接入方返回创建成功。worker 不自动扫描 `CREATED` 任务执行 `SubmitPending`，避免和创建接口同步下发形成重复提交。
+当前任务创建接口必须同步完成供应商任务创建，只有供应商下发成功后才向接入方返回创建成功。worker 当前不扫描 `CREATED` 任务执行提交，避免和创建接口同步下发形成重复提交；worker 只处理结果导入、业务方回调、`SUBMITTED` 超时和进度刷新。
 
 针对当前供应商任务下发接口，由 provider adapter 调用：
 
@@ -916,7 +916,7 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 
 ### 8.5 补偿查询接口
 
-当前不启动定时轮询调度，只保留手动补偿能力：
+当前不启动独立结果轮询调度；状态查询既可由手动补偿接口触发，也可由 worker 对 `SUBMITTED` 任务做低频进度刷新：
 
 当前供应商查询接口：
 
@@ -1007,6 +1007,7 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 - `POST /api/admin/v1/tasks/{id}/check-result`：检查结果，默认 `force=true`、`notifyCallback=true`，复用主动查询供应商进度和结果重入链路。
 - `POST /api/admin/v1/tasks/{id}/retry-callback`：按单个任务重新触发业务方完成通知，写入新的 `cdp_task_callbacks` 记录并刷新任务详情中的回调结果。
 - `GET /api/admin/v1/providers`：供应商列表，只读展示配置加载后的供应商编码、名称、启用状态、结果模式、QPS、并发、OSS 前缀和接口配置状态，不返回 token。
+- `GET /api/admin/v1/dispatch-options`：返回后台可选调度策略和可下发 provider 列表。provider 必须在配置中启用，并具备提交 URL 和鉴权 token/API key。
 - `GET /api/admin/v1/providers/{providerCode}/metrics`：供应商数据详情指标，支持 `createdFrom`、`createdTo` 创建时间范围筛选，按天聚合任务数、问答数、成功问答数量和失败/未回答数量。
 - `GET /api/admin/v1/platform-users`：接入方列表，支持关键字和状态筛选。
 - `GET /api/admin/v1/platform-users/{id}`：接入方详情。
@@ -1036,6 +1037,8 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 
 调度策略和可选供应商由后台接口 `GET /api/admin/v1/dispatch-options` 返回，页面不得硬编码供应商列表。`cdp_dispatch_profiles` 由后台页面/API 写入数据库维护，服务启动不再读取 `[dispatch_profiles.*]` 配置段，也不会用配置文件覆盖数据库中的调度配置。
 
+有效供应商的判断以运行中 provider registry 为准：配置中未加载、未启用、缺少 `submit_url` 或缺少 token/API key 的 provider 不进入后台可选列表，也不会在任务创建时被选中。调度配置只有一个 `enabled` 开关；不存在 `dispatch_profile.status`、`dispatch_profile_providers.status` 或独立 provider 状态表。
+
 ### 8.5 结果入库和业务方回调
 
 ```text
@@ -1051,7 +1054,7 @@ import worker / manual refetch
 
 `mpzdata` 主链路特例：
 
-- mpzdata 提交接口里的 `items[].seq` 表示供应商侧执行次数，和网关内部 `seq` 的轮次/位置语义不同；单次执行任务下发给 mpzdata 时必须由 adapter 将每条明细的 `seq` 置为 `1`，本地 `cdp_task_items.seq` 保留原始上游值用于审计和排障。
+- mpzdata 提交接口里的 `items[].seq` 表示供应商侧执行次数，和网关内部 `seq` 的轮次/位置语义不同；当前仅阳狮来源接入方（`platform_code=yangshi` 或 `yangshi_*`）提交给 mpzdata 时由 customer adapter 将每条明细的 `seq` 置为 `1`，本地 `cdp_task_items.seq` 保留原始上游值用于审计和排障。其他接入方默认透传 `seq`。
 - 收到供应商完成回调后，导入前必须主动调用一次供应商 `files_url` 获取最终完成文件列表。
 - 后台任务列表和详情的“执行耗时”不使用 `updated_at`；按 `created_at -> provider_finished_at` 展示供应商完成确认耗时。`provider_finished_at` 在真实供应商回调成功，或手动检查供应商状态且数量校验通过、任务改为 `PROVIDER_DONE` 时写入；已有值不覆盖。
 - `files_url` 返回的 `fileUrls` 作为本次导入的优先校对结果；返回多份文件时必须逐份下载、解析、入库。
@@ -1196,167 +1199,119 @@ worker 需要对 `SUBMITTED` 任务做两个周期性处理：
 - 清洗规则按 `schema_version` 管理，便于未来兼容不同供应商模板。
 - 聚合计算和字段标准化放在 `internal/cleaner`，业务状态流转放在 `internal/biz`。
 
-## 9. 高并发网关设计
+## 9. 出站调用治理
 
 ### 9.1 入站保护
 
 - Request ID：每个请求写入日志和响应头。
-- 认证：上游业务使用 API Key/JWT；网关调用供应商接口使用 `X-Provider-Token`。
-- 限流：按租户、API Key、provider、接口路径限流。
+- 认证：上游业务使用 `X-API-Key` 或兼容 `X-Provider-Token`；供应商上传/回调接口使用 provider token。
 - 请求体限制：防止大 JSON 或异常上传拖垮进程。
-- 超时：全链路 deadline 传递，默认 API 请求 3-10 秒。
+- 超时：外部调用必须使用 context deadline，provider 请求使用配置中的 timeout。
 
 ### 9.2 出站保护
 
-- 连接池：为每个 provider 独立 `http.Transport`。
-- 并发隔离：每个 provider 独立 semaphore。
-- QPS 限制：令牌桶限速。
+- Provider registry 为每个 provider 创建独立 HTTP client。
+- 并发隔离：每个 provider 独立 semaphore，大小来自 `concurrency_limit`。
+- QPS 限制：每个 provider 独立令牌桶，大小来自 `qps_limit`。
 - 重试：只对幂等或明确可重试请求开启。
-- 熔断：连续失败或 429 后短暂打开熔断。
+- 熔断：当前未实现，属于后续扩展。
 - 降级：查询类接口可返回本地 DB 中最后一次状态。
 
-### 9.3 代理模式
+### 9.3 代理边界
 
-第一阶段建议支持两类代理：
-
-- 业务代理：将上游请求转换为内部任务，再异步提交下游。
-- 透传代理：少量低风险查询接口可通过 reverse proxy 转发，但必须加鉴权、限流、审计和脱敏日志。
-
-任务类接口不要纯透传，否则无法做到任务记录、幂等、轮询兜底和清洗。
+当前没有实现独立 `internal/proxy` 或 reverse proxy 透传模块。任务类接口必须落任务记录、事件和结果数据，不允许纯透传。后续如新增透传查询能力，必须先补鉴权、限流、审计和敏感日志脱敏。
 
 ## 10. 内置后台管理页面设计
 
-后台管理页面内容不多，建议作为同项目内置 Admin Web，不单独拆仓库、不单独部署前端服务。Go 服务负责托管构建后的静态文件，后台页面调用同源 `/api/admin/v1/*` 和 `/api/v1/*` 接口。
+后台页面作为本项目内置 Admin Web 交付，不单独拆仓库、不单独部署前端服务。Go 服务托管 `cdp-router/web/admin/dist`，后台页面同源调用 `/api/admin/v1/*`。
 
-### 10.1 设计目标
-
-- 内置部署：一个镜像同时包含 API、worker 和 Admin Web。
-- 同源访问：避免额外 CORS、Cookie 域和前后端环境配置复杂度。
-- 快速排障：围绕任务状态、下游调用、轮询、清洗结果、错误日志组织页面。
-- 权限收敛：后台页面和后台 API 统一走服务端鉴权。
-- 低维护成本：页面少，使用成熟组件库，不做复杂前端平台化。
-
-### 10.2 推荐前端技术栈
-
-- 构建工具：Vite。
-- 框架：React + TypeScript。
-- UI 组件：Ant Design 或 Arco Design。后台运维类界面优先 Ant Design，表格、筛选、弹窗、表单、消息反馈成熟。
-- 数据请求：TanStack Query + fetch 封装。
-- 路由：React Router。
-- 图表：先不引入复杂图表库；如果需要任务趋势和状态分布，再接入 ECharts。
-- 类型来源：第一阶段可以手写轻量 API client；后续从 OpenAPI 生成 TypeScript 类型和 client。
-
-不建议第一阶段引入 Next.js、微前端、BFF 或独立 Node 服务。页面规模小，Vite SPA 静态构建最简单。
-
-### 10.3 页面信息架构
+### 10.1 当前页面
 
 ```text
 /admin/login                  登录页
 /admin/tasks                  任务列表
 /admin/tasks/:id              任务详情
-/admin/platform-users         接入方列表
-/admin/platform-users/:id     接入方数据详情
 /admin/providers              供应商列表
 /admin/providers/:code        供应商数据详情
-/admin/cleaning-rules         清洗规则和模板版本
-/admin/system                 系统状态
+/admin/platform-users         接入方列表，可创建/编辑接入方和 dispatch profile
+/admin/platform-users/:id     接入方数据详情
 ```
 
-第一版必做页面：
-
-- 登录页：账号密码或内部 SSO 跳转入口。
-- 任务列表：按状态、阶段、provider、时间、关键字筛选；支持查看详情、重试、取消。
-- 任务详情：基础信息、进度、原始请求、下游响应、轮询记录、事件时间线、结果文件、错误原因。
-- 接入方列表：维护接入方编码、API Key、默认供应商、回调方式和启停状态；支持点击进入接入方数据详情。
-- 接入方数据详情：默认查看近 24 小时，可按时间范围筛选，展示任务维度、问题维度、供应商、结果文件和回调健康度。首屏核心指标包括提交任务数、完成任务数、进行中任务数、失败任务数、任务成功率、平均任务耗时、提交问题数、完成问答数、问答完成率和问题失败数；辅助指标包括平均每任务问题数、供应商按日聚合列表、供应商按日柱状图、结果有效行率、解析失败文件数、回调成功率、最长进行中任务耗时、任务状态分布和失败原因 TopN。
-- 供应商列表：第一版只读展示配置文件加载后的 provider 基础信息、OSS path 前缀和接口配置状态；敏感 token 不返回前端。
-- 供应商数据详情：从供应商列表点击进入，默认查看近 7 天，支持时间范围筛选；核心指标展示任务数、问答数、成功问答数量、失败/未回答数量和问答成功率，每日数据支持表格和折线图切换。
-- 系统状态：worker 开关、队列积压、轮询延迟、最近错误、版本信息。
+当前不提供 `/admin/system`、`/admin/cleaning-rules`、任务取消、重跑清洗或 provider 熔断重置页面；这些属于后续扩展，不能在运维流程里假设已存在。
 
 后台控制台的时间展示和统计口径统一使用东八区 `Asia/Shanghai`。数据库继续用 `timestamptz` 保存真实时间点；Admin API 返回时间时转成东八区 RFC3339 字符串；任务列表、详情、事件、结果文件、回调等页面按东八区展示；供应商和接入方的每日统计按 `created_at` 转东八区后的自然日聚合。
 
-第二版可加页面：
+### 10.2 当前后台 API
 
-- 清洗规则：展示 schema version、字段映射、最近清洗失败样例。
-- 任务事件检索：按 `task_id`、`batch_no`、`external_batch_id` 快速定位。
-- 操作审计：记录后台用户的重试、取消、配置更新操作。
-
-### 10.4 页面交互原则
-
-- 首屏就是任务列表，不做介绍页或营销式首页。
-- 列表密度适中，默认展示近 24 小时任务，并突出异常状态。
-- 详情页用左右结构或 tabs：`概览`、`事件`、`下游调用`、`清洗结果`、`原始数据`。
-- 危险操作必须二次确认，例如取消任务、重跑清洗、重置 provider 熔断状态。
-- 长 JSON 使用可折叠代码块，默认折叠大字段，避免页面卡顿。
-- 轮询进度自动刷新，但要有手动暂停开关，避免排障时内容跳动。
-
-视觉风格建议：
-
-- 面向内部运营和开发排障，整体应安静、克制、信息密集。
-- 使用浅色主题为主，状态色明确区分：成功、处理中、失败、等待、已取消。
-- 不使用大 hero、大卡片堆叠或装饰性背景。
-- 工具按钮优先使用图标 + tooltip，例如刷新、重试、下载、复制、展开。
-
-### 10.5 后台 API
-
-建议后台 API 与开放 API 分开，统一放在 `/api/admin/v1/*`：
+后台 API 与开放 API 分开，统一放在 `/api/admin/v1/*`，由 proto 维护 request/response 并进入 OpenAPI 生成。当前已注册路由：
 
 ```text
-POST /api/admin/v1/auth/login
-POST /api/admin/v1/auth/logout
+POST /api/admin/v1/login
+POST /api/admin/v1/logout
 GET  /api/admin/v1/me
 
 GET  /api/admin/v1/tasks
 GET  /api/admin/v1/tasks/{id}
-GET  /api/admin/v1/tasks/{id}/events
-POST /api/admin/v1/tasks/{id}/retry
-POST /api/admin/v1/tasks/{id}/cancel
-POST /api/admin/v1/tasks/{id}/rerun-cleaning
+POST /api/admin/v1/tasks/{id}/items-export
+POST /api/admin/v1/tasks/{id}/check-result
+POST /api/admin/v1/tasks/{id}/retry-callback
+
 GET  /api/admin/v1/providers
+GET  /api/admin/v1/dispatch-options
 GET  /api/admin/v1/providers/{providerCode}/metrics
+
 GET  /api/admin/v1/platform-users
 GET  /api/admin/v1/platform-users/{id}
 GET  /api/admin/v1/platform-users/{id}/metrics
-
-GET  /api/admin/v1/system/summary
-GET  /api/admin/v1/system/workers
-GET  /api/admin/v1/audit-logs
+POST /api/admin/v1/platform-users
+PUT  /api/admin/v1/platform-users/{id}
 ```
 
-后台 API 仍使用 proto 维护 request/response，并进入 OpenAPI 生成。Admin Web 可以直接消费同一份 OpenAPI。
+后台任务详情接口 `GET /api/admin/v1/tasks/{id}` 的问答结果服务端分页，避免任务问题量大时一次性加载所有回答和引用 JSON：
 
-### 10.6 鉴权和权限
+- 查询参数：`itemPage` 默认 `1`，`itemPageSize` 默认 `20`，最大 `100`。
+- 响应字段：`data.items` 返回当前页问答结果；`data.itemTotal`、`data.itemPage`、`data.itemPageSize` 返回分页信息。
+- `data.files`、`data.events`、`data.callbacks` 当前仍按详情页辅助信息一次返回；后续数据量增大时再单独拆分页。
 
-第一阶段建议：
+### 10.3 鉴权和审计
 
-- 使用后台账号密码登录，服务端签发 HttpOnly Session Cookie。
-- Session 存 Redis，设置空闲过期和绝对过期。
-- 管理 API 全部校验 CSRF token，避免 Cookie 鉴权下的跨站请求风险。
+- 后台登录使用 `[admin.bootstrap]` 中的账号密码或密码 hash，不单独维护 `cdp_admin_users` 表。
+- 服务端签发 HttpOnly Session Cookie，Session 存 Redis，设置空闲过期和绝对过期；默认空闲过期 7 天，绝对过期 30 天。
+- 后台写接口校验 CSRF token。
 - 角色先保持简单：`admin`、`operator`、`viewer`。
 - 写操作记录 `cdp_admin_audit_logs`。
 
-如果公司已有统一登录系统，后续可替换为 OIDC/SSO，但后台页面和 API 路由不需要改变。
+当前后台审计表结构：
 
-### 10.7 静态资源集成
+```sql
+create table cdp_admin_audit_logs (
+  id bigserial primary key,
+  user_id varchar(128) not null,
+  username varchar(128) not null,
+  role varchar(64) not null,
+  action varchar(64) not null,
+  resource_type varchar(64) not null,
+  resource_id varchar(128) not null,
+  request_id varchar(128),
+  payload jsonb,
+  created_at timestamptz not null default now()
+);
+```
+
+### 10.4 静态资源集成
 
 构建流程：
 
 ```text
 web/admin
-  -> npm build
+  -> npm run build
   -> web/admin/dist
   -> cdp-router/web/admin/dist
   -> internal/httpapi/admin_static.go
   -> GET /admin/*
 ```
 
-Go 托管方式：
-
-- `/admin` 和 `/admin/*` 返回 SPA 静态文件。
-- 对不存在的前端路由 fallback 到 `index.html`。
-- 静态资源带 hash 文件名，设置长缓存。
-- `index.html` 不设置长缓存，方便发布后刷新入口。
-- 后台页面可通过 `/api/openapi.json` 或构建时环境变量获取 API 地址，默认同源。
+`/admin` 会重定向到 `/admin/tasks`；`/admin/*` 由 cdp-router 服务内置托管，对前端路由 fallback 到 `index.html`。Nginx 只做反向代理，不单独配置后台静态文件目录。
 
 线上访问入口：
 
@@ -1365,63 +1320,9 @@ Go 托管方式：
 后台登录页：https://openapi.mainland.vip/admin/login
 ```
 
-Nginx 只做反向代理，`/admin` 和 `/admin/*` 由 cdp-router 服务内置托管，不单独在 Nginx 配置静态文件目录。
+### 10.5 页面验证
 
-Makefile 建议增加：
-
-```makefile
-.PHONY: admin-check admin-build admin-sync
-
-admin-build:
-	cd ../web/admin && npm run build
-
-admin-sync: admin-build
-	rm -rf web/admin/dist
-	cp -R ../web/admin/dist web/admin/dist
-
-build: proto openapi admin-sync
-	go build -o bin/cdp-router ./cmd/cdp-router
-```
-
-### 10.8 后台相关数据表
-
-```sql
-create table cdp_admin_users (
-  id bigserial primary key,
-  username varchar(64) not null,
-  password_hash varchar(255) not null,
-  role varchar(32) not null,
-  status varchar(32) not null,
-  last_login_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (username)
-);
-
-create table cdp_admin_audit_logs (
-  id bigserial primary key,
-  user_id bigint not null,
-  action varchar(64) not null,
-  resource_type varchar(64) not null,
-  resource_id varchar(128) not null,
-  request_id varchar(128),
-  payload jsonb,
-  created_at timestamptz not null default now()
-);
-
-create index idx_cdp_admin_audit_logs_resource
-  on cdp_admin_audit_logs(resource_type, resource_id, created_at);
-
-create index idx_cdp_admin_audit_logs_user
-  on cdp_admin_audit_logs(user_id, created_at);
-```
-
-### 10.9 测试策略
-
-- 后台 API E2E 仍然使用真实测试数据库和 Redis。
-- 前端单元测试只覆盖关键工具函数和 API client。
-- 页面 E2E 使用 Playwright，跑真实 Gin server，访问真实静态页面，验证登录、任务列表、任务详情、重试确认弹窗。
-- 管理操作需要验证审计日志落库。
+修改后台前端源码后，默认执行 `npm run typecheck` 和 `npm run build`。页面级 Playwright E2E 只在需求明确要求时执行；如果执行，必须跑真实 Gin server 和真实测试数据库。
 
 ## 11. API 草案
 
@@ -1430,10 +1331,8 @@ POST /api/v1/tasks
 GET  /api/v1/external-tasks/{externalBatchId}
 GET  /api/v1/external-tasks/{externalBatchId}/result
 GET  /api/v1/tasks/{id}
-GET  /api/v1/tasks/{id}/events
-GET  /api/v1/tasks/{id}/result
-POST /api/v1/tasks/{id}/cancel
 POST /api/v1/tasks/{id}/refetch-result
+POST /api/v1/tasks/{id}/sync-provider-result
 GET  /api/v1/tasks/{id}/provider-status
 GET  /api/v1/tasks/{id}/provider-result-files
 
@@ -1442,9 +1341,11 @@ POST /api/admin/v1/logout
 GET  /api/admin/v1/me
 GET  /api/admin/v1/tasks
 GET  /api/admin/v1/tasks/{id}
+POST /api/admin/v1/tasks/{id}/items-export
 POST /api/admin/v1/tasks/{id}/check-result
 POST /api/admin/v1/tasks/{id}/retry-callback
 GET  /api/admin/v1/providers
+GET  /api/admin/v1/dispatch-options
 GET  /api/admin/v1/providers/{providerCode}/metrics
 GET  /api/admin/v1/platform-users
 GET  /api/admin/v1/platform-users/{id}
@@ -1454,9 +1355,7 @@ PUT  /api/admin/v1/platform-users/{id}
 
 GET  /health
 GET  /ready
-GET  /metrics
 GET  /api/openapi.json
-GET  /api/docs
 
 GET  /admin
 GET  /admin/*
@@ -1522,13 +1421,24 @@ GET  /api/v1/ai/batch/external/{externalBatchId}/files
 
 ```json
 {
-  "id": "1900000000001",
-  "status": "SUBMITTED",
-  "stage": "analysis",
-  "progress": 50,
-  "completedCount": 6,
-  "totalCount": 12,
-  "resultUrl": null
+  "status": 0,
+  "message": "",
+  "data": {
+    "taskId": 1900000000001,
+    "batchNo": "Q2A2-20260812-0001",
+    "providerCode": "mpzdata",
+    "externalBatchId": "job_5cfe50c78d6b0c8f2bd3115af05b8697",
+    "providerExternalBatchId": "mpzdata-batch-001",
+    "status": "SUBMITTED",
+    "totalCount": 12,
+    "successCount": 0,
+    "failedCount": 0,
+    "resultObjectKey": "",
+    "lastError": "",
+    "resultRowCount": 0,
+    "source": "mainland",
+    "resultUrl": "https://openapi.mainland.vip/api/v1/external-tasks/job_5cfe50c78d6b0c8f2bd3115af05b8697/result"
+  }
 }
 ```
 
@@ -1603,19 +1513,20 @@ host = https://opensource-man.oss-cn-shanghai.aliyuncs.com
 upload_dir = cdp-router/
 expire_seconds = 3600
 
-[providers.vendor_a]
-code = vendor_a
-display_name = vendor_a
+[providers.mpzdata]
+code = mpzdata
+display_name = mpzdata
 submit_url = https://answertrace.isafast.cn/api/v1/ai/batch/create
 status_url = https://answertrace.isafast.cn/api/v1/ai/batch/external/{externalBatchId}
 files_url = https://answertrace.isafast.cn/api/v1/ai/batch/external/{externalBatchId}/files
-bucket_path_prefix = cdp-router/q2a/vendor_a
+bucket_path_prefix = cdp-router/q2a/mpzdata
 token = <provider-token>
 api_key =
 result_mode = callback_upload
 timeout_seconds = 15
 qps_limit = 10
 concurrency_limit = 20
+enabled = true
 
 [platform_users.mainland]
 platform_code = mainland
@@ -1633,7 +1544,7 @@ api_key = <yangshi-api-key>
 status = ACTIVE
 callback_mode = CUSTOM
 callback_url =
-callback_config = {"baseURL":"https://staging-api-growth.wiredcraft.cn/api2","providerCode":"vendor_a","providerToken":"<provider-token>"}
+callback_config = {"baseURL":"https://api-growth.wiredcraft.cn/api2","providerCode":"mpzdata","providerToken":"<provider-token>"}
 
 [platform_users.yangshi_dev]
 platform_code = yangshi_dev
@@ -1642,14 +1553,14 @@ api_key = <yangshi-dev-api-key>
 status = ACTIVE
 callback_mode = CUSTOM
 callback_url =
-callback_config = {"baseURL":"https://staging-api-growth.wiredcraft.cn/api2","providerCode":"vendor_a","providerToken":"<provider-token>"}
+callback_config = {"baseURL":"https://staging-api-growth.wiredcraft.cn/api2","providerCode":"mpzdata2","providerToken":"<provider-token>"}
 
 [callbacks.http]
 timeout_seconds = 15
 max_retry = 3
 ```
 
-接入方的任务调度配置通过后台页面或管理 API 创建/编辑后写入 `cdp_dispatch_profiles`。首次上线时如需保留老的 `default_provider_code`，由数据库 migration 做一次性 seed；后续运行期以数据库中的 dispatch profile 为准。
+接入方的任务调度配置通过后台页面或管理 API 创建/编辑后写入 `cdp_dispatch_profiles`。首次上线需要为每个接入方准备一条 dispatch profile；历史 `default_provider_code` 只作为迁移期 seed 来源，后续运行期以数据库中的 dispatch profile 为准。历史 `cdp_tasks` 不需要回填 dispatch 字段。
 
 ## 13. 部署架构
 
@@ -1668,9 +1579,10 @@ Tracing backend <- OpenTelemetry spans
 
 多实例部署注意点：
 
-- worker 通过 DB lease 或 Redis lock 抢占任务，保证同一任务同一时间只被一个实例处理。
-- API 服务无状态，任务状态全部落库。
-- 清洗 worker 可水平扩容，但单个任务的清洗需要独占 lease。
+- API 服务无状态，任务状态、调度游标、结果和回调记录全部落库。
+- 创建任务在数据库事务内锁定 `cdp_dispatch_profiles` 行并推进 `cursor`，多实例创建同一接入方任务时仍保持 round-robin 游标一致。
+- 当前 worker 没有独立任务级 lease 表或 `locked_by/locked_until` 字段；并发安全主要依赖状态条件更新、幂等 upsert 和任务状态机。后续如果 worker 高并发扩容，需要补充 DB lease 或 Redis lock 后再扩大实例数。
+- Redis 当前主要用于后台 Session；不要把它假设为任务调度游标或任务锁的事实来源。
 
 ## 14. 测试策略
 
@@ -1679,63 +1591,12 @@ Tracing backend <- OpenTelemetry spans
 推荐测试分层：
 
 - 单元测试：biz 状态机、清洗规则、provider adapter 响应解析。
-- 集成测试：真实测试数据库 + Redis，验证 repo、事务、任务级 lease、结果幂等 upsert。
+- 集成测试：真实测试数据库 + Redis，验证 repo、事务、dispatch profile 行锁和游标推进、结果幂等 upsert。
 - API E2E：迁移真实测试数据库，启动真实 HTTP handler/server，通过 HTTP 请求验证创建任务、查询任务、供应商上传 OSS、完成通知、补偿状态查询、补偿结果文件查询、结果行入库、业务方回调。
 - 契约测试：比对 OpenAPI path/method 与 Gin 实际路由，防止 proto 契约和 HTTP 实现漂移。
-- Admin E2E：启动真实 Gin server 和静态后台页面，使用真实测试数据库验证登录、任务查询、重试、取消和审计日志。
-- 下游契约测试：使用本地 mock HTTP server 模拟供应商，但本服务内的持久化必须是真实 DB。
+- Admin E2E：启动真实 Gin server 和静态后台页面，使用真实测试数据库验证登录、任务查询、重试回调、调度配置编辑和审计日志。
+- 下游契约测试：使用本地 mock HTTP server 模拟供应商，但本服务内的持久化必须是真实 DB；HTTP/API E2E 不允许使用 in-memory store、fake repo 或 mock store 替代数据库。
+- Harness 架构：测试 harness 负责连接真实 Postgres、执行 migration、装配真实 Gin handler/server、注册本地 mock provider HTTP server，并通过 HTTP 请求驱动业务链路。涉及后台登录/Session 的 E2E 还必须使用真实 Redis。mock 只允许存在于下游 provider 边界，不能替代本服务内部 repo 或持久层。
 - refetch E2E：验证 `refetch-result` 可重复执行，按 batch 幂等 upsert 结果文件和结果行，不产生重复数据。
 - 任务 E2E 不纳入 `scripts/check.sh` 的默认日常检查链路，需要时通过 `make e2e-test` 单独执行。
-- 压测：`wrk`/`vegeta` 覆盖创建任务、查询任务和透传代理接口。
-
-## 15. 分阶段落地计划
-
-### Phase 1：工程骨架和任务代理
-
-- 初始化 Go module、Makefile、Dockerfile、配置加载、日志。
-- 引入 Gin，定义 task proto，生成 Go message 和 OpenAPI。
-- 实现 `/api/openapi.json` 和 `/api/docs`。
-- 实现任务创建、查询、事件记录。
-- 实现供应商 batch adapter，支持任务下发、进度查询和结果文件查询。
-- 接入真实数据库迁移和 API E2E。
-
-### Phase 2：补偿查询和 worker 稳定性
-
-- 保留按 `externalBatchId` 的状态查询和结果文件查询接口，当前不启动定时调度。
-- 后续如启用轮询补偿，再实现 30 秒调度、防重入、Postgres 任务级 lease、provider 限流。
-- 增加 Prometheus 指标和核心告警。
-
-### Phase 3：数据清洗
-
-- 支持结果文件下载、模板识别、字段标准化、错误行输出。
-- 按 batch 幂等保存 `cdp_task_result_files` 和 `cdp_task_result_rows`。
-- 增加 `refetch-result` 接口，支持手动重新获取结果。
-- 增加清洗规则版本和清洗 E2E。
-
-### Phase 4：高并发代理和治理
-
-- 增加透传代理能力。
-- 引入熔断、租户限流、审计日志、配置热更新。
-- 完成压测和容量基线。
-
-### Phase 5：内置后台管理
-
-- 初始化 `web/admin`，接入 Vite + React + TypeScript。
-- 实现登录、任务列表、任务详情、provider 查看、系统状态。
-- Gin 托管前端构建产物，支持 `/admin/*` SPA fallback。
-- 后台 API 接入 session、CSRF、角色权限和审计日志。
-- 增加 Playwright Admin E2E。
-
-## 16. 初始实现建议
-
-第一版不要把所有能力做成复杂平台，建议先锁定一个下游 provider：
-
-- 对上统一为 `TaskService`。
-- 对下先实现 `vendor_a` batch adapter，支持任务下发、状态查询和结果文件查询。
-- 任务状态和事件全部落库。
-- 轮询 worker 与 API 服务同进程运行，但用配置开关控制是否启用 worker。
-- 清洗先支持 Excel 模板中的 `AI回答` 和 `溯源信息` 两张表，再扩展聚合报表。
-- HTTP 层使用 Gin 手写 handler，所有对外 request/response 使用 proto message，OpenAPI 从 proto 自动生成。
-- 后台页面放入 `web/admin`，由 Go 服务通过 `/admin/*` 内置托管，第一版只做任务排障所需页面。
-
-这样可以快速得到一个可运行、可验证、可扩容的最小闭环。
+- 压测：`wrk`/`vegeta` 覆盖创建任务、查询任务、后台列表和 provider 出站限流。

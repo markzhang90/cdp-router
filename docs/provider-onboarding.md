@@ -34,6 +34,10 @@ enabled = true
 
 配置变更后需要重启服务，配置会在启动时加载到内存。
 
+新增 provider 只表示服务具备调用该供应商的能力，不会自动接收业务任务。需要在后台接入方页面或管理 API 中，把 provider code 加入目标接入方绑定的 `cdp_dispatch_profiles.config.providers`，并确保调度配置 `enabled=true`。当前调度粒度是整任务维度：一个任务被选中某个 provider 后，任务内全部 `items[]` 都提交给同一个 provider。
+
+调度可选 provider 来自 `GET /api/admin/v1/dispatch-options`。配置中未启用、缺少提交地址或缺少鉴权 token/API key 的 provider 不会进入可选列表，也不会在创建任务时被选中。
+
 ### 2. 完成文件策略差异
 
 如果供应商完成回调后需要特殊文件处理，不要在 biz 层写 provider code 判断，应在 `internal/provider` 下为该供应商增加独立文件。
@@ -101,3 +105,4 @@ func (p *VendorXProvider) DownloadResultFile(ctx context.Context, fileURL string
 - 所有外部请求必须带 context timeout。
 - 新增或修改 provider 行为必须补测试；业务接口链路需要真实 Postgres/Redis 持久层 E2E。
 - 新增配置字段时同步更新配置示例、部署配置和本文档。
+- 上线时必须确认在途任务使用的 `cdp_tasks.provider_code` 仍存在于配置中；历史任务不会重新按 dispatch profile 选择供应商。
