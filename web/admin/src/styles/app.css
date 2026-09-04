@@ -224,6 +224,102 @@ textarea {
   min-width: 0;
 }
 
+.batch-no-cell {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-label-cell {
+  max-width: 100%;
+  align-items: center;
+}
+
+.provider-label-cell .ant-typography {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dispatch-label-pill {
+  --dispatch-label-bg: #f2f5f4;
+  --dispatch-label-border: #dbe4e1;
+  --dispatch-label-color: #53605c;
+  min-height: 24px;
+  max-width: 92px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--dispatch-label-border);
+  border-radius: 999px;
+  color: var(--dispatch-label-color);
+  background: var(--dispatch-label-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.dispatch-label-pill__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dispatch-label-pill--rule {
+  --dispatch-label-bg: #edf8f5;
+  --dispatch-label-border: #b6dfd5;
+  --dispatch-label-color: #106d60;
+}
+
+.dispatch-label-pill--fallback {
+  --dispatch-label-bg: #fff7e8;
+  --dispatch-label-border: #ecd39a;
+  --dispatch-label-color: #8a5b0a;
+}
+
+.provider-quota-cell {
+  min-width: 160px;
+  max-width: 210px;
+}
+
+.provider-quota-cell .ant-progress {
+  display: block;
+  margin-bottom: 5px;
+  line-height: 1;
+}
+
+.provider-quota-cell__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: #6a7772;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.provider-quota-cell__meta strong {
+  color: #17231f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.provider-quota-cell__meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.provider-quota-cell--detail {
+  max-width: 260px;
+}
+
 .task-name-copy {
   flex: 0 0 auto;
   margin-top: -1px;
@@ -318,6 +414,14 @@ textarea {
   margin-bottom: 14px;
   padding: 1px;
   overflow: hidden;
+}
+
+.related-batch-link.ant-btn {
+  max-width: 100%;
+  height: auto;
+  padding: 0;
+  white-space: normal;
+  text-align: left;
 }
 
 .detail-tabs {
@@ -675,6 +779,100 @@ textarea {
   stroke: #ffffff;
 }
 
+.rule-editor {
+  padding: 12px;
+  border: 1px solid #dfe7e4;
+  border-radius: 6px;
+  background: #f8faf9;
+}
+
+.dispatch-mode-tabs {
+  margin-top: 2px;
+}
+
+.dispatch-mode-tabs .ant-tabs-nav {
+  margin-bottom: 14px;
+}
+
+.dispatch-config-stack {
+  width: 100%;
+}
+
+.dispatch-rule-list-header,
+.dispatch-rule-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dispatch-rule-list-header {
+  min-height: 32px;
+}
+
+.dispatch-rule-toolbar {
+  margin-bottom: 12px;
+}
+
+.dispatch-rule-index {
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #cddbd6;
+  border-radius: 6px;
+  color: #12685f;
+  background: #edf7f5;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dispatch-rule-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 12px;
+}
+
+.dispatch-rule-grid .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.dispatch-rule-field-wide {
+  grid-column: 1 / -1;
+}
+
+.dispatch-label-input {
+  min-height: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #ffffff;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.dispatch-label-input:focus-within {
+  border-color: #16776b;
+  box-shadow: 0 0 0 2px rgba(22, 119, 107, 0.1);
+}
+
+.dispatch-label-input .ant-tag {
+  margin-inline-end: 0;
+}
+
+.dispatch-label-input .ant-input {
+  width: 160px;
+  min-width: 120px;
+  flex: 1 0 120px;
+  padding: 2px 0;
+  box-shadow: none !important;
+}
+
 @media (max-width: 860px) {
   .login-panel {
     grid-template-columns: 1fr;
@@ -723,6 +921,10 @@ textarea {
 
   .metrics-section__header .ant-segmented {
     margin-top: 8px;
+  }
+
+  .dispatch-rule-grid {
+    grid-template-columns: 1fr;
   }
 }
 

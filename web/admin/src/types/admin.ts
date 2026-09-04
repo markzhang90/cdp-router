@@ -39,6 +39,10 @@ export interface TaskSummary {
   updatedAt: string;
   executionDurationSeconds: number;
   executionDurationText: string;
+  submitFailed: boolean;
+  dispatchLabels: string[];
+  reassignedFromTaskId: number | string;
+  reassignedToTaskId: number | string;
 }
 
 export interface TaskListData {
@@ -49,6 +53,7 @@ export interface TaskListData {
 }
 
 export interface TaskListQuery {
+  taskName?: string;
   batchNo?: string;
   source?: string;
   platformCode?: string;
@@ -121,13 +126,23 @@ export interface TaskDetailData {
   itemPage: number;
   itemPageSize: number;
   files: ResultFile[];
+  fileTotal: number;
+  filePage: number;
+  filePageSize: number;
   events: TaskEvent[];
+  eventTotal: number;
+  eventPage: number;
+  eventPageSize: number;
   callbacks: TaskCallback[];
 }
 
 export interface TaskDetailQuery {
   itemPage?: number;
   itemPageSize?: number;
+  filePage?: number;
+  filePageSize?: number;
+  eventPage?: number;
+  eventPageSize?: number;
 }
 
 export interface ExportTaskItemsData {
@@ -161,9 +176,27 @@ export interface RetryCallbackData {
   taskItemCount: number;
 }
 
+export interface ReassignTaskPayload {
+  batchNo: string;
+  providerCode: string;
+  reason?: string;
+}
+
+export interface ReassignTaskData {
+  sourceTaskId: number;
+  targetTaskId: number;
+  originalBatchNo: string;
+  targetBatchNo: string;
+  providerCode: string;
+  taskStatus: string;
+  acceptedCount: number;
+}
+
 export interface Provider {
   providerCode: string;
   displayName: string;
+  companyName: string;
+  settlementStartAt: string;
   enabled: boolean;
   resultMode: string;
   timeoutSeconds: number;
@@ -173,6 +206,10 @@ export interface Provider {
   submitUrlConfigured: boolean;
   statusUrlConfigured: boolean;
   filesUrlConfigured: boolean;
+  dailyQuestionQuota: number;
+  dailyQuestionUsed: number;
+  dailyQuestionRemaining: number;
+  dailyQuestionUnlimited: boolean;
 }
 
 export interface ProviderListData {
@@ -232,6 +269,18 @@ export interface DispatchProfile {
   cursor: number;
   lastProviderCode: string;
   providerCodes: string[];
+  fallbackSelectionPolicy?: string;
+  rules: DispatchRule[];
+}
+
+export interface DispatchRule {
+  code: string;
+  name: string;
+  sortOrder: number;
+  taskNameRegex: string;
+  labels: string[];
+  providerCodes: string[];
+  enabled: boolean;
 }
 
 export interface PlatformUserListData {
@@ -249,6 +298,11 @@ export interface PlatformUserListQuery {
 }
 
 export interface PlatformUserMetricsQuery {
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+export interface PlatformUserReconciliationExportQuery {
   createdFrom?: string;
   createdTo?: string;
 }
@@ -336,4 +390,16 @@ export interface DispatchProfilePayload {
   strategy: string;
   enabled: boolean;
   providerCodes: string[];
+  fallbackSelectionPolicy?: string;
+  rules?: DispatchRulePayload[];
+}
+
+export interface DispatchRulePayload {
+  code: string;
+  name?: string;
+  sortOrder?: number;
+  taskNameRegex: string;
+  labels?: string[];
+  providerCodes: string[];
+  enabled: boolean;
 }

@@ -12,8 +12,8 @@ import { ArrowLeft, BarChart3, RefreshCw, Search, Server, Table2 } from "lucide-
 import { useNavigate, useParams } from "react-router-dom";
 import { getProviderMetrics } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import type { ProviderDailyMetric, ProviderMetricsData } from "../types/admin";
-import { compactText, percent } from "../utils/format";
+import type { Provider, ProviderDailyMetric, ProviderMetricsData } from "../types/admin";
+import { compactText, formatRateFromCounts, precisePercent, rateFromCounts } from "../utils/format";
 
 const { RangePicker } = DatePicker;
 
@@ -29,15 +29,55 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat("zh-CN").format(value || 0);
 }
 
-function formatRate(value: number): string {
-  return `${percent(value)}%`;
-}
-
 function ProviderMetricTile({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "danger" }) {
   return (
     <div className={`metric-tile metric-tile--${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function providerQuotaPercent(provider: Provider): number {
+  if (provider.dailyQuestionUnlimited || provider.dailyQuestionQuota <= 0) return 100;
+  return Math.round((Math.max(0, provider.dailyQuestionRemaining) / provider.dailyQuestionQuota) * 100);
+}
+
+function providerQuotaProgressColor(percent: number): string {
+  if (percent <= 20) return "#d14343";
+  if (percent <= 50) return "#c98912";
+  return "#16776b";
+}
+
+function ProviderQuotaSummary({ provider }: { provider?: Provider }) {
+  if (!provider) return <>-</>;
+  if (provider.dailyQuestionUnlimited || provider.dailyQuestionQuota <= 0) {
+    return (
+      <div className="provider-quota-cell provider-quota-cell--detail">
+        <div className="provider-quota-cell__meta">
+          <strong>无上限</strong>
+          <span>今日已用 {formatNumber(provider.dailyQuestionUsed)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const percent = providerQuotaPercent(provider);
+  return (
+    <div className="provider-quota-cell provider-quota-cell--detail">
+      <Progress
+        percent={percent}
+        showInfo={false}
+        size="small"
+        strokeColor={providerQuotaProgressColor(percent)}
+        trailColor="#edf2ef"
+      />
+      <div className="provider-quota-cell__meta">
+        <strong>剩 {formatNumber(provider.dailyQuestionRemaining)}</strong>
+        <span>
+          已用 {formatNumber(provider.dailyQuestionUsed)} / {formatNumber(provider.dailyQuestionQuota)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -199,7 +239,7 @@ export function ProviderDetailPage() {
       { title: "失败/未回答数量", dataIndex: "failedAnswerCount", width: 150, render: formatNumber },
       {
         title: "成功率",
-        render: (_, row) => <Progress percent={row.questionCount > 0 ? Math.round((row.successAnswerCount / row.questionCount) * 100) : 0} size="small" />
+        render: (_, row) => <Progress percent={precisePercent(rateFromCounts(row.successAnswerCount, row.questionCount))} size="small" />
       }
     ],
     []
@@ -238,11 +278,23 @@ export function ProviderDetailPage() {
       <div className="detail-summary">
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 4 }} size="small">
           <Descriptions.Item label="供应商编码">{provider?.providerCode ?? "-"}</Descriptions.Item>
+          <Descriptions.Item label="公司名称">{compactText(provider?.companyName ?? "")}</Descriptions.Item>
+          <Descriptions.Item label="开始结算时间">{compactText(provider?.settlementStartAt ?? "")}</Descriptions.Item>
           <Descriptions.Item label="状态">{provider?.enabled ? <Tag color="success">启用</Tag> : <Tag>停用</Tag>}</Descriptions.Item>
           <Descriptions.Item label="结果模式">{provider?.resultMode ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="超时">{provider ? `${provider.timeoutSeconds}s` : "-"}</Descriptions.Item>
           <Descriptions.Item label="QPS">{provider?.qpsLimit ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="并发">{provider?.concurrencyLimit ?? "-"}</Descriptions.Item>
+          <Descriptions.Item label="任务额度">
+            {provider
+              ? provider.dailyQuestionUnlimited || provider.dailyQuestionQuota <= 0
+                ? "无上限"
+                : `${formatNumber(provider.dailyQuestionQuota)}/日`
+              : "-"}
+          </Descriptions.Item>
+          <Descriptions.Item label="今日剩余额度">
+            <ProviderQuotaSummary provider={provider} />
+          </Descriptions.Item>
           <Descriptions.Item label="OSS 前缀" span={2}>
             <Typography.Text copyable={Boolean(provider?.bucketPathPrefix)} className="mono-text">
               {compactText(provider?.bucketPathPrefix ?? "")}
@@ -278,7 +330,11 @@ export function ProviderDetailPage() {
           <ProviderMetricTile label="问答数" value={formatNumber(summary?.questionCount ?? 0)} />
           <ProviderMetricTile label="成功问答数量" value={formatNumber(summary?.successAnswerCount ?? 0)} tone="success" />
           <ProviderMetricTile label="失败/未回答数量" value={formatNumber(summary?.failedAnswerCount ?? 0)} tone="danger" />
-          <ProviderMetricTile label="问答成功率" value={formatRate(summary?.answerSuccessRate ?? 0)} tone="success" />
+          <ProviderMetricTile
+            label="问答成功率"
+            value={formatRateFromCounts(summary?.successAnswerCount ?? 0, summary?.questionCount ?? 0)}
+            tone="success"
+          />
         </div>
       </div>
 

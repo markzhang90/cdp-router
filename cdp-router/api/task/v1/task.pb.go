@@ -114,6 +114,7 @@ type CreateTaskRequest struct {
 	CallbackUrl   string                 `protobuf:"bytes,4,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
 	Items         []*TaskItem            `protobuf:"bytes,5,rep,name=items,proto3" json:"items,omitempty"`
 	Source        string                 `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
+	TaskName      string                 `protobuf:"bytes,7,opt,name=task_name,json=taskName,proto3" json:"task_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -186,6 +187,13 @@ func (x *CreateTaskRequest) GetItems() []*TaskItem {
 func (x *CreateTaskRequest) GetSource() string {
 	if x != nil {
 		return x.Source
+	}
+	return ""
+}
+
+func (x *CreateTaskRequest) GetTaskName() string {
+	if x != nil {
+		return x.TaskName
 	}
 	return ""
 }
@@ -422,6 +430,7 @@ type TaskData struct {
 	Source                  string                 `protobuf:"bytes,12,opt,name=source,proto3" json:"source,omitempty"`
 	ProviderExternalBatchId string                 `protobuf:"bytes,13,opt,name=provider_external_batch_id,json=providerExternalBatchId,proto3" json:"provider_external_batch_id,omitempty"`
 	ResultUrl               string                 `protobuf:"bytes,14,opt,name=result_url,json=resultUrl,proto3" json:"result_url,omitempty"`
+	TaskName                string                 `protobuf:"bytes,15,opt,name=task_name,json=taskName,proto3" json:"task_name,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -550,6 +559,13 @@ func (x *TaskData) GetProviderExternalBatchId() string {
 func (x *TaskData) GetResultUrl() string {
 	if x != nil {
 		return x.ResultUrl
+	}
+	return ""
+}
+
+func (x *TaskData) GetTaskName() string {
+	if x != nil {
+		return x.TaskName
 	}
 	return ""
 }
@@ -2150,14 +2166,15 @@ const file_api_task_v1_task_proto_rawDesc = "" +
 	"\bquestion\x18\x04 \x01(\tR\bquestion\x12\x1c\n" +
 	"\tdeepthink\x18\x05 \x01(\bR\tdeepthink\x12\x1d\n" +
 	"\n" +
-	"web_search\x18\x06 \x01(\bR\twebSearch\"\xd6\x01\n" +
+	"web_search\x18\x06 \x01(\bR\twebSearch\"\xf3\x01\n" +
 	"\x11CreateTaskRequest\x12\x19\n" +
 	"\bbatch_no\x18\x01 \x01(\tR\abatchNo\x12#\n" +
 	"\rprovider_code\x18\x02 \x01(\tR\fproviderCode\x12\x19\n" +
 	"\bbiz_date\x18\x03 \x01(\tR\abizDate\x12!\n" +
 	"\fcallback_url\x18\x04 \x01(\tR\vcallbackUrl\x12+\n" +
 	"\x05items\x18\x05 \x03(\v2\x15.api.task.v1.TaskItemR\x05items\x12\x16\n" +
-	"\x06source\x18\x06 \x01(\tR\x06source\"s\n" +
+	"\x06source\x18\x06 \x01(\tR\x06source\x12\x1b\n" +
+	"\ttask_name\x18\a \x01(\tR\btaskName\"s\n" +
 	"\x12CreateTaskResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12/\n" +
@@ -2170,7 +2187,7 @@ const file_api_task_v1_task_proto_rawDesc = "" +
 	"\x0fGetTaskResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12)\n" +
-	"\x04data\x18\x03 \x01(\v2\x15.api.task.v1.TaskDataR\x04data\"\xf9\x03\n" +
+	"\x04data\x18\x03 \x01(\v2\x15.api.task.v1.TaskDataR\x04data\"\x96\x04\n" +
 	"\bTaskData\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x19\n" +
 	"\bbatch_no\x18\x02 \x01(\tR\abatchNo\x12#\n" +
@@ -2189,7 +2206,8 @@ const file_api_task_v1_task_proto_rawDesc = "" +
 	"\x06source\x18\f \x01(\tR\x06source\x12;\n" +
 	"\x1aprovider_external_batch_id\x18\r \x01(\tR\x17providerExternalBatchId\x12\x1d\n" +
 	"\n" +
-	"result_url\x18\x0e \x01(\tR\tresultUrl\"D\n" +
+	"result_url\x18\x0e \x01(\tR\tresultUrl\x12\x1b\n" +
+	"\ttask_name\x18\x0f \x01(\tR\btaskName\"D\n" +
 	"\x16GetExternalTaskRequest\x12*\n" +
 	"\x11external_batch_id\x18\x01 \x01(\tR\x0fexternalBatchId\"J\n" +
 	"\x1cGetExternalTaskResultRequest\x12*\n" +

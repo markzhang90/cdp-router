@@ -71,7 +71,7 @@ func (u *TaskUsecase) CreateTask(ctx context.Context, input CreateTaskInput) (*T
 	if input.JobID == "" {
 		input.JobID = newJobID()
 	}
-	task, err := u.repo.CreateTask(ctx, input, u.providers.Codes(), u.publicBaseURL)
+	task, err := u.repo.CreateTask(ctx, input, u.providerDispatchSettings(ctx), u.publicBaseURL)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -87,6 +87,97 @@ func (u *TaskUsecase) CreateTask(ctx context.Context, input CreateTaskInput) (*T
 		return nil, 0, err
 	}
 	return updated, result.AcceptedCount, nil
+}
+
+func (u *TaskUsecase) ReassignTask(ctx context.Context, input ReassignTaskInput) (ReassignTaskOutcome, error) {
+	input.BatchNo = strings.TrimSpace(input.BatchNo)
+	input.ProviderCode = strings.TrimSpace(input.ProviderCode)
+	if input.BatchNo == "" || input.ProviderCode == "" {
+		return ReassignTaskOutcome{}, ErrInvalidTaskRequest
+	}
+	if _, ok := u.providers.Get(input.ProviderCode); !ok {
+		return ReassignTaskOutcome{}, ErrProviderNotFound
+	}
+	if !u.providerReassignEnabled(ctx, input.ProviderCode) {
+		return ReassignTaskOutcome{}, ErrProviderUnavailable
+	}
+	target, err := u.repo.CreateReassignedTask(ctx, ReassignTaskRecordInput{
+		SourceBatchNo:  input.BatchNo,
+		TargetBatchNo:  newReassignBatchNo(input.BatchNo),
+		TargetJobID:    newJobID(),
+		ProviderCode:   input.ProviderCode,
+		Reason:         input.Reason,
+		OperatorUserID: input.OperatorUserID,
+	}, u.publicBaseURL)
+	if err != nil {
+		return ReassignTaskOutcome{}, err
+	}
+	result, err := u.submitOneWithBatchNo(ctx, target, target.CallbackBatchNo)
+	if err != nil {
+		_ = u.repo.AddEvent(ctx, target.ReassignedFromTaskID, EventTaskReassignFailed, map[string]any{
+			"targetTaskId":       target.ID,
+			"targetBatchNo":      target.BatchNo,
+			"originalBatchNo":    target.CallbackBatchNo,
+			"targetProviderCode": target.ProviderCode,
+			"operatorUserId":     input.OperatorUserID,
+			"reason":             input.Reason,
+			"error":              err.Error(),
+		})
+		return ReassignTaskOutcome{Target: target}, err
+	}
+	payload := map[string]any{
+		"sourceTaskId":            target.ReassignedFromTaskID,
+		"targetTaskId":            target.ID,
+		"targetBatchNo":           target.BatchNo,
+		"originalBatchNo":         target.CallbackBatchNo,
+		"callbackExternalBatchId": target.CallbackExternalBatchID,
+		"targetProviderCode":      target.ProviderCode,
+		"providerExternalBatchId": result.ExternalBatchID,
+		"acceptedCount":           result.AcceptedCount,
+		"operatorUserId":          input.OperatorUserID,
+		"reason":                  input.Reason,
+	}
+	if err := u.repo.MarkTaskReassigned(ctx, target.ReassignedFromTaskID, target.ID, payload); err != nil {
+		return ReassignTaskOutcome{Target: target, AcceptedCount: result.AcceptedCount}, err
+	}
+	source, err := u.repo.GetTask(ctx, target.ReassignedFromTaskID)
+	if err != nil {
+		return ReassignTaskOutcome{Target: target, AcceptedCount: result.AcceptedCount}, nil
+	}
+	updatedTarget, err := u.repo.GetTask(ctx, target.ID)
+	if err != nil {
+		updatedTarget = target
+	}
+	return ReassignTaskOutcome{Source: source, Target: updatedTarget, AcceptedCount: result.AcceptedCount}, nil
+}
+
+func (u *TaskUsecase) providerReassignEnabled(ctx context.Context, providerCode string) bool {
+	if u.providerConfig == nil {
+		return true
+	}
+	settings, ok := u.providerConfig.GetSettings(ctx, providerCode)
+	if !ok {
+		return true
+	}
+	return settings.Enabled
+}
+
+func (u *TaskUsecase) providerDispatchSettings(ctx context.Context) []ProviderSettings {
+	codes := u.providers.Codes()
+	settings := make([]ProviderSettings, 0, len(codes))
+	for _, code := range codes {
+		item := ProviderSettings{ProviderCode: code, Enabled: true}
+		if u.providerConfig != nil {
+			if providerSettings, ok := u.providerConfig.GetSettings(ctx, code); ok {
+				item = providerSettings
+			}
+		}
+		if item.ProviderCode == "" {
+			item.ProviderCode = code
+		}
+		settings = append(settings, item)
+	}
+	return settings
 }
 
 func (u *TaskUsecase) GetTask(ctx context.Context, id int64) (*Task, error) {
@@ -113,14 +204,15 @@ func (u *TaskUsecase) IssueUploadURL(ctx context.Context, providerCode, batchNo,
 	if fileName == "" {
 		fileName = "result.xlsx"
 	}
-	task, err := u.repo.GetTaskByBatchNo(ctx, batchNo)
+	task, err := u.repo.ResolveProviderTask(ctx, providerCode, batchNo)
 	if err != nil {
 		return nil, err
 	}
 	if task.ProviderCode != providerCode {
 		return nil, ErrProviderNotFound
 	}
-	key := u.resultUploadObjectKey(ctx, providerCode, batchNo, fileName)
+	providerBatchNo := taskProviderBatchNo(task)
+	key := u.resultUploadObjectKey(ctx, providerCode, providerBatchNo, fileName)
 	uploadURL, expiresAt, err := u.store.SignedPutURL(ctx, key, u.ossExpire)
 	if err != nil {
 		return nil, err
@@ -135,7 +227,7 @@ func (u *TaskUsecase) IssueUploadURL(ctx context.Context, providerCode, batchNo,
 	slog.InfoContext(ctx, "task upload object key saved",
 		"trace_id", trace.RequestID(ctx),
 		"task_id", task.ID,
-		"batch_no", task.BatchNo,
+		"batch_no", providerBatchNo,
 		"provider_code", providerCode,
 		"object_key", key,
 		"file_name", fileName,
@@ -169,9 +261,90 @@ func (u *TaskUsecase) CreateTemporaryDownloadFile(ctx context.Context, fileName 
 }
 
 func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input ProviderCallbackInput) (*Task, error) {
-	receivedTask, lookupErr := u.repo.GetTaskByBatchNo(ctx, input.BatchNo)
+	receivedTask, lookupErr := u.repo.ResolveProviderTask(ctx, input.ProviderCode, input.BatchNo)
+	receivedStatus := TaskStatus("")
+	expectedCount := 0
+	importedPendingFiles := 0
 	if lookupErr == nil {
+		input.TaskID = receivedTask.ID
+		receivedStatus = receivedTask.Status
 		_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackRecv, providerCallbackEventPayload(input, nil))
+		count, err := u.taskItemCount(ctx, receivedTask.ID)
+		if err != nil {
+			return nil, err
+		}
+		expectedCount = count
+		successFiles, _, err := u.importCallbackPendingFiles(ctx, receivedTask)
+		if err != nil {
+			_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
+				"error": err.Error(),
+			}))
+			return nil, err
+		}
+		importedPendingFiles += successFiles
+		if successFiles > 0 {
+			if refreshedTask, err := u.repo.GetTask(ctx, receivedTask.ID); err == nil {
+				receivedTask = refreshedTask
+				receivedStatus = refreshedTask.Status
+			}
+		}
+	}
+	if lookupErr == nil && (receivedStatus == TaskStatusResultImported || receivedStatus == TaskStatusCallbackPending || receivedStatus == TaskStatusDone) {
+		task, err := u.repo.MarkProviderCallback(ctx, input)
+		if err != nil {
+			_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
+				"error": err.Error(),
+			}))
+			return nil, err
+		}
+		if importedPendingFiles > 0 {
+			if updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, true); err != nil {
+				_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
+					"error": err.Error(),
+				}))
+				return nil, err
+			} else {
+				task = updatedTask
+			}
+		}
+		_ = u.repo.AddEvent(ctx, task.ID, EventProviderCallback, providerCallbackEventPayload(input, map[string]any{
+			"skipped":              "task already imported, callback pending, or done",
+			"importedPendingFiles": importedPendingFiles,
+		}))
+		return task, nil
+	}
+	if !providerCallbackCountsComplete(input, expectedCount) {
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		task, err := u.repo.MarkProviderCallbackProgress(ctx, input)
+		if err != nil {
+			_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
+				"error": err.Error(),
+			}))
+			return nil, err
+		}
+		_ = u.repo.AddEvent(ctx, task.ID, EventProviderCallbackProg, providerCallbackEventPayload(input, map[string]any{
+			"expectedCount": expectedCount,
+			"doneCount":     callbackDoneCount(input),
+		}))
+		return task, nil
+	}
+	if lookupErr == nil {
+		if err := u.reconcileProviderCallbackFiles(ctx, receivedTask, input); err != nil {
+			_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
+				"error": err.Error(),
+			}))
+			return nil, err
+		}
+		successFiles, _, err := u.importCallbackPendingFiles(ctx, receivedTask)
+		if err != nil {
+			_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
+				"error": err.Error(),
+			}))
+			return nil, err
+		}
+		importedPendingFiles += successFiles
 	}
 	task, err := u.repo.MarkProviderCallback(ctx, input)
 	if err != nil {
@@ -182,14 +355,19 @@ func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input Provider
 		}
 		return nil, err
 	}
-	_ = u.repo.AddEvent(ctx, task.ID, EventProviderCallback, providerCallbackEventPayload(input, nil))
-	if lookupErr == nil && receivedTask.Status == TaskStatusResultImported {
-		updatedTask, _, completeErr := u.repo.CompleteResultImport(ctx, task.ID, true)
-		if completeErr != nil {
-			return nil, completeErr
+	if importedPendingFiles > 0 {
+		if updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, true); err != nil {
+			_ = u.repo.AddEvent(ctx, task.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
+				"error": err.Error(),
+			}))
+			return nil, err
+		} else {
+			task = updatedTask
 		}
-		task = updatedTask
 	}
+	_ = u.repo.AddEvent(ctx, task.ID, EventProviderCallback, providerCallbackEventPayload(input, map[string]any{
+		"importedPendingFiles": importedPendingFiles,
+	}))
 	slog.InfoContext(ctx, "task marked provider done",
 		"trace_id", trace.RequestID(ctx),
 		"task_id", task.ID,
@@ -202,6 +380,177 @@ func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input Provider
 		"failed_count", input.FailedCount,
 	)
 	return task, nil
+}
+
+func (u *TaskUsecase) importCallbackPendingFiles(ctx context.Context, task *Task) (int, int, error) {
+	pendingFiles, err := u.repo.ListPendingResultFiles(ctx, task.ID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(pendingFiles) == 0 {
+		return 0, 0, nil
+	}
+	_, successFiles, totalRows, err := u.importResultFileInputsOnly(ctx, task, pendingFiles, true, "PROVIDER_CALLBACK_PENDING_FILE")
+	return successFiles, totalRows, err
+}
+
+func (u *TaskUsecase) RecordProviderCallbackRejected(ctx context.Context, input ProviderCallbackInput, errMessage string, extra map[string]any) error {
+	task, err := u.repo.ResolveProviderTask(ctx, input.ProviderCode, input.BatchNo)
+	if err != nil {
+		return err
+	}
+	input.TaskID = task.ID
+	payloadExtra := map[string]any{
+		"error":    errMessage,
+		"rejected": true,
+	}
+	for key, value := range extra {
+		payloadExtra[key] = value
+	}
+	if err := u.repo.AddEvent(ctx, task.ID, EventProviderCallbackRecv, providerCallbackEventPayload(input, payloadExtra)); err != nil {
+		return err
+	}
+	return u.repo.AddEvent(ctx, task.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, payloadExtra))
+}
+
+func providerCallbackCountsComplete(input ProviderCallbackInput, expectedCount int) bool {
+	if expectedCount <= 0 {
+		return false
+	}
+	totalCount := input.TotalCount
+	if totalCount <= 0 {
+		totalCount = expectedCount
+	}
+	if totalCount != expectedCount {
+		return false
+	}
+	return callbackDoneCount(input) == expectedCount
+}
+
+func callbackDoneCount(input ProviderCallbackInput) int {
+	successCount := input.SuccessCount
+	if successCount < 0 {
+		successCount = 0
+	}
+	failedCount := input.FailedCount
+	if failedCount < 0 {
+		failedCount = 0
+	}
+	return successCount + failedCount
+}
+
+func (u *TaskUsecase) reconcileProviderCallbackFiles(ctx context.Context, task *Task, input ProviderCallbackInput) error {
+	provider, ok := u.providers.Get(task.ProviderCode)
+	if !ok {
+		return ErrProviderNotFound
+	}
+	completion, err := provider.CompletionFiles(ctx, task)
+	if err != nil {
+		return err
+	}
+	if !completion.Handled {
+		_ = u.repo.AddEvent(ctx, task.ID, EventProviderFilesFetched, map[string]any{
+			"triggerType":     "PROVIDER_CALLBACK_RECONCILE",
+			"externalBatchId": input.ExternalBatchID,
+			"fileCount":       0,
+			"handled":         false,
+		})
+		return nil
+	}
+	files, payload := u.pendingFilesFromProviderURLs(ctx, task, completion.Result.FileURLs)
+	payload["triggerType"] = "PROVIDER_CALLBACK_RECONCILE"
+	payload["externalBatchId"] = completion.Result.ExternalBatchID
+	payload["fileCount"] = len(completion.Result.FileURLs)
+	payload["handled"] = true
+	if err := u.repo.UpsertPendingResultFiles(ctx, task.ID, files); err != nil {
+		return err
+	}
+	_ = u.repo.AddEvent(ctx, task.ID, EventProviderFilesFetched, payload)
+	return nil
+}
+
+func (u *TaskUsecase) pendingFilesFromProviderURLs(ctx context.Context, task *Task, fileURLs []string) ([]ResultFileInput, map[string]any) {
+	localUploads, _ := u.repo.ListUploadedResultFiles(ctx, task.ID, true)
+	localKeys := map[string]struct{}{}
+	for _, file := range localUploads {
+		if file.ObjectKey != "" {
+			localKeys[file.ObjectKey] = struct{}{}
+		}
+	}
+	providerOwnKeys := map[string]struct{}{}
+	matchedKeys := 0
+	ossMissingKeys := []string{}
+	ossHeadErrors := []string{}
+	files := make([]ResultFileInput, 0, len(fileURLs))
+	seenObjectKeys := map[string]struct{}{}
+	seenFileURLs := map[string]struct{}{}
+	for _, fileURL := range fileURLs {
+		fileURL = strings.TrimSpace(fileURL)
+		if fileURL == "" {
+			continue
+		}
+		if objectKey, ok := u.ownOSSObjectKey(fileURL); ok {
+			if _, exists := seenObjectKeys[objectKey]; exists {
+				continue
+			}
+			seenObjectKeys[objectKey] = struct{}{}
+			providerOwnKeys[objectKey] = struct{}{}
+			if _, ok := localKeys[objectKey]; ok {
+				matchedKeys++
+			}
+			if exists, err := u.store.ObjectExists(ctx, objectKey); err != nil {
+				ossHeadErrors = append(ossHeadErrors, objectKey)
+			} else if !exists {
+				ossMissingKeys = append(ossMissingKeys, objectKey)
+			}
+			files = append(files, ResultFileInput{
+				SourceType:      "OSS",
+				ObjectKey:       objectKey,
+				FileName:        path.Base(objectKey),
+				ExternalBatchID: task.ProviderExternalBatchID,
+				ParseStatus:     "PENDING",
+			})
+			continue
+		}
+		if _, exists := seenFileURLs[fileURL]; exists {
+			continue
+		}
+		seenFileURLs[fileURL] = struct{}{}
+		files = append(files, ResultFileInput{
+			SourceType:      "PROVIDER_FILE",
+			FileURL:         fileURL,
+			FileName:        fileNameFromURL(fileURL),
+			ExternalBatchID: task.ProviderExternalBatchID,
+			ParseStatus:     "PENDING",
+		})
+	}
+	localMissingFromProvider := 0
+	for key := range localKeys {
+		if _, ok := providerOwnKeys[key]; !ok {
+			localMissingFromProvider++
+		}
+	}
+	payload := map[string]any{
+		"pendingFileCount":           len(files),
+		"ownOSSFileCount":            len(providerOwnKeys),
+		"externalFileCount":          len(seenFileURLs),
+		"localUploadCount":           len(localKeys),
+		"matchedLocalUploadCount":    matchedKeys,
+		"localMissingFromFilesURL":   localMissingFromProvider,
+		"ossMissingCount":            len(ossMissingKeys),
+		"ossHeadErrorCount":          len(ossHeadErrors),
+		"firstOSSMissingKey":         firstString(ossMissingKeys),
+		"firstOSSHeadErrorKey":       firstString(ossHeadErrors),
+		"filesURLPreferredForImport": true,
+	}
+	return files, payload
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func providerCallbackEventPayload(input ProviderCallbackInput, extra map[string]any) map[string]any {
@@ -267,6 +616,42 @@ func (u *TaskUsecase) ImportPendingResults(ctx context.Context, limit int) error
 			continue
 		}
 	}
+	return u.queueImportedCallbacks(ctx, limit)
+}
+
+func (u *TaskUsecase) queueImportedCallbacks(ctx context.Context, limit int) error {
+	tasks, err := u.repo.ListResultImportedTasksWithProviderCallback(ctx, limit)
+	if err != nil {
+		return err
+	}
+	if len(tasks) > 0 {
+		slog.InfoContext(ctx, "queue imported callbacks picked", "trace_id", trace.RequestID(ctx), "count", len(tasks), "limit", limit)
+	}
+	for _, task := range tasks {
+		updatedTask, ready, err := u.repo.CompleteResultImport(ctx, task.ID, true)
+		if err != nil {
+			slog.ErrorContext(ctx, "queue imported callback failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"error", err,
+			)
+			continue
+		}
+		if !ready {
+			slog.WarnContext(ctx, "imported task not ready for callback",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"status", updatedTask.Status,
+				"total_count", updatedTask.TotalCount,
+				"success_count", updatedTask.SuccessCount,
+				"failed_count", updatedTask.FailedCount,
+			)
+		}
+	}
 	return nil
 }
 
@@ -293,7 +678,7 @@ func (u *TaskUsecase) FailTimedOutSubmitted(ctx context.Context, maxAge time.Dur
 
 func (u *TaskUsecase) RefreshSubmittedProgress(ctx context.Context, interval time.Duration, limit int) (int, error) {
 	if interval <= 0 {
-		interval = 15 * time.Minute
+		interval = 10 * time.Minute
 	}
 	if limit <= 0 {
 		limit = 20
@@ -340,6 +725,85 @@ func (u *TaskUsecase) refreshSubmittedTaskProgress(ctx context.Context, task *Ta
 	return result, nil
 }
 
+func (u *TaskUsecase) importStoredResultFiles(ctx context.Context, task *Task, files []ResultFileInput, notifyCallback bool, triggerType string) (int, int, error) {
+	successFiles := 0
+	totalRows := 0
+	for _, file := range files {
+		if file.SourceType == "" {
+			file.SourceType = "OSS_UPLOAD"
+		}
+		if file.FileName == "" {
+			file.FileName = path.Base(file.ObjectKey)
+		}
+		startedAt := time.Now()
+		slog.InfoContext(ctx, "import uploaded result started",
+			"trace_id", trace.RequestID(ctx),
+			"task_id", task.ID,
+			"batch_no", task.BatchNo,
+			"provider_code", task.ProviderCode,
+			"trigger_type", triggerType,
+			"object_key", file.ObjectKey,
+			"file_name", file.FileName,
+		)
+		content, err := u.store.ReadObject(ctx, file.ObjectKey)
+		if err != nil {
+			errMessage := fmt.Sprintf("read oss object: %v", err)
+			_ = u.repo.MarkResultFileFailed(ctx, task.ID, file, errMessage)
+			slog.WarnContext(ctx, "import uploaded result read object failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"trigger_type", triggerType,
+				"object_key", file.ObjectKey,
+				"error", err,
+			)
+			continue
+		}
+		parsed, err := u.parser.Parse(ctx, file.FileName, content)
+		if err != nil {
+			errMessage := fmt.Sprintf("parse result: %v", err)
+			_ = u.repo.MarkResultFileFailed(ctx, task.ID, file, errMessage)
+			slog.WarnContext(ctx, "import uploaded result parse failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"batch_no", task.BatchNo,
+				"provider_code", task.ProviderCode,
+				"trigger_type", triggerType,
+				"file_name", file.FileName,
+				"content_bytes", len(content),
+				"error", err,
+			)
+			continue
+		}
+		file.Checksum = checksum(content)
+		file.ExternalBatchID = task.ProviderExternalBatchID
+		file.NotifyCallback = notifyCallback
+		if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
+			return successFiles, totalRows, err
+		}
+		successFiles++
+		totalRows += parsed.RowCount
+		_ = u.repo.AddEvent(ctx, task.ID, EventResultImported, map[string]any{
+			"objectKey": file.ObjectKey,
+			"rowCount":  parsed.RowCount,
+		})
+		slog.InfoContext(ctx, "import uploaded result completed",
+			"trace_id", trace.RequestID(ctx),
+			"task_id", task.ID,
+			"batch_no", task.BatchNo,
+			"provider_code", task.ProviderCode,
+			"trigger_type", triggerType,
+			"row_count", parsed.RowCount,
+			"valid_row_count", parsed.ValidRowCount,
+			"invalid_row_count", parsed.InvalidRowCount,
+			"content_bytes", len(content),
+			"latency_ms", time.Since(startedAt).Milliseconds(),
+		)
+	}
+	return successFiles, totalRows, nil
+}
+
 func (u *TaskUsecase) importUploadedFiles(ctx context.Context, task *Task, force bool, notifyCallback bool) (int, int, error) {
 	files, err := u.uploadedResultFiles(ctx, task, force)
 	if err != nil {
@@ -367,76 +831,9 @@ func (u *TaskUsecase) importUploadedFiles(ctx context.Context, task *Task, force
 		return 0, 0, nil
 	}
 
-	successFiles := 0
-	totalRows := 0
-	for _, file := range files {
-		if file.SourceType == "" {
-			file.SourceType = "OSS_UPLOAD"
-		}
-		if file.FileName == "" {
-			file.FileName = path.Base(file.ObjectKey)
-		}
-		startedAt := time.Now()
-		slog.InfoContext(ctx, "import uploaded result started",
-			"trace_id", trace.RequestID(ctx),
-			"task_id", task.ID,
-			"batch_no", task.BatchNo,
-			"provider_code", task.ProviderCode,
-			"object_key", file.ObjectKey,
-			"file_name", file.FileName,
-		)
-		content, err := u.store.ReadObject(ctx, file.ObjectKey)
-		if err != nil {
-			errMessage := fmt.Sprintf("read oss object: %v", err)
-			_ = u.repo.MarkResultFileFailed(ctx, task.ID, file, errMessage)
-			slog.WarnContext(ctx, "import uploaded result read object failed",
-				"trace_id", trace.RequestID(ctx),
-				"task_id", task.ID,
-				"batch_no", task.BatchNo,
-				"provider_code", task.ProviderCode,
-				"object_key", file.ObjectKey,
-				"error", err,
-			)
-			continue
-		}
-		parsed, err := u.parser.Parse(ctx, file.FileName, content)
-		if err != nil {
-			errMessage := fmt.Sprintf("parse result: %v", err)
-			_ = u.repo.MarkResultFileFailed(ctx, task.ID, file, errMessage)
-			slog.WarnContext(ctx, "import uploaded result parse failed",
-				"trace_id", trace.RequestID(ctx),
-				"task_id", task.ID,
-				"batch_no", task.BatchNo,
-				"provider_code", task.ProviderCode,
-				"file_name", file.FileName,
-				"content_bytes", len(content),
-				"error", err,
-			)
-			continue
-		}
-		file.Checksum = checksum(content)
-		file.ExternalBatchID = task.ProviderExternalBatchID
-		file.NotifyCallback = notifyCallback
-		if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
-			return len(files), totalRows, err
-		}
-		successFiles++
-		totalRows += parsed.RowCount
-		_ = u.repo.AddEvent(ctx, task.ID, EventResultImported, map[string]any{
-			"objectKey": file.ObjectKey,
-			"rowCount":  parsed.RowCount,
-		})
-		slog.InfoContext(ctx, "import uploaded result completed",
-			"trace_id", trace.RequestID(ctx),
-			"task_id", task.ID,
-			"batch_no", task.BatchNo,
-			"provider_code", task.ProviderCode,
-			"row_count", parsed.RowCount,
-			"valid_row_count", parsed.ValidRowCount,
-			"invalid_row_count", parsed.InvalidRowCount,
-			"content_bytes", len(content),
-			"latency_ms", time.Since(startedAt).Milliseconds(),
-		)
+	successFiles, totalRows, err := u.importStoredResultFiles(ctx, task, files, notifyCallback, "OSS_UPLOAD")
+	if err != nil {
+		return len(files), totalRows, err
 	}
 	if successFiles == 0 {
 		_ = u.repo.MarkSubmitFailed(ctx, task.ID, "all uploaded result files failed to import")
@@ -465,6 +862,13 @@ func (u *TaskUsecase) uploadedResultFiles(ctx context.Context, task *Task, force
 }
 
 func (u *TaskUsecase) importCompletionFiles(ctx context.Context, task *Task, force bool, notifyCallback bool) (int, int, error) {
+	pendingFiles, err := u.repo.ListPendingResultFiles(ctx, task.ID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(pendingFiles) > 0 {
+		return u.importResultFileInputs(ctx, task, pendingFiles, notifyCallback, "PENDING_RESULT_FILE")
+	}
 	provider, ok := u.providers.Get(task.ProviderCode)
 	if !ok {
 		return 0, 0, ErrProviderNotFound
@@ -491,6 +895,100 @@ func (u *TaskUsecase) importCompletionFiles(ctx context.Context, task *Task, for
 		)
 	}
 	return u.importUploadedFiles(ctx, task, force, notifyCallback)
+}
+
+func (u *TaskUsecase) importResultFileInputs(ctx context.Context, task *Task, files []ResultFileInput, notifyCallback bool, triggerType string) (int, int, error) {
+	fileCount, successFiles, totalRows, err := u.importResultFileInputsOnly(ctx, task, files, notifyCallback, triggerType)
+	if err != nil {
+		return fileCount, totalRows, err
+	}
+	if successFiles == 0 {
+		_ = u.repo.MarkSubmitFailed(ctx, task.ID, "all pending result files failed to import")
+		return fileCount, totalRows, nil
+	}
+	if _, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback); err != nil {
+		return fileCount, totalRows, err
+	}
+	return fileCount, totalRows, nil
+}
+
+func (u *TaskUsecase) importResultFileInputsOnly(ctx context.Context, task *Task, files []ResultFileInput, notifyCallback bool, triggerType string) (int, int, int, error) {
+	var storedFiles []ResultFileInput
+	var externalFiles []ResultFileInput
+	for _, file := range files {
+		if file.ObjectKey != "" {
+			storedFiles = append(storedFiles, file)
+			continue
+		}
+		if file.FileURL != "" {
+			externalFiles = append(externalFiles, file)
+		}
+	}
+	totalRows := 0
+	successFiles := 0
+	if len(storedFiles) > 0 {
+		importedFiles, importedRows, err := u.importStoredResultFiles(ctx, task, storedFiles, notifyCallback, triggerType)
+		if err != nil {
+			return len(files), successFiles, totalRows, err
+		}
+		successFiles += importedFiles
+		totalRows += importedRows
+	}
+	var provider ProviderClient
+	if len(externalFiles) > 0 {
+		var ok bool
+		provider, ok = u.providers.Get(task.ProviderCode)
+		if !ok {
+			return len(files), successFiles, totalRows, ErrProviderNotFound
+		}
+	}
+	for _, file := range externalFiles {
+		startedAt := time.Now()
+		content, err := provider.DownloadResultFile(ctx, file.FileURL)
+		if err != nil {
+			_ = u.repo.MarkResultFileFailed(ctx, task.ID, file, err.Error())
+			return len(files), successFiles, totalRows, err
+		}
+		if file.FileName == "" {
+			file.FileName = fileNameFromURL(file.FileURL)
+		}
+		if file.SourceType == "" {
+			file.SourceType = "PROVIDER_FILE"
+		}
+		file.Checksum = checksum(content)
+		file.ExternalBatchID = task.ProviderExternalBatchID
+		file.NotifyCallback = notifyCallback
+		parsed, err := u.parser.Parse(ctx, file.FileName, content)
+		if err != nil {
+			errMessage := fmt.Sprintf("parse result: %v", err)
+			_ = u.repo.MarkResultFileFailed(ctx, task.ID, file, errMessage)
+			return len(files), successFiles, totalRows, err
+		}
+		if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
+			return len(files), successFiles, totalRows, err
+		}
+		successFiles++
+		totalRows += parsed.RowCount
+		slog.InfoContext(ctx, "pending provider result file imported",
+			"trace_id", trace.RequestID(ctx),
+			"task_id", task.ID,
+			"batch_no", task.BatchNo,
+			"provider_code", task.ProviderCode,
+			"trigger_type", triggerType,
+			"file_name", file.FileName,
+			"row_count", parsed.RowCount,
+			"content_bytes", len(content),
+			"latency_ms", time.Since(startedAt).Milliseconds(),
+		)
+	}
+	if successFiles > 0 {
+		_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
+			"triggerType": triggerType,
+			"fileCount":   len(files),
+			"rowCount":    totalRows,
+		})
+	}
+	return len(files), successFiles, totalRows, nil
 }
 
 func (u *TaskUsecase) GetProviderStatus(ctx context.Context, id int64) (ProviderStatusResult, error) {
@@ -623,8 +1121,9 @@ func (u *TaskUsecase) markProviderDoneFromStatus(ctx context.Context, task *Task
 		return nil, err
 	}
 	input := ProviderCallbackInput{
+		TaskID:          task.ID,
 		ProviderCode:    task.ProviderCode,
-		BatchNo:         task.BatchNo,
+		BatchNo:         taskProviderBatchNo(task),
 		ExternalBatchID: status.ExternalBatchID,
 		Status:          "DONE",
 		TotalCount:      totalCount,
@@ -670,7 +1169,37 @@ func (u *TaskUsecase) importProviderFileResult(ctx context.Context, task *Task, 
 	if !ok {
 		return 0, 0, ErrProviderNotFound
 	}
-	if len(fileResult.FileURLs) > 0 {
+	storedFiles, externalURLs, missingObjectKeys, err := u.matchProviderOwnOSSFiles(ctx, task, fileResult.FileURLs, force)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(missingObjectKeys) > 0 {
+		_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
+			"triggerType":       triggerType,
+			"fileCount":         len(fileResult.FileURLs),
+			"missingFileCount":  len(missingObjectKeys),
+			"firstMissingKey":   missingObjectKeys[0],
+			"ownOSSURLDetected": true,
+			"force":             force,
+		})
+		return len(fileResult.FileURLs), 0, fmt.Errorf("provider result files missing from database: %d object keys, first=%s", len(missingObjectKeys), missingObjectKeys[0])
+	}
+	if len(fileResult.FileURLs) > 0 && len(storedFiles) == 0 && len(externalURLs) == 0 {
+		updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback)
+		if err != nil {
+			return len(fileResult.FileURLs), 0, err
+		}
+		_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
+			"triggerType":       triggerType,
+			"fileCount":         len(fileResult.FileURLs),
+			"rowCount":          updatedTask.ResultRowCount,
+			"force":             force,
+			"skipped":           true,
+			"ownOSSURLDetected": true,
+		})
+		return len(fileResult.FileURLs), updatedTask.ResultRowCount, nil
+	}
+	if len(fileResult.FileURLs) > 0 && len(externalURLs) == len(fileResult.FileURLs) {
 		localFileCount, err := u.repo.CountSuccessfulResultFiles(ctx, task.ID)
 		if err != nil {
 			return 0, 0, err
@@ -700,9 +1229,17 @@ func (u *TaskUsecase) importProviderFileResult(ctx context.Context, task *Task, 
 			return len(fileResult.FileURLs), updatedTask.ResultRowCount, nil
 		}
 	}
-
 	totalRows := 0
-	for _, fileURL := range fileResult.FileURLs {
+	successFiles := 0
+	if len(storedFiles) > 0 {
+		importedFiles, importedRows, err := u.importStoredResultFiles(ctx, task, storedFiles, notifyCallback, triggerType)
+		if err != nil {
+			return len(fileResult.FileURLs), totalRows, err
+		}
+		successFiles += importedFiles
+		totalRows += importedRows
+	}
+	for _, fileURL := range externalURLs {
 		startedAt := time.Now()
 		content, err := provider.DownloadResultFile(ctx, fileURL)
 		if err != nil {
@@ -717,12 +1254,6 @@ func (u *TaskUsecase) importProviderFileResult(ctx context.Context, task *Task, 
 			ExternalBatchID: task.ProviderExternalBatchID,
 			NotifyCallback:  notifyCallback,
 		}
-		if objectKey, ok := u.ownOSSObjectKey(fileURL); ok {
-			file.SourceType = "OSS"
-			file.ObjectKey = objectKey
-			file.FileURL = ""
-			file.FileName = path.Base(objectKey)
-		}
 		parsed, err := u.parser.Parse(ctx, fileName, content)
 		if err != nil {
 			return len(fileResult.FileURLs), totalRows, err
@@ -730,6 +1261,7 @@ func (u *TaskUsecase) importProviderFileResult(ctx context.Context, task *Task, 
 		if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
 			return len(fileResult.FileURLs), totalRows, err
 		}
+		successFiles++
 		totalRows += parsed.RowCount
 		slog.InfoContext(ctx, "provider result file imported",
 			"trace_id", trace.RequestID(ctx),
@@ -743,6 +1275,24 @@ func (u *TaskUsecase) importProviderFileResult(ctx context.Context, task *Task, 
 			"latency_ms", time.Since(startedAt).Milliseconds(),
 		)
 	}
+	if len(storedFiles) > 0 && successFiles == 0 && len(externalURLs) == 0 {
+		_ = u.repo.MarkSubmitFailed(ctx, task.ID, "all matched provider result files failed to import")
+		return len(fileResult.FileURLs), totalRows, nil
+	}
+	if len(fileResult.FileURLs) > 0 && successFiles == 0 && len(storedFiles) == 0 {
+		updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback)
+		if err != nil {
+			return len(fileResult.FileURLs), totalRows, err
+		}
+		_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
+			"triggerType": triggerType,
+			"fileCount":   len(fileResult.FileURLs),
+			"rowCount":    updatedTask.ResultRowCount,
+			"force":       force,
+			"skipped":     true,
+		})
+		return len(fileResult.FileURLs), updatedTask.ResultRowCount, nil
+	}
 	_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
 		"triggerType": triggerType,
 		"fileCount":   len(fileResult.FileURLs),
@@ -753,6 +1303,66 @@ func (u *TaskUsecase) importProviderFileResult(ctx context.Context, task *Task, 
 		return len(fileResult.FileURLs), totalRows, err
 	}
 	return len(fileResult.FileURLs), totalRows, nil
+}
+
+func (u *TaskUsecase) matchProviderOwnOSSFiles(ctx context.Context, task *Task, fileURLs []string, force bool) ([]ResultFileInput, []string, []string, error) {
+	var ownObjectKeys []string
+	var externalURLs []string
+	seenOwnKeys := map[string]struct{}{}
+	for _, fileURL := range fileURLs {
+		objectKey, ok := u.ownOSSObjectKey(fileURL)
+		if !ok {
+			externalURLs = append(externalURLs, fileURL)
+			continue
+		}
+		if _, exists := seenOwnKeys[objectKey]; exists {
+			continue
+		}
+		seenOwnKeys[objectKey] = struct{}{}
+		ownObjectKeys = append(ownObjectKeys, objectKey)
+	}
+	if len(ownObjectKeys) == 0 {
+		return nil, externalURLs, nil, nil
+	}
+
+	dbFiles, err := u.repo.ListUploadedResultFiles(ctx, task.ID, true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	matchedFiles, missingObjectKeys := matchStoredProviderFiles(task, ownObjectKeys, dbFiles, force)
+	return matchedFiles, externalURLs, missingObjectKeys, nil
+}
+
+func matchStoredProviderFiles(task *Task, ownObjectKeys []string, dbFiles []ResultFileInput, force bool) ([]ResultFileInput, []string) {
+	filesByKey := make(map[string]ResultFileInput, len(dbFiles))
+	for _, file := range dbFiles {
+		if file.ObjectKey == "" {
+			continue
+		}
+		filesByKey[file.ObjectKey] = file
+	}
+
+	var matchedFiles []ResultFileInput
+	var missingObjectKeys []string
+	for _, objectKey := range ownObjectKeys {
+		file, ok := filesByKey[objectKey]
+		if !ok {
+			missingObjectKeys = append(missingObjectKeys, objectKey)
+			continue
+		}
+		if !force && file.ParseStatus == "SUCCESS" {
+			continue
+		}
+		if file.SourceType == "" {
+			file.SourceType = "OSS_UPLOAD"
+		}
+		if file.FileName == "" {
+			file.FileName = path.Base(file.ObjectKey)
+		}
+		file.ExternalBatchID = task.ProviderExternalBatchID
+		matchedFiles = append(matchedFiles, file)
+	}
+	return matchedFiles, missingObjectKeys
 }
 
 func shouldReconcileProviderFilesOnCallback(providerCode string) bool {
@@ -921,13 +1531,14 @@ func (u *TaskUsecase) RetryTaskCallback(ctx context.Context, id int64, force boo
 
 func (u *TaskUsecase) deliverTaskCallback(ctx context.Context, task *Task, successOnly bool) (bool, error) {
 	startedAt := time.Now()
-	resultURL := u.resultURL(task.JobID)
+	callbackExternalBatchID := taskCallbackExternalBatchID(task)
+	resultURL := u.resultURL(callbackExternalBatchID)
 	if successOnly {
 		resultURL += "?successOnly=true"
 	}
 	payload := CallbackDelivery{
-		ExternalBatchID: task.JobID,
-		BatchNo:         task.BatchNo,
+		ExternalBatchID: callbackExternalBatchID,
+		BatchNo:         taskCallbackBatchNo(task),
 		Status:          TaskStatusDone,
 		ResultURL:       resultURL,
 		Counts: CallbackCounts{
@@ -1060,6 +1671,15 @@ func (u *TaskUsecase) callbackResultFiles(ctx context.Context, task *Task) []Cal
 }
 
 func (u *TaskUsecase) submitOne(ctx context.Context, task *Task) (SubmitResult, error) {
+	return u.submitOneWithBatchNo(ctx, task, "")
+}
+
+func (u *TaskUsecase) submitOneWithBatchNo(ctx context.Context, task *Task, batchNo string) (SubmitResult, error) {
+	preparedTask, err := u.repo.PrepareTaskForSubmit(ctx, task.ID, u.providerDispatchSettings(ctx), u.publicBaseURL)
+	if err != nil {
+		return SubmitResult{}, err
+	}
+	task = preparedTask
 	provider, ok := u.providers.Get(task.ProviderCode)
 	if !ok {
 		if err := u.repo.MarkSubmitFailed(ctx, task.ID, ErrProviderNotFound.Error()); err != nil {
@@ -1081,8 +1701,11 @@ func (u *TaskUsecase) submitOne(ctx context.Context, task *Task) (SubmitResult, 
 		}
 		return SubmitResult{}, ErrInvalidTaskRequest
 	}
+	if strings.TrimSpace(batchNo) == "" {
+		batchNo = taskProviderBatchNo(task)
+	}
 	payload := SubmitTaskPayload{
-		BatchNo:      task.BatchNo,
+		BatchNo:      batchNo,
 		ProviderCode: task.ProviderCode,
 		BizDate:      task.BizDate.Format("2006-01-02"),
 		CallbackURL:  task.ProviderCallbackURL,
@@ -1136,6 +1759,57 @@ func (u *TaskUsecase) submitOne(ctx context.Context, task *Task) (SubmitResult, 
 		return SubmitResult{}, err
 	}
 	return result, nil
+}
+
+func taskProviderBatchNo(task *Task) string {
+	if task != nil && task.ReassignedFromTaskID > 0 && strings.TrimSpace(task.CallbackBatchNo) != "" {
+		return task.CallbackBatchNo
+	}
+	if task == nil {
+		return ""
+	}
+	return task.BatchNo
+}
+
+func taskCallbackBatchNo(task *Task) string {
+	if task != nil && strings.TrimSpace(task.CallbackBatchNo) != "" {
+		return task.CallbackBatchNo
+	}
+	if task == nil {
+		return ""
+	}
+	return task.BatchNo
+}
+
+func taskCallbackExternalBatchID(task *Task) string {
+	if task != nil && strings.TrimSpace(task.CallbackExternalBatchID) != "" {
+		return task.CallbackExternalBatchID
+	}
+	if task == nil {
+		return ""
+	}
+	return task.JobID
+}
+
+func newReassignBatchNo(batchNo string) string {
+	suffix := shortRandomHex(4)
+	prefix := strings.TrimSpace(batchNo)
+	maxPrefixLen := 128 - len("-REASSIGN-") - len(suffix)
+	if maxPrefixLen < 1 {
+		maxPrefixLen = 1
+	}
+	if len(prefix) > maxPrefixLen {
+		prefix = prefix[:maxPrefixLen]
+	}
+	return prefix + "-REASSIGN-" + suffix
+}
+
+func shortRandomHex(size int) string {
+	random := make([]byte, size)
+	if _, err := rand.Read(random); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(random)
 }
 
 func (u *TaskUsecase) fetchProviderResultFiles(ctx context.Context, task *Task) (ProviderFilesResult, error) {

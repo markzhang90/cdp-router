@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Table, Tag, Tooltip, Typography, message } from "antd";
+import { Button, Progress, Table, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { BarChart3, CheckCircle2, RefreshCw, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -15,6 +15,53 @@ function ConfiguredTag({ configured }: { configured: boolean }) {
     </Tag>
   ) : (
     <Tag icon={<XCircle size={13} />}>未配置</Tag>
+  );
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("zh-CN").format(value || 0);
+}
+
+function quotaPercent(provider: Provider): number {
+  if (provider.dailyQuestionUnlimited || provider.dailyQuestionQuota <= 0) return 100;
+  return Math.round((Math.max(0, provider.dailyQuestionRemaining) / provider.dailyQuestionQuota) * 100);
+}
+
+function quotaProgressColor(percent: number): string {
+  if (percent <= 20) return "#d14343";
+  if (percent <= 50) return "#c98912";
+  return "#16776b";
+}
+
+function ProviderQuotaBar({ provider }: { provider: Provider }) {
+  if (provider.dailyQuestionUnlimited || provider.dailyQuestionQuota <= 0) {
+    return (
+      <div className="provider-quota-cell">
+        <div className="provider-quota-cell__meta">
+          <strong>无上限</strong>
+          <span>今日已用 {formatNumber(provider.dailyQuestionUsed)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const percent = quotaPercent(provider);
+  return (
+    <div className="provider-quota-cell">
+      <Progress
+        percent={percent}
+        showInfo={false}
+        size="small"
+        strokeColor={quotaProgressColor(percent)}
+        trailColor="#edf2ef"
+      />
+      <div className="provider-quota-cell__meta">
+        <strong>剩 {formatNumber(provider.dailyQuestionRemaining)}</strong>
+        <span>
+          已用 {formatNumber(provider.dailyQuestionUsed)} / {formatNumber(provider.dailyQuestionQuota)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -52,7 +99,9 @@ export function ProviderListPage() {
           </Button>
         )
       },
-      { title: "名称", dataIndex: "displayName", width: 180, render: (value: string) => compactText(value) },
+      { title: "名称", dataIndex: "displayName", width: 160, render: (value: string) => compactText(value) },
+      { title: "公司名称", dataIndex: "companyName", width: 200, render: (value: string) => compactText(value) },
+      { title: "开始结算时间", dataIndex: "settlementStartAt", width: 150, render: (value: string) => compactText(value) },
       {
         title: "状态",
         dataIndex: "enabled",
@@ -60,6 +109,12 @@ export function ProviderListPage() {
         render: (enabled: boolean) => (enabled ? <Tag color="success">启用</Tag> : <Tag>停用</Tag>)
       },
       { title: "结果模式", dataIndex: "resultMode", width: 160 },
+      {
+        title: "今日剩余额度",
+        dataIndex: "dailyQuestionRemaining",
+        width: 220,
+        render: (_, provider) => <ProviderQuotaBar provider={provider} />
+      },
       { title: "超时", dataIndex: "timeoutSeconds", width: 100, render: (value: number) => `${value}s` },
       { title: "QPS", dataIndex: "qpsLimit", width: 90 },
       { title: "并发", dataIndex: "concurrencyLimit", width: 90 },
@@ -108,7 +163,7 @@ export function ProviderListPage() {
         loading={loading}
         pagination={false}
         rowKey="providerCode"
-        scroll={{ x: 1560 }}
+        scroll={{ x: 2130 }}
       />
     </section>
   );

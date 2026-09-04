@@ -84,6 +84,7 @@ func (s *TaskService) CreateTask(c *gin.Context) {
 		PlatformUserID: platformUser.ID,
 		PlatformCode:   platformUser.PlatformCode,
 		BatchNo:        req.BatchNo,
+		TaskName:       strings.TrimSpace(req.TaskName),
 		Source:         source,
 		BizDate:        req.BizDate,
 		CallbackURL:    callbackURL,
@@ -135,9 +136,10 @@ func (s *TaskService) GetTask(c *gin.Context) {
 		Status: 0,
 		Data: &taskv1.TaskData{
 			TaskId:                  task.ID,
-			BatchNo:                 task.BatchNo,
+			TaskName:                task.TaskName,
+			BatchNo:                 clientBatchNo(task),
 			ProviderCode:            task.ProviderCode,
-			ExternalBatchId:         task.JobID,
+			ExternalBatchId:         clientExternalBatchID(task),
 			Status:                  string(task.Status),
 			TotalCount:              int32(task.TotalCount),
 			SuccessCount:            int32(task.SuccessCount),
@@ -147,7 +149,7 @@ func (s *TaskService) GetTask(c *gin.Context) {
 			ResultRowCount:          int32(task.ResultRowCount),
 			Source:                  task.Source,
 			ProviderExternalBatchId: task.ProviderExternalBatchID,
-			ResultUrl:               s.tasks.ResultURL(task.JobID),
+			ResultUrl:               s.tasks.ResultURL(clientExternalBatchID(task)),
 		},
 	})
 }
@@ -166,6 +168,7 @@ func (s *TaskService) GetExternalTask(c *gin.Context) {
 		Status: 0,
 		Data: &taskv1.TaskData{
 			TaskId:                  task.ID,
+			TaskName:                task.TaskName,
 			BatchNo:                 task.BatchNo,
 			ProviderCode:            task.ProviderCode,
 			ExternalBatchId:         task.JobID,
@@ -194,7 +197,7 @@ func (s *TaskService) GetExternalTaskResult(c *gin.Context) {
 		return
 	}
 	successOnly := strings.EqualFold(c.Query("successOnly"), "true") || c.Query("successOnly") == "1"
-	resultURL := s.tasks.ResultURL(task.JobID)
+	resultURL := s.tasks.ResultURL(clientExternalBatchID(task))
 	if successOnly {
 		resultURL += "?successOnly=true"
 	}
@@ -224,8 +227,8 @@ func (s *TaskService) GetExternalTaskResult(c *gin.Context) {
 	protoJSON(c, http.StatusOK, &taskv1.GetExternalTaskResultResponse{
 		Status: 0,
 		Data: &taskv1.ExternalTaskResultData{
-			ExternalBatchId: task.JobID,
-			BatchNo:         task.BatchNo,
+			ExternalBatchId: clientExternalBatchID(task),
+			BatchNo:         clientBatchNo(task),
 			TaskStatus:      string(task.Status),
 			ResultUrl:       resultURL,
 			TotalCount:      int32(task.TotalCount),
@@ -402,6 +405,26 @@ func providerFilesMessage(fileCount int) string {
 	return "查询成功"
 }
 
+func clientBatchNo(task *biz.Task) string {
+	if task != nil && strings.TrimSpace(task.CallbackBatchNo) != "" {
+		return task.CallbackBatchNo
+	}
+	if task == nil {
+		return ""
+	}
+	return task.BatchNo
+}
+
+func clientExternalBatchID(task *biz.Task) string {
+	if task != nil && strings.TrimSpace(task.CallbackExternalBatchID) != "" {
+		return task.CallbackExternalBatchID
+	}
+	if task == nil {
+		return ""
+	}
+	return task.JobID
+}
+
 func (s *TaskService) GetUploadURL(c *gin.Context) {
 	providerCode := c.Param("providerCode")
 	if !s.checkProviderToken(c, providerCode) {
@@ -412,9 +435,11 @@ func (s *TaskService) GetUploadURL(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
 	}
-	if req.ProviderCode == "" {
-		req.ProviderCode = providerCode
+	if req.ProviderCode != "" && req.ProviderCode != providerCode {
+		errorJSON(c, http.StatusBadRequest, biz.ErrProviderNotFound)
+		return
 	}
+	req.ProviderCode = providerCode
 	upload, err := s.tasks.IssueUploadURL(c.Request.Context(), req.ProviderCode, req.BatchNo, req.FileName)
 	if err != nil {
 		slog.WarnContext(c.Request.Context(), "issue upload url failed",
@@ -459,13 +484,36 @@ func (s *TaskService) ProviderCallback(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
 	}
-	if req.ProviderCode == "" {
-		req.ProviderCode = providerCode
-	}
 	var finishedAt time.Time
 	if req.FinishedAt != "" {
 		finishedAt, _ = time.Parse(time.RFC3339, req.FinishedAt)
 	}
+	if req.ProviderCode != "" && req.ProviderCode != providerCode {
+		if err := s.tasks.RecordProviderCallbackRejected(c.Request.Context(), biz.ProviderCallbackInput{
+			ProviderCode:    providerCode,
+			BatchNo:         req.BatchNo,
+			ExternalBatchID: req.ExternalBatchId,
+			Status:          req.Status,
+			TotalCount:      int(req.TotalCount),
+			SuccessCount:    int(req.SuccessCount),
+			FailedCount:     int(req.FailedCount),
+			FinishedAt:      finishedAt,
+			RawRequest:      raw,
+		}, biz.ErrProviderNotFound.Error(), map[string]any{
+			"bodyProviderCode": req.ProviderCode,
+		}); err != nil {
+			slog.WarnContext(c.Request.Context(), "record rejected provider callback failed",
+				"trace_id", trace.RequestID(c.Request.Context()),
+				"batch_no", req.BatchNo,
+				"provider_code", providerCode,
+				"body_provider_code", req.ProviderCode,
+				"error", err,
+			)
+		}
+		errorJSON(c, http.StatusBadRequest, biz.ErrProviderNotFound)
+		return
+	}
+	req.ProviderCode = providerCode
 	task, err := s.tasks.HandleProviderCallback(c.Request.Context(), biz.ProviderCallbackInput{
 		ProviderCode:    req.ProviderCode,
 		BatchNo:         req.BatchNo,
@@ -503,7 +551,7 @@ func (s *TaskService) ProviderCallback(c *gin.Context) {
 	protoJSON(c, http.StatusOK, &taskv1.ProviderCallbackResponse{
 		Status: 0,
 		Data: &taskv1.ProviderCallbackData{
-			BatchNo:  task.BatchNo,
+			BatchNo:  req.BatchNo,
 			Accepted: true,
 		},
 	})
@@ -590,6 +638,8 @@ func writeBizError(c *gin.Context, err error) {
 	case errors.Is(err, biz.ErrPlatformUserConflict):
 		errorJSON(c, http.StatusConflict, err)
 	case errors.Is(err, biz.ErrInvalidTaskRequest):
+		errorJSON(c, http.StatusBadRequest, err)
+	case errors.Is(err, biz.ErrTaskClosed):
 		errorJSON(c, http.StatusBadRequest, err)
 	default:
 		errorJSON(c, http.StatusInternalServerError, err)

@@ -15,14 +15,14 @@ type Router struct {
 	users         map[string]config.PlatformUserConfig
 }
 
-func NewClient(timeout time.Duration, users map[string]config.PlatformUserConfig, store biz.ObjectStore, ownOSSHosts ...string) *Router {
+func NewClient(timeout time.Duration, uploadTimeout time.Duration, users map[string]config.PlatformUserConfig, store biz.ObjectStore, ownOSSHosts ...string) *Router {
 	copied := make(map[string]config.PlatformUserConfig, len(users))
 	for code, user := range users {
 		copied[code] = user
 	}
 	return &Router{
 		defaultClient: NewHTTPClient(timeout),
-		yangshi:       NewYangshiClient(timeout, store, ownOSSHosts...),
+		yangshi:       NewYangshiClient(timeout, uploadTimeout, store, ownOSSHosts...),
 		users:         copied,
 	}
 }

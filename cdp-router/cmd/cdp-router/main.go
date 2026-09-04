@@ -98,7 +98,7 @@ func main() {
 	}
 	providers := provider.NewRegistry(cfg.Provider)
 	parser := cleaner.NewExcelParser()
-	callbackClient := callback.NewClient(cfg.Callback.Timeout, cfg.PlatformUsers, store, cfg.OSS.PublicHost, cfg.OSS.Host)
+	callbackClient := callback.NewClient(cfg.Callback.Timeout, cfg.Callback.UploadTimeout, cfg.PlatformUsers, store, cfg.OSS.PublicHost, cfg.OSS.Host)
 	usecase := biz.NewTaskUsecase(repo, providers, providers, store, parser, callbackClient, biz.TaskUsecaseOptions{
 		PublicBaseURL:           cfg.Server.PublicBaseURL,
 		OSSUploadDir:            cfg.OSS.UploadDir,

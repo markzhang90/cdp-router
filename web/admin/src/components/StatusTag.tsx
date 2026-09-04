@@ -24,7 +24,8 @@ const TASK_STATUS_META: Record<string, StatusMeta> = {
   CALLBACK_PENDING: { label: "待回调", tone: "callback" },
   DONE: { label: "已完成", tone: "done" },
   FAILED: { label: "失败", tone: "failed" },
-  CANCELED: { label: "已取消", tone: "neutral" }
+  CANCELED: { label: "已取消", tone: "neutral" },
+  REASSIGNED: { label: "已转派", tone: "neutral" }
 };
 
 const RESULT_STATUS_META: Record<string, StatusMeta> = {

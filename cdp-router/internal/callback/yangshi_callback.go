@@ -41,10 +41,10 @@ type yangshiUploadURL struct {
 	Headers   map[string]string `json:"headers"`
 }
 
-func NewYangshiClient(timeout time.Duration, _ biz.ObjectStore, _ ...string) *YangshiClient {
+func NewYangshiClient(timeout time.Duration, uploadTimeout time.Duration, _ biz.ObjectStore, _ ...string) *YangshiClient {
 	return &YangshiClient{
 		client:       httphelper.NewClient("yangshi_callback", timeout),
-		uploadClient: httphelper.NewClient("yangshi_callback_upload", 0),
+		uploadClient: httphelper.NewClient("yangshi_callback_upload", uploadTimeout),
 	}
 }
 
@@ -57,17 +57,17 @@ func (c *YangshiClient) Deliver(ctx context.Context, task *biz.Task, payload biz
 	if err != nil {
 		return biz.CallbackResult{}, err
 	}
-	fileName := task.BatchNo + "-result.xlsx"
-	upload, uploadBody, err := c.requestUploadURL(ctx, cfg, task.BatchNo, fileName)
+	fileName := payload.BatchNo + "-result.xlsx"
+	upload, uploadBody, err := c.requestUploadURL(ctx, cfg, payload.BatchNo, fileName)
 	if err != nil {
 		return biz.CallbackResult{ResponseBody: uploadBody}, err
 	}
-	if err := c.putFile(ctx, upload, content, task.BatchNo); err != nil {
+	if err := c.putFile(ctx, upload, content, payload.BatchNo); err != nil {
 		return biz.CallbackResult{ResponseBody: uploadBody, EventPayload: yangshiCallbackEventPayload(upload, fileName, len(payload.ResultItems))}, err
 	}
 	notifyPayload := map[string]any{
-		"batchNo":         task.BatchNo,
-		"externalBatchId": task.JobID,
+		"batchNo":         payload.BatchNo,
+		"externalBatchId": payload.ExternalBatchID,
 		"status":          string(biz.TaskStatusDone),
 		"totalCount":      task.TotalCount,
 		"successCount":    task.SuccessCount,
@@ -76,7 +76,7 @@ func (c *YangshiClient) Deliver(ctx context.Context, task *biz.Task, payload biz
 	}
 	requestPayload, _ := json.Marshal(map[string]any{
 		"uploadUrlRequest": map[string]any{
-			"batchNo":  task.BatchNo,
+			"batchNo":  payload.BatchNo,
 			"fileName": fileName,
 		},
 		"upload": map[string]any{
@@ -93,7 +93,7 @@ func (c *YangshiClient) Deliver(ctx context.Context, task *biz.Task, payload biz
 		},
 	})
 	notifyURL := yangshiNotifyURL(task.CallbackURL, cfg)
-	statusCode, responseBody, err := c.notifyDone(ctx, cfg, notifyURL, notifyPayload, task.BatchNo, task.JobID)
+	statusCode, responseBody, err := c.notifyDone(ctx, cfg, notifyURL, notifyPayload, payload.BatchNo, payload.ExternalBatchID)
 	resultBody, _ := json.Marshal(map[string]any{
 		"uploadUrlResponse": json.RawMessage(defaultJSONBytes([]byte(uploadBody))),
 		"callbackResponse":  json.RawMessage(defaultJSONBytes([]byte(responseBody))),

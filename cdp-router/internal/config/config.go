@@ -9,6 +9,12 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+const (
+	ProviderRequestTimeout = 20 * time.Second
+	CallbackAPITimeout     = 20 * time.Second
+	CallbackUploadTimeout  = 5 * time.Minute
+)
+
 type Config struct {
 	Server        ServerConfig
 	Postgres      PostgresConfig
@@ -93,19 +99,29 @@ type OSSConfig struct {
 }
 
 type ProviderConfig struct {
-	Code             string
-	DisplayName      string
-	BucketPathPrefix string
-	SubmitURL        string
-	StatusURL        string
-	FilesURL         string
-	Token            string
-	APIKey           string
-	ResultMode       string
-	Timeout          time.Duration
-	QPSLimit         int
-	ConcurrencyLimit int
-	Enabled          bool
+	Code               string
+	DisplayName        string
+	CompanyName        string
+	SettlementStartAt  string
+	BucketPathPrefix   string
+	SubmitURL          string
+	StatusURL          string
+	FilesURL           string
+	Token              string
+	APIKey             string
+	ResultMode         string
+	Timeout            time.Duration
+	QPSLimit           int
+	ConcurrencyLimit   int
+	DailyQuestionQuota int
+	Enabled            bool
+}
+
+func NormalizeProviderConfig(cfg ProviderConfig) ProviderConfig {
+	if cfg.Timeout <= 0 || cfg.Timeout > ProviderRequestTimeout {
+		cfg.Timeout = ProviderRequestTimeout
+	}
+	return cfg
 }
 
 type PlatformUserConfig struct {
@@ -120,8 +136,19 @@ type PlatformUserConfig struct {
 }
 
 type CallbackConfig struct {
-	Timeout  time.Duration
-	MaxRetry int
+	Timeout       time.Duration
+	UploadTimeout time.Duration
+	MaxRetry      int
+}
+
+func NormalizeCallbackConfig(cfg CallbackConfig) CallbackConfig {
+	if cfg.Timeout <= 0 || cfg.Timeout > CallbackAPITimeout {
+		cfg.Timeout = CallbackAPITimeout
+	}
+	if cfg.UploadTimeout <= 0 {
+		cfg.UploadTimeout = CallbackUploadTimeout
+	}
+	return cfg
 }
 
 type AdminConfig struct {
@@ -206,7 +233,7 @@ func Load(path string) (*Config, error) {
 		PublicHost:              oss.Key("public_host").String(),
 		Host:                    oss.Key("host").String(),
 		UploadDir:               oss.Key("upload_dir").MustString("cdp-router/"),
-		ExpireSeconds:           oss.Key("expire_seconds").MustInt(3600),
+		ExpireSeconds:           oss.Key("expire_seconds").MustInt(86400),
 		TempObjectRetentionDays: oss.Key("temporary_object_retention_days").MustInt(7),
 	}
 
@@ -217,22 +244,25 @@ func Load(path string) (*Config, error) {
 			continue
 		}
 		code := section.Key("code").MustString(name[len(prefix):])
-		timeoutSeconds := section.Key("timeout_seconds").MustInt(15)
-		cfg.Provider[code] = ProviderConfig{
-			Code:             code,
-			DisplayName:      section.Key("display_name").MustString(code),
-			BucketPathPrefix: section.Key("bucket_path_prefix").MustString("cdp-router/q2a/" + code),
-			SubmitURL:        section.Key("submit_url").String(),
-			StatusURL:        section.Key("status_url").String(),
-			FilesURL:         section.Key("files_url").String(),
-			Token:            section.Key("token").String(),
-			APIKey:           section.Key("api_key").String(),
-			ResultMode:       section.Key("result_mode").MustString("callback_upload"),
-			Timeout:          time.Duration(timeoutSeconds) * time.Second,
-			QPSLimit:         section.Key("qps_limit").MustInt(10),
-			ConcurrencyLimit: section.Key("concurrency_limit").MustInt(20),
-			Enabled:          section.Key("enabled").MustBool(true),
-		}
+		timeoutSeconds := section.Key("timeout_seconds").MustInt(int(ProviderRequestTimeout / time.Second))
+		cfg.Provider[code] = NormalizeProviderConfig(ProviderConfig{
+			Code:               code,
+			DisplayName:        section.Key("display_name").MustString(code),
+			CompanyName:        section.Key("company_name").String(),
+			SettlementStartAt:  section.Key("settlement_start_at").String(),
+			BucketPathPrefix:   section.Key("bucket_path_prefix").MustString("cdp-router/q2a/" + code),
+			SubmitURL:          section.Key("submit_url").String(),
+			StatusURL:          section.Key("status_url").String(),
+			FilesURL:           section.Key("files_url").String(),
+			Token:              section.Key("token").String(),
+			APIKey:             section.Key("api_key").String(),
+			ResultMode:         section.Key("result_mode").MustString("callback_upload"),
+			Timeout:            time.Duration(timeoutSeconds) * time.Second,
+			QPSLimit:           section.Key("qps_limit").MustInt(10),
+			ConcurrencyLimit:   section.Key("concurrency_limit").MustInt(20),
+			DailyQuestionQuota: section.Key("daily_question_quota").MustInt(0),
+			Enabled:            section.Key("enabled").MustBool(true),
+		})
 	}
 
 	for _, section := range f.Sections() {
@@ -255,10 +285,11 @@ func Load(path string) (*Config, error) {
 	}
 
 	callback := f.Section("callbacks.http")
-	cfg.Callback = CallbackConfig{
-		Timeout:  time.Duration(callback.Key("timeout_seconds").MustInt(15)) * time.Second,
-		MaxRetry: callback.Key("max_retry").MustInt(3),
-	}
+	cfg.Callback = NormalizeCallbackConfig(CallbackConfig{
+		Timeout:       time.Duration(callback.Key("timeout_seconds").MustInt(int(CallbackAPITimeout/time.Second))) * time.Second,
+		UploadTimeout: time.Duration(callback.Key("upload_timeout_seconds").MustInt(int(CallbackUploadTimeout/time.Second))) * time.Second,
+		MaxRetry:      callback.Key("max_retry").MustInt(3),
+	})
 
 	adminBootstrap := f.Section("admin.bootstrap")
 	adminSession := f.Section("admin.session")
@@ -387,6 +418,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Callback.MaxRetry <= 0 {
 		return fmt.Errorf("callbacks.http.max_retry must be positive")
+	}
+	if c.Callback.Timeout <= 0 || c.Callback.UploadTimeout <= 0 {
+		return fmt.Errorf("callbacks.http timeout_seconds and upload_timeout_seconds must be positive")
 	}
 	if c.Admin.Bootstrap.Username == "" {
 		return fmt.Errorf("admin.bootstrap.username is required")

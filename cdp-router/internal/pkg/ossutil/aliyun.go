@@ -115,6 +115,15 @@ func (s *Store) SignedGetURL(ctx context.Context, key string, expires time.Durat
 	return signedURL, time.Now().Add(expires), nil
 }
 
+func (s *Store) ObjectExists(ctx context.Context, key string) (bool, error) {
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+	return s.bucket.IsObjectExist(key)
+}
+
 func temporaryObjectTagging(retentionDays int) oss.Tagging {
 	return oss.Tagging{Tags: []oss.Tag{
 		{Key: "cdp-temp", Value: "true"},

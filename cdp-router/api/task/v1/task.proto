@@ -89,6 +89,7 @@ message CreateTaskRequest {
   string callback_url = 4 [json_name = "callbackUrl"];
   repeated TaskItem items = 5;
   string source = 6;
+  string task_name = 7 [json_name = "taskName"];
 }
 
 message CreateTaskResponse {
@@ -127,6 +128,7 @@ message TaskData {
   string source = 12;
   string provider_external_batch_id = 13 [json_name = "providerExternalBatchId"];
   string result_url = 14 [json_name = "resultUrl"];
+  string task_name = 15 [json_name = "taskName"];
 }
 
 message GetExternalTaskRequest {

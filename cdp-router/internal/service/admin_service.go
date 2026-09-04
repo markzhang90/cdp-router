@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -155,11 +156,21 @@ func (s *AdminService) GetTaskDetail(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
 	}
-	itemFilter := biz.AdminTaskItemFilter{
-		Page:     parsePositiveInt(c.Query("itemPage"), 1),
-		PageSize: parsePositiveInt(c.Query("itemPageSize"), 20),
+	filter := biz.AdminTaskDetailFilter{
+		Items: biz.AdminTaskItemFilter{
+			Page:     parsePositiveInt(c.Query("itemPage"), 1),
+			PageSize: parsePositiveInt(c.Query("itemPageSize"), 20),
+		},
+		Files: biz.AdminPaginationFilter{
+			Page:     parsePositiveInt(c.Query("filePage"), 1),
+			PageSize: parsePositiveInt(c.Query("filePageSize"), 20),
+		},
+		Events: biz.AdminPaginationFilter{
+			Page:     parsePositiveInt(c.Query("eventPage"), 1),
+			PageSize: parsePositiveInt(c.Query("eventPageSize"), 20),
+		},
 	}
-	detail, err := s.repo.GetTaskDetail(c.Request.Context(), id, itemFilter)
+	detail, err := s.repo.GetTaskDetail(c.Request.Context(), id, filter)
 	if err != nil {
 		writeBizError(c, err)
 		return
@@ -183,14 +194,20 @@ func (s *AdminService) GetTaskDetail(c *gin.Context) {
 	protoJSON(c, http.StatusOK, &adminv1.GetTaskDetailResponse{
 		Status: 0,
 		Data: &adminv1.TaskDetailData{
-			Task:         adminTaskSummaryProto(detail.Task),
-			Items:        items,
-			Files:        files,
-			Events:       events,
-			Callbacks:    callbacks,
-			ItemTotal:    int32(detail.ItemTotal),
-			ItemPage:     int32(detail.ItemPage),
-			ItemPageSize: int32(detail.ItemSize),
+			Task:          adminTaskSummaryProto(detail.Task),
+			Items:         items,
+			Files:         files,
+			Events:        events,
+			Callbacks:     callbacks,
+			ItemTotal:     int32(detail.ItemTotal),
+			ItemPage:      int32(detail.ItemPage),
+			ItemPageSize:  int32(detail.ItemSize),
+			FileTotal:     int32(detail.FileTotal),
+			FilePage:      int32(detail.FilePage),
+			FilePageSize:  int32(detail.FileSize),
+			EventTotal:    int32(detail.EventTotal),
+			EventPage:     int32(detail.EventPage),
+			EventPageSize: int32(detail.EventSize),
 		},
 	})
 }
@@ -371,8 +388,123 @@ func (s *AdminService) RetryTaskCallback(c *gin.Context) {
 	})
 }
 
+func (s *AdminService) ReassignTask(c *gin.Context) {
+	session, ok := adminSessionFromContext(c)
+	if !ok {
+		errorJSON(c, http.StatusUnauthorized, biz.ErrAdminUnauthorized)
+		return
+	}
+	var req adminv1.ReassignTaskRequest
+	raw, err := bindProto(c, &req)
+	if err != nil {
+		errorJSON(c, http.StatusBadRequest, err)
+		return
+	}
+	outcome, err := s.tasks.ReassignTask(c.Request.Context(), biz.ReassignTaskInput{
+		BatchNo:        req.BatchNo,
+		ProviderCode:   req.ProviderCode,
+		Reason:         req.Reason,
+		OperatorUserID: session.User.UserID,
+	})
+	if err != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"request": json.RawMessage(defaultJSON(raw)),
+			"error":   err.Error(),
+		})
+		_ = s.repo.AddAuditLog(c.Request.Context(), biz.AdminAuditLog{
+			UserID:       session.User.UserID,
+			Username:     session.User.Username,
+			Role:         session.User.Role,
+			Action:       "REASSIGN_TASK_FAILED",
+			ResourceType: "TASK",
+			ResourceID:   req.BatchNo,
+			RequestID:    trace.RequestID(c.Request.Context()),
+			Payload:      payload,
+		})
+		writeBizError(c, err)
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"request":          json.RawMessage(defaultJSON(raw)),
+		"sourceTaskId":     outcome.Source.ID,
+		"targetTaskId":     outcome.Target.ID,
+		"originalBatchNo":  outcome.Target.CallbackBatchNo,
+		"targetBatchNo":    outcome.Target.BatchNo,
+		"providerCode":     outcome.Target.ProviderCode,
+		"acceptedCount":    outcome.AcceptedCount,
+		"targetTaskStatus": outcome.Target.Status,
+	})
+	_ = s.repo.AddAuditLog(c.Request.Context(), biz.AdminAuditLog{
+		UserID:       session.User.UserID,
+		Username:     session.User.Username,
+		Role:         session.User.Role,
+		Action:       "REASSIGN_TASK",
+		ResourceType: "TASK",
+		ResourceID:   strconv.FormatInt(outcome.Source.ID, 10),
+		RequestID:    trace.RequestID(c.Request.Context()),
+		Payload:      payload,
+	})
+	protoJSON(c, http.StatusOK, &adminv1.ReassignTaskResponse{
+		Status:  0,
+		Message: "转派成功",
+		Data: &adminv1.ReassignTaskData{
+			SourceTaskId:    outcome.Source.ID,
+			TargetTaskId:    outcome.Target.ID,
+			OriginalBatchNo: outcome.Target.CallbackBatchNo,
+			TargetBatchNo:   outcome.Target.BatchNo,
+			ProviderCode:    outcome.Target.ProviderCode,
+			TaskStatus:      string(outcome.Target.Status),
+			AcceptedCount:   int32(outcome.AcceptedCount),
+		},
+	})
+}
+
+func (s *AdminService) DeleteTask(c *gin.Context) {
+	session, ok := adminSessionFromContext(c)
+	if !ok {
+		errorJSON(c, http.StatusUnauthorized, biz.ErrAdminUnauthorized)
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		errorJSON(c, http.StatusBadRequest, err)
+		return
+	}
+	deletedTask, err := s.repo.SoftDeleteSubmitFailedTask(c.Request.Context(), id, session.User.UserID)
+	if err != nil {
+		writeBizError(c, err)
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"taskId":        deletedTask.TaskID,
+		"batchNo":       deletedTask.BatchNo,
+		"status":        deletedTask.Status,
+		"providerCode":  deletedTask.ProviderCode,
+		"questionCount": deletedTask.QuestionCount,
+		"submitFailed":  deletedTask.SubmitFailed,
+	})
+	_ = s.repo.AddAuditLog(c.Request.Context(), biz.AdminAuditLog{
+		UserID:       session.User.UserID,
+		Username:     session.User.Username,
+		Role:         session.User.Role,
+		Action:       "SOFT_DELETE_SUBMIT_FAILED_TASK",
+		ResourceType: "TASK",
+		ResourceID:   strconv.FormatInt(id, 10),
+		RequestID:    trace.RequestID(c.Request.Context()),
+		Payload:      payload,
+	})
+	protoJSON(c, http.StatusOK, &adminv1.DeleteTaskResponse{
+		Status: 0,
+		Data:   &adminv1.EmptyData{Ok: true},
+	})
+}
+
 func (s *AdminService) ListProviders(c *gin.Context) {
-	providers := s.providerList(false)
+	providers, err := s.providerList(c.Request.Context(), false)
+	if err != nil {
+		errorJSON(c, http.StatusInternalServerError, err)
+		return
+	}
 	protoJSON(c, http.StatusOK, &adminv1.ListProvidersResponse{
 		Status: 0,
 		Data: &adminv1.ProviderListData{
@@ -382,32 +514,42 @@ func (s *AdminService) ListProviders(c *gin.Context) {
 }
 
 func (s *AdminService) GetDispatchOptions(c *gin.Context) {
+	providers, err := s.providerList(c.Request.Context(), true)
+	if err != nil {
+		errorJSON(c, http.StatusInternalServerError, err)
+		return
+	}
 	protoJSON(c, http.StatusOK, &adminv1.GetDispatchOptionsResponse{
 		Status: 0,
 		Data: &adminv1.DispatchOptionsData{
 			Strategies: []*adminv1.DispatchStrategyOption{
 				{Code: string(biz.DispatchStrategyRoundRobin), Name: "Round Robin"},
+				{Code: string(biz.DispatchStrategyRuleBased), Name: "规则分配"},
 			},
-			Providers: s.providerList(true),
+			Providers: providers,
 		},
 	})
 }
 
-func (s *AdminService) providerList(onlyDispatchAvailable bool) []*adminv1.Provider {
+func (s *AdminService) providerList(ctx context.Context, onlyDispatchAvailable bool) ([]*adminv1.Provider, error) {
 	providers := make([]*adminv1.Provider, 0, len(s.providers))
 	codes := make([]string, 0, len(s.providers))
 	for code := range s.providers {
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
+	usageByProvider, err := s.repo.ListProviderQuotaUsage(ctx, codes)
+	if err != nil {
+		return nil, err
+	}
 	for _, code := range codes {
 		provider := s.providers[code]
 		if onlyDispatchAvailable && !dispatchAvailableProvider(provider) {
 			continue
 		}
-		providers = append(providers, providerProto(provider))
+		providers = append(providers, providerProto(provider, usageByProvider[code]))
 	}
-	return providers
+	return providers, nil
 }
 
 func dispatchAvailableProvider(provider config.ProviderConfig) bool {
@@ -415,6 +557,24 @@ func dispatchAvailableProvider(provider config.ProviderConfig) bool {
 		strings.TrimSpace(provider.SubmitURL) != "" &&
 		provider.QPSLimit > 0 &&
 		provider.ConcurrencyLimit > 0
+}
+
+func (s *AdminService) providerCompanyName(providerCode string) string {
+	provider, ok := s.providers[providerCode]
+	if !ok {
+		return ""
+	}
+	return providerCompanyName(provider)
+}
+
+func providerCompanyName(provider config.ProviderConfig) string {
+	if name := strings.TrimSpace(provider.CompanyName); name != "" {
+		return name
+	}
+	if name := strings.TrimSpace(provider.DisplayName); name != "" {
+		return name
+	}
+	return provider.Code
 }
 
 func (s *AdminService) GetProviderMetrics(c *gin.Context) {
@@ -438,9 +598,14 @@ func (s *AdminService) GetProviderMetrics(c *gin.Context) {
 		errorJSON(c, http.StatusInternalServerError, err)
 		return
 	}
+	quotaUsage, err := s.repo.ListProviderQuotaUsage(c.Request.Context(), []string{providerCode})
+	if err != nil {
+		errorJSON(c, http.StatusInternalServerError, err)
+		return
+	}
 	protoJSON(c, http.StatusOK, &adminv1.GetProviderMetricsResponse{
 		Status: 0,
-		Data:   providerMetricsProto(providerConfig, metrics),
+		Data:   providerMetricsProto(providerConfig, quotaUsage[providerCode], metrics),
 	})
 }
 
@@ -502,6 +667,76 @@ func (s *AdminService) GetPlatformUserMetrics(c *gin.Context) {
 	protoJSON(c, http.StatusOK, &adminv1.GetPlatformUserMetricsResponse{
 		Status: 0,
 		Data:   platformUserMetricsProto(metrics),
+	})
+}
+
+func (s *AdminService) ExportPlatformUserReconciliation(c *gin.Context) {
+	session, ok := adminSessionFromContext(c)
+	if !ok {
+		errorJSON(c, http.StatusUnauthorized, biz.ErrAdminUnauthorized)
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		errorJSON(c, http.StatusBadRequest, err)
+		return
+	}
+	req := adminv1.ExportPlatformUserReconciliationRequest{Id: id}
+	raw, err := bindOptionalProto(c, &req)
+	if err != nil {
+		errorJSON(c, http.StatusBadRequest, err)
+		return
+	}
+	filter, err := parsePlatformUserReconciliationFilter(req.CreatedFrom, req.CreatedTo)
+	if err != nil {
+		errorJSON(c, http.StatusBadRequest, err)
+		return
+	}
+	export, err := s.repo.ExportPlatformUserReconciliation(c.Request.Context(), id, filter)
+	if err != nil {
+		writeBizError(c, err)
+		return
+	}
+	for i := range export.Rows {
+		export.Rows[i].ProviderCompanyName = s.providerCompanyName(export.Rows[i].ProviderCode)
+	}
+	workbook, err := buildPlatformUserReconciliationWorkbook(export)
+	if err != nil {
+		errorJSON(c, http.StatusInternalServerError, err)
+		return
+	}
+	filename := platformUserReconciliationFilename(export)
+	download, err := s.tasks.CreateTemporaryDownloadFile(c.Request.Context(), filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", workbook)
+	if err != nil {
+		errorJSON(c, http.StatusInternalServerError, err)
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"request":     json.RawMessage(defaultJSON(raw)),
+		"createdFrom": formatTime(filter.CreatedFrom),
+		"createdTo":   formatTime(filter.CreatedTo),
+		"objectKey":   download.Key,
+		"fileName":    filename,
+		"rowCount":    len(export.Rows),
+		"expiresAt":   formatTime(download.ExpiresAt),
+	})
+	_ = s.repo.AddAuditLog(c.Request.Context(), biz.AdminAuditLog{
+		UserID:       session.User.UserID,
+		Username:     session.User.Username,
+		Role:         session.User.Role,
+		Action:       "EXPORT_PLATFORM_USER_RECONCILIATION",
+		ResourceType: "PLATFORM_USER",
+		ResourceID:   strconv.FormatInt(id, 10),
+		RequestID:    trace.RequestID(c.Request.Context()),
+		Payload:      payload,
+	})
+	protoJSON(c, http.StatusOK, &adminv1.ExportPlatformUserReconciliationResponse{
+		Status: 0,
+		Data: &adminv1.ExportTaskItemsData{
+			DownloadUrl: download.DownloadURL,
+			ObjectKey:   download.Key,
+			ExpiresAt:   formatTime(download.ExpiresAt),
+		},
 	})
 }
 
@@ -724,6 +959,7 @@ func parseTaskFilter(c *gin.Context) (biz.AdminTaskFilter, error) {
 		return biz.AdminTaskFilter{}, err
 	}
 	return biz.AdminTaskFilter{
+		TaskName:     c.Query("taskName"),
 		BatchNo:      c.Query("batchNo"),
 		Source:       c.Query("source"),
 		PlatformCode: c.Query("platformCode"),
@@ -756,8 +992,7 @@ func parsePlatformUserMetricsFilter(c *gin.Context) (biz.AdminPlatformUserMetric
 		return biz.AdminPlatformUserMetricsFilter{}, err
 	}
 	if createdFrom.IsZero() && createdTo.IsZero() {
-		createdTo = time.Now().In(timezone.AdminLocation())
-		createdFrom = createdTo.Add(-24 * time.Hour)
+		createdFrom, createdTo = currentAdminMonthRange()
 	}
 	if !createdFrom.IsZero() && !createdTo.IsZero() && createdTo.Before(createdFrom) {
 		return biz.AdminPlatformUserMetricsFilter{}, fmt.Errorf("createdTo must be after createdFrom")
@@ -766,6 +1001,34 @@ func parsePlatformUserMetricsFilter(c *gin.Context) (biz.AdminPlatformUserMetric
 		CreatedFrom: createdFrom,
 		CreatedTo:   createdTo,
 	}, nil
+}
+
+func parsePlatformUserReconciliationFilter(createdFromValue, createdToValue string) (biz.AdminPlatformUserReconciliationFilter, error) {
+	createdFrom, err := parseOptionalTime(createdFromValue)
+	if err != nil {
+		return biz.AdminPlatformUserReconciliationFilter{}, err
+	}
+	createdTo, err := parseOptionalTime(createdToValue)
+	if err != nil {
+		return biz.AdminPlatformUserReconciliationFilter{}, err
+	}
+	if createdFrom.IsZero() && createdTo.IsZero() {
+		createdFrom, createdTo = currentAdminMonthRange()
+	}
+	if !createdFrom.IsZero() && !createdTo.IsZero() && createdTo.Before(createdFrom) {
+		return biz.AdminPlatformUserReconciliationFilter{}, fmt.Errorf("createdTo must be after createdFrom")
+	}
+	return biz.AdminPlatformUserReconciliationFilter{
+		CreatedFrom: createdFrom,
+		CreatedTo:   createdTo,
+	}, nil
+}
+
+func currentAdminMonthRange() (time.Time, time.Time) {
+	now := time.Now().In(timezone.AdminLocation())
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, timezone.AdminLocation())
+	end := start.AddDate(0, 1, 0).Add(-time.Second)
+	return start, end
 }
 
 func parseProviderMetricsFilter(c *gin.Context) (biz.AdminProviderMetricsFilter, error) {
@@ -821,11 +1084,13 @@ func (s *AdminService) platformUserInput(platformCode string, name string, statu
 	}
 	if dispatch != nil {
 		input.DispatchProfile = biz.DispatchProfileInput{
-			Code:          strings.TrimSpace(dispatch.Code),
-			Name:          strings.TrimSpace(dispatch.Name),
-			Strategy:      biz.DispatchStrategy(strings.TrimSpace(strings.ToUpper(dispatch.Strategy))),
-			Enabled:       dispatch.Enabled,
-			ProviderCodes: append([]string{}, dispatch.ProviderCodes...),
+			Code:                    strings.TrimSpace(dispatch.Code),
+			Name:                    strings.TrimSpace(dispatch.Name),
+			Strategy:                biz.DispatchStrategy(strings.TrimSpace(strings.ToUpper(dispatch.Strategy))),
+			Enabled:                 dispatch.Enabled,
+			ProviderCodes:           append([]string{}, dispatch.ProviderCodes...),
+			FallbackSelectionPolicy: biz.DispatchFallbackSelectionPolicy(strings.TrimSpace(strings.ToUpper(dispatch.FallbackSelectionPolicy))),
+			Rules:                   dispatchRuleInputs(dispatch.Rules),
 		}
 	}
 	if input.Status == "" {
@@ -837,6 +1102,10 @@ func (s *AdminService) platformUserInput(platformCode string, name string, statu
 	if input.DispatchProfile.Strategy == "" {
 		input.DispatchProfile.Strategy = biz.DispatchStrategyRoundRobin
 	}
+	if input.DispatchProfile.FallbackSelectionPolicy == "" {
+		input.DispatchProfile.FallbackSelectionPolicy = defaultFallbackSelectionPolicy(input.DispatchProfile.Strategy)
+	}
+	assignDispatchRuleCodes(&input.DispatchProfile)
 	if input.PlatformCode == "" || input.Name == "" {
 		return biz.AdminPlatformUserInput{}, fmt.Errorf("platformCode/name are required")
 	}
@@ -859,10 +1128,107 @@ func (s *AdminService) platformUserInput(platformCode string, name string, statu
 	default:
 		return biz.AdminPlatformUserInput{}, fmt.Errorf("callbackMode must be DEFAULT_HTTP or CUSTOM")
 	}
-	if input.DispatchProfile.Strategy != biz.DispatchStrategyRoundRobin {
-		return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.strategy must be ROUND_ROBIN")
+	switch input.DispatchProfile.Strategy {
+	case biz.DispatchStrategyRoundRobin, biz.DispatchStrategyRuleBased:
+	default:
+		return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.strategy must be ROUND_ROBIN or RULE_BASED")
+	}
+	if err := validateFallbackSelectionPolicy(input.DispatchProfile); err != nil {
+		return biz.AdminPlatformUserInput{}, err
+	}
+	if err := s.validateDispatchRules(input.DispatchProfile); err != nil {
+		return biz.AdminPlatformUserInput{}, err
 	}
 	return input, nil
+}
+
+func dispatchRuleInputs(rules []*adminv1.DispatchRuleInput) []biz.DispatchRuleInput {
+	out := make([]biz.DispatchRuleInput, 0, len(rules))
+	for _, rule := range rules {
+		if rule == nil {
+			continue
+		}
+		out = append(out, biz.DispatchRuleInput{
+			Code:          strings.TrimSpace(rule.Code),
+			Name:          strings.TrimSpace(rule.Name),
+			SortOrder:     int(rule.SortOrder),
+			TaskNameRegex: strings.TrimSpace(rule.TaskNameRegex),
+			Labels:        append([]string{}, rule.Labels...),
+			ProviderCodes: append([]string{}, rule.ProviderCodes...),
+			Enabled:       rule.Enabled,
+		})
+	}
+	return out
+}
+
+func (s *AdminService) validateDispatchRules(profile biz.DispatchProfileInput) error {
+	if profile.Strategy != biz.DispatchStrategyRuleBased {
+		return nil
+	}
+	seenCodes := map[string]bool{}
+	for _, rule := range profile.Rules {
+		if seenCodes[rule.Code] {
+			return fmt.Errorf("dispatchProfile.rules contains duplicate code %s", rule.Code)
+		}
+		seenCodes[rule.Code] = true
+		if strings.TrimSpace(rule.TaskNameRegex) == "" {
+			return fmt.Errorf("dispatchProfile.rules.%s.taskNameRegex is required", rule.Code)
+		}
+		if _, err := regexp.Compile(rule.TaskNameRegex); err != nil {
+			return fmt.Errorf("dispatchProfile.rules.%s.taskNameRegex is invalid: %w", rule.Code, err)
+		}
+		if len(rule.ProviderCodes) == 0 {
+			return fmt.Errorf("dispatchProfile.rules.%s.providerCodes are required", rule.Code)
+		}
+		for _, code := range rule.ProviderCodes {
+			code = strings.TrimSpace(code)
+			provider, ok := s.providers[code]
+			if !ok || !dispatchAvailableProvider(provider) {
+				return fmt.Errorf("dispatchProfile.rules.%s.providerCodes contains unavailable provider %s", rule.Code, code)
+			}
+		}
+	}
+	return nil
+}
+
+func validateFallbackSelectionPolicy(profile biz.DispatchProfileInput) error {
+	switch profile.FallbackSelectionPolicy {
+	case "", biz.DispatchFallbackSelectionPolicyRoundRobin, biz.DispatchFallbackSelectionPolicyLowestUsageRate:
+		return nil
+	default:
+		return fmt.Errorf("dispatchProfile.fallbackSelectionPolicy must be ROUND_ROBIN or LOWEST_USAGE_RATE")
+	}
+}
+
+func defaultFallbackSelectionPolicy(strategy biz.DispatchStrategy) biz.DispatchFallbackSelectionPolicy {
+	if strategy == biz.DispatchStrategyRoundRobin {
+		return biz.DispatchFallbackSelectionPolicyRoundRobin
+	}
+	return biz.DispatchFallbackSelectionPolicyLowestUsageRate
+}
+
+func assignDispatchRuleCodes(profile *biz.DispatchProfileInput) {
+	used := map[string]bool{}
+	for _, rule := range profile.Rules {
+		code := strings.TrimSpace(rule.Code)
+		if code != "" {
+			used[code] = true
+		}
+	}
+	for i := range profile.Rules {
+		if strings.TrimSpace(profile.Rules[i].Code) != "" {
+			profile.Rules[i].Code = strings.TrimSpace(profile.Rules[i].Code)
+			continue
+		}
+		for n := i + 1; ; n++ {
+			code := fmt.Sprintf("rule_%d", n)
+			if !used[code] {
+				profile.Rules[i].Code = code
+				used[code] = true
+				break
+			}
+		}
+	}
 }
 
 func parseOptionalTime(value string) (time.Time, error) {
@@ -919,6 +1285,10 @@ func adminTaskSummaryProto(task biz.AdminTaskSummary) *adminv1.AdminTaskSummary 
 		UpdatedAt:                formatTime(task.UpdatedAt),
 		ExecutionDurationSeconds: durationSeconds,
 		ExecutionDurationText:    durationText,
+		SubmitFailed:             task.SubmitFailed,
+		DispatchLabels:           append([]string{}, task.DispatchLabels...),
+		ReassignedFromTaskId:     task.ReassignedFromTaskID,
+		ReassignedToTaskId:       task.ReassignedToTaskID,
 	}
 }
 
@@ -1026,36 +1396,67 @@ func dispatchProfileProto(profile biz.DispatchProfile) *adminv1.DispatchProfile 
 		return nil
 	}
 	return &adminv1.DispatchProfile{
-		Id:               profile.ID,
-		Code:             profile.Code,
-		Name:             profile.Name,
-		Strategy:         string(profile.Strategy),
-		Enabled:          profile.Enabled,
-		Cursor:           profile.Cursor,
-		LastProviderCode: profile.LastProviderCode,
-		ProviderCodes:    append([]string{}, profile.ProviderCodes...),
+		Id:                      profile.ID,
+		Code:                    profile.Code,
+		Name:                    profile.Name,
+		Strategy:                string(profile.Strategy),
+		Enabled:                 profile.Enabled,
+		Cursor:                  profile.Cursor,
+		LastProviderCode:        profile.LastProviderCode,
+		ProviderCodes:           append([]string{}, profile.ProviderCodes...),
+		FallbackSelectionPolicy: string(profile.FallbackSelectionPolicy),
+		Rules:                   dispatchRulesProto(profile.Rules),
 	}
 }
 
-func providerProto(provider config.ProviderConfig) *adminv1.Provider {
+func dispatchRulesProto(rules []biz.DispatchRule) []*adminv1.DispatchRule {
+	out := make([]*adminv1.DispatchRule, 0, len(rules))
+	for _, rule := range rules {
+		out = append(out, &adminv1.DispatchRule{
+			Code:          rule.Code,
+			Name:          rule.Name,
+			SortOrder:     int32FromInt(rule.SortOrder),
+			TaskNameRegex: rule.TaskNameRegex,
+			Labels:        append([]string{}, rule.Labels...),
+			ProviderCodes: append([]string{}, rule.ProviderCodes...),
+			Enabled:       rule.Enabled,
+		})
+	}
+	return out
+}
+
+func providerProto(provider config.ProviderConfig, quotaUsage biz.AdminProviderQuotaUsage) *adminv1.Provider {
+	unlimited := provider.DailyQuestionQuota <= 0
+	remaining := provider.DailyQuestionQuota - quotaUsage.Used
+	if unlimited {
+		remaining = 0
+	} else if remaining < 0 {
+		remaining = 0
+	}
 	return &adminv1.Provider{
-		ProviderCode:        provider.Code,
-		DisplayName:         provider.DisplayName,
-		Enabled:             provider.Enabled,
-		ResultMode:          provider.ResultMode,
-		TimeoutSeconds:      int32FromInt(int(provider.Timeout.Seconds())),
-		QpsLimit:            int32FromInt(provider.QPSLimit),
-		ConcurrencyLimit:    int32FromInt(provider.ConcurrencyLimit),
-		BucketPathPrefix:    provider.BucketPathPrefix,
-		SubmitUrlConfigured: strings.TrimSpace(provider.SubmitURL) != "",
-		StatusUrlConfigured: strings.TrimSpace(provider.StatusURL) != "",
-		FilesUrlConfigured:  strings.TrimSpace(provider.FilesURL) != "",
+		ProviderCode:           provider.Code,
+		DisplayName:            provider.DisplayName,
+		Enabled:                provider.Enabled,
+		ResultMode:             provider.ResultMode,
+		TimeoutSeconds:         int32FromInt(int(provider.Timeout.Seconds())),
+		QpsLimit:               int32FromInt(provider.QPSLimit),
+		ConcurrencyLimit:       int32FromInt(provider.ConcurrencyLimit),
+		BucketPathPrefix:       provider.BucketPathPrefix,
+		SubmitUrlConfigured:    strings.TrimSpace(provider.SubmitURL) != "",
+		StatusUrlConfigured:    strings.TrimSpace(provider.StatusURL) != "",
+		FilesUrlConfigured:     strings.TrimSpace(provider.FilesURL) != "",
+		DailyQuestionQuota:     int32FromInt(provider.DailyQuestionQuota),
+		DailyQuestionUsed:      int32FromInt(quotaUsage.Used),
+		DailyQuestionRemaining: int32FromInt(remaining),
+		DailyQuestionUnlimited: unlimited,
+		CompanyName:            providerCompanyName(provider),
+		SettlementStartAt:      strings.TrimSpace(provider.SettlementStartAt),
 	}
 }
 
-func providerMetricsProto(provider config.ProviderConfig, metrics biz.AdminProviderMetrics) *adminv1.ProviderMetricsData {
+func providerMetricsProto(provider config.ProviderConfig, quotaUsage biz.AdminProviderQuotaUsage, metrics biz.AdminProviderMetrics) *adminv1.ProviderMetricsData {
 	return &adminv1.ProviderMetricsData{
-		Provider:    providerProto(provider),
+		Provider:    providerProto(provider, quotaUsage),
 		CreatedFrom: formatTime(metrics.CreatedFrom),
 		CreatedTo:   formatTime(metrics.CreatedTo),
 		Summary: &adminv1.ProviderMetricsSummary{
@@ -1214,6 +1615,78 @@ func buildTaskItemsWorkbook(export biz.AdminTaskItemsExport) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func buildPlatformUserReconciliationWorkbook(export biz.AdminPlatformUserReconciliationExport) ([]byte, error) {
+	const sheet = "对账单"
+	file := excelize.NewFile()
+	defer func() { _ = file.Close() }()
+	if err := file.SetSheetName("Sheet1", sheet); err != nil {
+		return nil, err
+	}
+	if err := writePlatformUserReconciliationSheet(file, sheet, export.Rows); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := file.Write(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func writePlatformUserReconciliationSheet(file *excelize.File, sheet string, rows []biz.AdminPlatformUserReconciliationRow) error {
+	headers := []any{"日期", "任务名称", "任务batchNo", "供应商code", "供应商公司名称", "问答数"}
+	if err := file.SetSheetRow(sheet, "A1", &headers); err != nil {
+		return err
+	}
+	for index, item := range rows {
+		row := []any{
+			item.MetricDate,
+			item.TaskName,
+			item.BatchNo,
+			item.ProviderCode,
+			item.ProviderCompanyName,
+			item.QuestionCount,
+		}
+		cell, err := excelize.CoordinatesToCellName(1, index+2)
+		if err != nil {
+			return err
+		}
+		if err := file.SetSheetRow(sheet, cell, &row); err != nil {
+			return err
+		}
+	}
+	widths := []float64{14, 36, 34, 18, 28, 12}
+	for i, width := range widths {
+		col, err := excelize.ColumnNumberToName(i + 1)
+		if err != nil {
+			return err
+		}
+		if err := file.SetColWidth(sheet, col, col, width); err != nil {
+			return err
+		}
+	}
+	headerStyle, err := file.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "1D2925"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"F4F8F6"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Vertical: "center"},
+	})
+	if err != nil {
+		return err
+	}
+	if err := file.SetCellStyle(sheet, "A1", "F1", headerStyle); err != nil {
+		return err
+	}
+	if err := file.SetPanes(sheet, &excelize.Panes{
+		Freeze:      true,
+		Split:       false,
+		YSplit:      1,
+		TopLeftCell: "A2",
+		ActivePane:  "bottomLeft",
+	}); err != nil {
+		return err
+	}
+	return file.AutoFilter(sheet, "A1:F1", nil)
+}
+
 func writeTaskItemsSheet(file *excelize.File, sheet string, items []biz.AdminTaskItem) error {
 	headers := []any{
 		"轮次",
@@ -1327,6 +1800,23 @@ func taskItemsExportFilename(task biz.AdminTaskSummary) string {
 	}
 	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
 	return replacer.Replace(name) + "-问答记录.xlsx"
+}
+
+func platformUserReconciliationFilename(export biz.AdminPlatformUserReconciliationExport) string {
+	name := strings.TrimSpace(export.User.PlatformCode)
+	if name == "" {
+		name = fmt.Sprintf("platform-user-%d", export.User.ID)
+	}
+	from := "start"
+	if !export.CreatedFrom.IsZero() {
+		from = timezone.InAdminLocation(export.CreatedFrom).Format("20060102")
+	}
+	to := "end"
+	if !export.CreatedTo.IsZero() {
+		to = timezone.InAdminLocation(export.CreatedTo).Format("20060102")
+	}
+	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
+	return fmt.Sprintf("%s-%s-%s-任务对账单.xlsx", replacer.Replace(name), from, to)
 }
 
 func (s *AdminService) adminResultFileProto(file biz.AdminResultFile) *adminv1.ResultFile {

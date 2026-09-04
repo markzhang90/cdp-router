@@ -300,7 +300,9 @@ openapi:
 - `batch_no`：业务批次号，作为任务幂等键和业务方查询/回调关联键。
 - `platform_user_id`、`platform_code`：接入方归属，来自 `platform_users`。
 - `dispatch_profile_id`、`dispatch_profile_code`、`dispatch_strategy`：创建任务时使用的调度审计信息；历史任务允许为空。
-- `status`：当前实现使用 `CREATED`、`SUBMITTED`、`PROVIDER_DONE`、`RESULT_IMPORTED`、`CALLBACK_PENDING`、`DONE`、`FAILED`。
+- `status`：当前实现使用 `CREATED`、`SUBMITTED`、`PROVIDER_DONE`、`RESULT_IMPORTED`、`CALLBACK_PENDING`、`DONE`、`FAILED`、`REASSIGNED`。`REASSIGNED` 只用于被转派的原任务，属于 closed 终态，不再进入后续状态流转。
+- `reassigned_from_task_id`：转派新任务关联的原任务 ID；普通任务为空。
+- `callback_batch_no`、`callback_external_batch_id`：转派新任务回调业务方时使用的原始批次号和原始 externalBatchId；普通任务为空并回退使用自身 `batch_no/job_id`。
 - `provider_request`、`provider_response`、`raw_request`：保留必要输入输出，方便审计和排障；供应商提交失败时当前只写事件和 `last_error`，成功提交后写入 provider 请求/响应。
 - `total_count`、`success_count`、`failed_count`、`last_error`。任务总量按系统实际生成并下发给供应商的任务明细统计，不直接从 `raw_request` 或接入方原始 `items[].seq` 推导。
 
@@ -355,6 +357,8 @@ openapi:
 
 - `provider_code`
 - `display_name`
+- `company_name`：供应商公司名称，用于后台展示和接入方任务对账单导出；未配置时回退使用 `display_name`。
+- `settlement_start_at`：供应商开始结算时间，配置为 `YYYY-MM-DD` 或 RFC3339 字符串，用于后台展示和运营对账识别。
 - `token`：用于 `X-Provider-Token` 校验，也是网关调用供应商接口时的优先鉴权头。
 - `api_key`：用于 `X-API-Key` 鉴权；当 `token` 为空且 `api_key` 非空时，网关调用供应商接口使用该字段。
 - `bucket_path_prefix`：该 provider 的 OSS object key 前缀。
@@ -445,6 +449,9 @@ create table cdp_tasks (
   source varchar(128),
   external_batch_id varchar(128),
   provider_external_batch_id varchar(128),
+  reassigned_from_task_id bigint,
+  callback_batch_no varchar(128),
+  callback_external_batch_id varchar(128),
   dispatch_profile_id bigint,
   dispatch_profile_code varchar(64),
   dispatch_strategy varchar(32),
@@ -482,6 +489,14 @@ create index idx_cdp_tasks_status_created_at
 create index idx_cdp_tasks_dispatch_profile_created_at
   on cdp_tasks(dispatch_profile_id, created_at)
   where dispatch_profile_id is not null;
+
+create index idx_cdp_tasks_reassigned_from_task_id
+  on cdp_tasks(reassigned_from_task_id)
+  where reassigned_from_task_id is not null;
+
+create index idx_cdp_tasks_provider_callback_batch_no
+  on cdp_tasks(provider_code, callback_batch_no, created_at desc)
+  where reassigned_from_task_id is not null and callback_batch_no is not null and deleted_at is null;
 
 create table cdp_task_items (
   id bigserial primary key,
@@ -691,6 +706,7 @@ alter table cdp_tasks add column provider_external_batch_id varchar(128);
 alter table cdp_tasks add column dispatch_profile_id bigint;
 alter table cdp_tasks add column dispatch_profile_code varchar(64);
 alter table cdp_tasks add column dispatch_strategy varchar(32);
+alter table cdp_tasks add column quota_date date;
 
 create unique index idx_cdp_tasks_job_id
   on cdp_tasks(job_id)
@@ -702,6 +718,11 @@ create index idx_cdp_tasks_platform_user_created_at
 create index idx_cdp_tasks_provider_external_batch_id
   on cdp_tasks(provider_external_batch_id)
   where provider_external_batch_id is not null;
+
+create index idx_cdp_tasks_provider_quota_date_quota
+  on cdp_tasks(provider_code, quota_date, status)
+  include (total_count, provider_external_batch_id)
+  where deleted_at is null;
 ```
 
 字段语义：
@@ -713,6 +734,11 @@ create index idx_cdp_tasks_provider_external_batch_id
 | `platform_user_id` | 网关内部 | 标记本任务由哪个接入方 API key 发起 |
 | `platform_code` | 网关内部/后台 | 接入方唯一编码，来自 `platform_users.platform_code` |
 | `dispatch_profile_id` / `dispatch_profile_code` / `dispatch_strategy` | 网关内部/后台 | 任务创建时使用的调度配置审计字段。历史任务不要求回填，缺失时后台展示为 `-` |
+| `quota_date` | 网关内部/调度 | 供应商每日额度归属日期，按任务实际提交到供应商时的 Asia/Shanghai 自然日计算，不使用上游 `biz_date` |
+
+第一阶段不新增独立 provider 表，供应商能力和每日 question 额度仍来自配置文件 `[providers.<code>]`。`daily_question_quota` 未配置或小于等于 0 时表示该 provider 当天无额度上限；配置为正数时，调度按 `cdp_tasks.total_count` 汇总该 provider 在 `quota_date` 当天已占用 question 数，不扫描 `cdp_task_items` 大表。
+
+第一阶段也不新增 `cdp_dispatch_daily_counters` 或 `cdp_task_dispatch_records`。额度实时统计来自 `cdp_tasks` 事实表；调度决策、规则命中、候选供应商和额度快照写入 `cdp_task_events`。
 
 接入方调用网关统一使用：
 
@@ -743,7 +769,7 @@ sequenceDiagram
     participant Gateway as CDP 网关服务
     participant Provider as 供应商
 
-    User->>Gateway: POST /api/v1/tasks<br/>X-API-Key 或 X-Provider-Token / batchNo / bizDate / callbackUrl / items
+    User->>Gateway: POST /api/v1/tasks<br/>X-API-Key 或 X-Provider-Token / batchNo / taskName / bizDate / callbackUrl / items
     Note over Gateway: 校验 platform_user api_key<br/>忽略请求体 providerCode<br/>按 platform_user_id 锁定调度配置并选择供应商
 
     Gateway->>Provider: <span style="color:red"><b>POST /api/v1/ai/batch/create</b></span><br/>batchNo/providerCode/bizDate/gateway callbackUrl/items
@@ -792,7 +818,9 @@ Client
   -> service 通过 X-API-Key 或 X-Provider-Token 识别 platform_user
   -> biz 生成 job_id
   -> data 在事务内锁定 platform_user_id 对应的 cdp_dispatch_profiles
-  -> data 按 ROUND_ROBIN 从 config.providers 过滤当前进程已加载的 provider code，选择一个有效供应商并推进 cursor
+  -> data 按 dispatch strategy 从 config.providers / config.rules 选择候选供应商
+  -> data 按 provider_code + quota_date 加 advisory transaction lock，并基于 cdp_tasks.total_count 统计每日 question 额度
+  -> data 选择一个有效供应商并推进 cursor
   -> data 在事务内写 platform_user_id + dispatch 审计字段 + provider_code + cdp_tasks + cdp_task_items + cdp_task_events
   -> biz 同步调用 provider submit_url
   -> provider 创建成功后更新 provider_external_batch_id / SUBMITTED
@@ -804,7 +832,11 @@ Client
 - 幂等键当前以 `batch_no` 为准；`job_id` 由网关生成并返回给接入方。`Idempotency-Key` 属于后续扩展，不是当前实现。
 - 分发粒度是整任务维度，不按 `items[]` 或子任务拆分。一个任务选中一个供应商后，全部明细都提交给该供应商。
 - `cdp_dispatch_profiles.enabled=false` 时创建任务失败，返回“任务调度未启用”。
-- 调度配置中的 `config.providers` 为空、格式非法，或所有 provider code 都无法在当前 provider registry 中找到时，创建任务失败，返回“供应商服务不可用”，且不创建 `cdp_tasks`。
+- 调度配置中的 `config.providers` 为空、格式非法，或所有 provider code 都无法在当前 provider registry 中找到时，创建任务失败，返回“供应商服务不可用”，且不创建 `cdp_tasks`。在 `ROUND_ROBIN` 下 `config.providers` 表示默认供应商池；在 `RULE_BASED` 下 `config.providers` 表示兜底 `FALLBACK` 供应商池。
+- `ROUND_ROBIN` 按默认供应商池和游标轮询；如果配置了 provider 每日额度，剩余额度不足的 provider 会被跳过。
+- `RULE_BASED` 读取 `cdp_dispatch_profiles.config.rules`，按 `sortOrder` 和数组顺序使用第一条命中 `taskName` 正则的规则。命中规则后任务获得该规则的 `labels`，并优先从规则的 `providerCodes` 中选择供应商；规则供应商池可以不包含在 `FALLBACK` 池内，只要求 provider 在当前 provider registry 中可用。
+- `RULE_BASED` 未命中规则，或命中规则但规则供应商池全部额度不足/不可用时，进入 `FALLBACK` 供应商池；规则池失败进入 fallback 时，任务标签记录为 `fallback`。
+- `RULE_BASED` 规则供应商池固定按 `used_questions / daily_question_quota` 最低优先分配；`FALLBACK` 供应商池由 `config.fallbackSelectionPolicy` 控制，可选 `ROUND_ROBIN` 或 `LOWEST_USAGE_RATE`，未配置时默认 `LOWEST_USAGE_RATE`。未配置额度的 provider 视为无上限，并用候选池中最大已配置额度作为均衡分母参与打散。
 - 幂等命中已有任务时直接返回已有任务，不推进调度游标。
 - 创建接口必须同步完成供应商任务创建；供应商创建失败时，对接入方返回失败。
 - 供应商创建失败的任务仍保留数据库记录，状态为 `FAILED`，用于排障。
@@ -834,8 +866,13 @@ Provider
   -> PUT uploadUrl 上传 Excel
   -> POST /external/callback/{providerCode}
 Gateway
+  -> 校验 callback counts 是否 100% 完成
+  -> 调供应商 files_url 获取文件地址列表
+  -> 只登记 cdp_task_result_files 待导入文件；本项目 OSS 地址仅做 HeadObject/ObjectExists
   -> 标记 PROVIDER_DONE
-  -> worker 读取 OSS object
+Worker
+  -> 读取待导入文件记录
+  -> 读取 OSS object 或下载外部文件 URL
   -> 解析、清洗、幂等保存结果
   -> 确认所有 cdp_task_items.result_status='IMPORTED' 且 success_count + failed_count = total_count
   -> 标记 CALLBACK_PENDING
@@ -1002,16 +1039,19 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 - `POST /api/admin/v1/login`：后台登录，使用 `[admin.bootstrap]` 配置初始化用户，签发 HttpOnly Session Cookie。
 - `POST /api/admin/v1/logout`：后台退出，删除 Redis session。
 - `GET /api/admin/v1/me`：查询当前登录用户。
-- `GET /api/admin/v1/tasks`：任务列表，支持 `batchNo`、`source`、`platformCode`、创建时间范围、执行结果状态筛选。
+- `GET /api/admin/v1/tasks`：任务列表，支持 `taskName` 模糊搜索，以及 `batchNo`、`source`、`platformCode`、创建时间范围、执行结果状态筛选。
 - `GET /api/admin/v1/tasks/{id}`：任务详情，展示任务、问答完成情况、结构化结果、结果文件、业务方回调记录和事件。回调记录来自 `cdp_task_callbacks`，包含目标地址、请求 payload、HTTP 响应状态、响应体、错误信息和创建/更新时间。
 - `POST /api/admin/v1/tasks/{id}/check-result`：检查结果，默认 `force=true`、`notifyCallback=true`，复用主动查询供应商进度和结果重入链路。
 - `POST /api/admin/v1/tasks/{id}/retry-callback`：按单个任务重新触发业务方完成通知，写入新的 `cdp_task_callbacks` 记录并刷新任务详情中的回调结果。
+- `POST /api/admin/v1/tasks/reassign`：按原始 `batchNo` 和目标 `providerCode` 手动转派任务。仅允许转派尚未进入 `CALLBACK_PENDING`、`DONE`、`REASSIGNED` 的任务；转派成功后原任务标记 `REASSIGNED`，新任务按普通任务链路继续流转。
+- `DELETE /api/admin/v1/tasks/{id}`：仅允许软删除供应商提交失败的失败任务，即任务状态为 `FAILED` 且存在 `PROVIDER_SUBMIT_FAILED` 事件；只写入 `cdp_tasks.deleted_at/deleted_by` 并从后台列表和详情隐藏，任务记录、事件、明细、结果文件记录、结果行和回调记录必须保留，同时写入后台审计日志。`batch_no` 唯一性只约束未删除任务，软删除后允许同批次重新提交。
 - `GET /api/admin/v1/providers`：供应商列表，只读展示配置加载后的供应商编码、名称、启用状态、结果模式、QPS、并发、OSS 前缀和接口配置状态，不返回 token。
 - `GET /api/admin/v1/dispatch-options`：返回后台可选调度策略和可下发 provider 列表。provider 必须在配置中启用，并具备提交 URL 和鉴权 token/API key。
 - `GET /api/admin/v1/providers/{providerCode}/metrics`：供应商数据详情指标，支持 `createdFrom`、`createdTo` 创建时间范围筛选，按天聚合任务数、问答数、成功问答数量和失败/未回答数量。
 - `GET /api/admin/v1/platform-users`：接入方列表，支持关键字和状态筛选。
 - `GET /api/admin/v1/platform-users/{id}`：接入方详情。
-- `GET /api/admin/v1/platform-users/{id}/metrics`：接入方数据详情指标，支持 `createdFrom`、`createdTo` 创建时间范围筛选，按真实任务、问题、结果文件、回调表和供应商维度聚合提交任务数、完成问答数、进行中任务数、失败任务数、任务成功率、任务平均耗时等排障指标。供应商维度按天和 `providerCode` 聚合任务数、问答数、成功问答数量和失败/未回答数量。
+- `GET /api/admin/v1/platform-users/{id}/metrics`：接入方数据详情指标，支持 `createdFrom`、`createdTo` 创建时间范围筛选，按真实任务、问题、结果文件、回调表和供应商维度聚合提交任务数、完成问答数、进行中任务数、失败任务数、任务成功率、任务平均耗时等排障指标。供应商维度按天和 `providerCode` 聚合任务数、问答数、成功问答数量和失败/未回答数量。后台页面默认按当前自然月查询，自定义范围只选择日期，服务端按传入的起止时间精确过滤。
+- `POST /api/admin/v1/platform-users/{id}/reconciliation-export`：接入方任务对账单导出，入参为 `createdFrom`、`createdTo`。导出仅包含所选创建时间范围内存在成功业务回调记录的任务，表头为：日期、任务名称、任务batchNo、供应商code、供应商公司名称、问答数。供应商公司名称来自 provider 配置 `company_name`，未配置时回退 `display_name`。
 - `POST /api/admin/v1/platform-users`：新增接入方，自动生成明文 `apiKey`，后台不提供手工输入。
 - `PUT /api/admin/v1/platform-users/{id}`：编辑接入方名称、编码、状态、调度配置、回调方式和回调 URL；不允许编辑 `apiKey`。
 
@@ -1030,8 +1070,10 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 | `callbackMode` | 是 | 是 | `DEFAULT_HTTP` / `CUSTOM` |
 | `callbackUrl` | 否 | 是 | 任务完成通知地址 |
 | `dispatchProfile.enabled` | 是 | 是 | 是否启用任务调度 |
-| `dispatchProfile.strategy` | 是 | 是 | 第一阶段固定为 `ROUND_ROBIN` |
-| `dispatchProfile.providerCodes` | 是 | 是 | 整任务级供应商候选池，按数组顺序轮询 |
+| `dispatchProfile.strategy` | 是 | 是 | `ROUND_ROBIN` 或 `RULE_BASED` |
+| `dispatchProfile.providerCodes` | 是 | 是 | `ROUND_ROBIN` 下为默认供应商池；`RULE_BASED` 下为 `FALLBACK` 供应商池 |
+| `dispatchProfile.fallbackSelectionPolicy` | 否 | 是 | `RULE_BASED` 的 `FALLBACK` 池下发方式：`ROUND_ROBIN` 或 `LOWEST_USAGE_RATE`，未配置默认 `LOWEST_USAGE_RATE` |
+| `dispatchProfile.rules` | 否 | 是 | `RULE_BASED` 规则数组，按顺序匹配 `taskName`，第一条命中生效 |
 
 `callbackConfig` 第一版不在后台暴露，不做页面配置。
 
@@ -1052,20 +1094,55 @@ import worker / manual refetch
   -> 记录业务方回调结果和任务事件
 ```
 
-`mpzdata` 主链路特例：
+供应商完成回调链路：
 
 - mpzdata 提交接口里的 `items[].seq` 表示供应商侧执行次数，和网关内部 `seq` 的轮次/位置语义不同；当前仅阳狮来源接入方（`platform_code=yangshi` 或 `yangshi_*`）提交给 mpzdata 时由 customer adapter 将每条明细的 `seq` 置为 `1`，本地 `cdp_task_items.seq` 保留原始上游值用于审计和排障。其他接入方默认透传 `seq`。
-- 收到供应商完成回调后，导入前必须主动调用一次供应商 `files_url` 获取最终完成文件列表。
+- 转派新任务提交给目标供应商时，供应商请求里的 `batchNo` 使用原任务 `batch_no`；新任务自身 `batch_no` 只作为网关内部唯一批次号。
+- 供应商上传地址和完成回调按 `providerCode + batchNo` 解析任务时，优先匹配 `provider_code=providerCode` 且 `callback_batch_no=batchNo` 的转派新任务，并校验其 `reassigned_from_task_id` 指向的原任务 `batch_no` 等于该 `callback_batch_no`。未命中转派新任务时再按普通任务 `provider_code + batch_no` 匹配。
+- 被转派的原任务进入 `REASSIGNED` 后视为 closed 终态；原供应商后续再请求上传地址或完成回调时返回 `task is closed`，不签发上传地址、不登记结果文件、不导入结果、不触发业务方回调。
+- `/external/callback/{providerCode}` 是轻量完成确认入口，不下载结果文件、不解析 Excel、不写入结构化结果。
+- 收到供应商回调后，先校验 counts 是否 100% 完成：本地 item 数必须大于 0，供应商 `totalCount` 为空/0 时按本地 item 数处理，`successCount + failedCount` 必须等于本地 item 数。
+- counts 未完成时，只记录 `PROVIDER_CALLBACK_PROGRESS` 和 provider callback progress，不进入 `PROVIDER_DONE`。
+- counts 完成时，主动调用一次供应商 `files_url` 获取最终文件列表，以供应商 `files_url` 为准 upsert `cdp_task_result_files` 待导入记录，然后标记 `PROVIDER_DONE`。
+- `files_url` 返回本项目 OSS URL 时，网关只解析 URL path 得到 object key，并调用 `ObjectExists/HeadObject` 做轻量存在性检查；检查缺失只记录事件，不阻断 `PROVIDER_DONE`。
+- `files_url` 返回外部 URL 时，网关只登记 `file_url`，不下载；worker 后续按待导入记录下载解析。
+- 供应商完成回调支持重入补录：只要任务尚未进入 `CALLBACK_PENDING` 或业务方回调成功的 `DONE` 状态，后续再次收到 provider callback 时都可以重新校对供应商 `files_url` 并登记新增或仍为 `PENDING` 的结果文件。已经 `CALLBACK_PENDING`/`DONE` 的任务只记录供应商回调信息，不重复登记文件，不回退任务状态，也不重复自动回调。
 - 后台任务列表和详情的“执行耗时”不使用 `updated_at`；按 `created_at -> provider_finished_at` 展示供应商完成确认耗时。`provider_finished_at` 在真实供应商回调成功，或手动检查供应商状态且数量校验通过、任务改为 `PROVIDER_DONE` 时写入；已有值不覆盖。
-- `files_url` 返回的 `fileUrls` 作为本次导入的优先校对结果；返回多份文件时必须逐份下载、解析、入库。
-- 校对结果写入任务事件 `PROVIDER_FILES_FETCHED`，payload 记录 `triggerType=PROVIDER_CALLBACK_RECONCILE`、`fileCount`、`externalBatchId`。
+- 校对结果写入任务事件 `PROVIDER_FILES_FETCHED`，payload 记录 `triggerType=PROVIDER_CALLBACK_RECONCILE`、`fileCount`、`externalBatchId`、待导入文件数、OSS 缺失数量、与本地已登记上传文件的差异数量。
 - 如果 `files_url` 暂未返回文件，网关保留已登记的 OSS 上传文件作为兜底导入来源，并在事件中体现文件列表为空，方便排障。
-- 手动 `sync-provider-result` 和 `refetch-result` 仍复用供应商 `files_url` 补偿链路。
+- worker 扫描 `PROVIDER_DONE` 时优先消费 `cdp_task_result_files.parse_status <> 'SUCCESS'` 的待导入记录；待导入记录为空时，再调用供应商完成文件处理逻辑或回退已登记 OSS 上传文件。
+- 手动 `sync-provider-result` 和后台 `check-result` 保持重操作语义，仍会同步调用 `status_url/files_url`、下载/读取文件、解析入库，并根据 `notifyCallback` 推进到 `CALLBACK_PENDING`。
+
+### 8.5.1 手动转派
+
+后台转派用于处理已创建但未进入待回调或已完成状态的异常任务。接口入参为原始 `batchNo`、目标 `providerCode` 和转派原因；不设置中间态。
+
+手动转派不重新执行接入方 `cdp_dispatch_profiles`，也不受自动分发供应商池、规则命中和每日额度限制。后台传入的 `providerCode` 是强指定目标；只要求目标供应商存在于运行中 provider registry，且供应商配置 `Enabled=true`。若目标供应商未启用或提交动作失败，接口直接返回转派失败，原任务不进入 `REASSIGNED`。
+
+转派流程：
+
+```text
+Admin
+  -> POST /api/admin/v1/tasks/reassign
+  -> 按原 batchNo 锁定原任务并校验状态
+  -> 复制原任务 raw_request、callback_url、归属信息和 cdp_task_items
+  -> 创建转派新任务，内部 batch_no 生成唯一值，callback_batch_no=原 batch_no，callback_external_batch_id=原 job_id
+  -> 使用 callback_batch_no 下发给目标供应商
+  -> 供应商提交成功后，原任务更新为 REASSIGNED，新任务更新为 SUBMITTED
+```
+
+原任务进入 `REASSIGNED` 后不再做有序状态变化；新转派任务按普通任务状态机继续执行：
+
+```text
+CREATED -> SUBMITTED -> PROVIDER_DONE -> RESULT_IMPORTED -> CALLBACK_PENDING -> DONE
+```
+
+业务方回调仅在新转派任务完成后触发，payload 使用 `callback_batch_no/callback_external_batch_id`。普通任务这两个字段为空，继续使用自身 `batch_no/job_id`。
 
 该差异不允许在 biz 层硬编码 provider code。供应商 adapter 必须通过接口声明自己的完成文件处理方式：
 
 - 默认 provider：完成回调后使用已登记的 OSS 上传文件。
-- `mpzdata` provider：完成回调后先调用 `files_url` 校对完成文件列表，再处理所有返回文件；空列表时回退 OSS 上传记录。
+- `mpzdata`/`liuandata` provider：完成回调时先调用 `files_url` 校对完成文件列表并登记待导入文件；worker 导入时优先消费待导入记录，空列表时回退 OSS 上传记录。
 
 ### 8.6 结果存储幂等和可重入
 
@@ -1162,9 +1239,9 @@ POST /api/v1/tasks/{id}/refetch-result
 worker 需要对 `SUBMITTED` 任务做两个周期性处理：
 
 - 超时终止：任务提交后超过 24 小时仍未进入完成/失败状态，自动更新为 `FAILED`，`last_error=执行超过24小时`，并写入任务事件。
-- 进度同步：每 15 分钟扫描 `SUBMITTED` 任务，调用供应商 `status_url` 获取问题状态，更新 `cdp_task_items.status`、`cdp_tasks.provider_response`、`success_count` 和 `total_count`。后台进度继续使用 `(success_count + failed_count) / total_count` 展示。
+- 进度同步：每 10 分钟扫描 `SUBMITTED` 任务，调用供应商 `status_url` 获取问题状态，更新 `cdp_task_items.status`、`cdp_tasks.provider_response`、`success_count` 和 `total_count`。后台进度继续使用 `(success_count + failed_count) / total_count` 展示。
 
-进度同步只更新状态和进度，不导入结果文件；文件导入仍由供应商完成回调或手动 `sync-provider-result` 触发。
+进度同步只更新状态和进度，不导入结果文件；自动文件下载和解析只由 worker 扫描 `PROVIDER_DONE` 触发，手动 `sync-provider-result`/后台 `check-result` 仍允许同步检查并直接入库。
 
 ### 8.8 数据清洗
 
@@ -1206,7 +1283,7 @@ worker 需要对 `SUBMITTED` 任务做两个周期性处理：
 - Request ID：每个请求写入日志和响应头。
 - 认证：上游业务使用 `X-API-Key` 或兼容 `X-Provider-Token`；供应商上传/回调接口使用 provider token。
 - 请求体限制：防止大 JSON 或异常上传拖垮进程。
-- 超时：外部调用必须使用 context deadline，provider 请求使用配置中的 timeout。
+- 超时：外部调用必须使用 context deadline。provider 单次出站请求默认且最长 20 秒；业务方/定制回调的普通接口默认且最长 20 秒，文件上传使用独立 `upload_timeout_seconds`，默认 300 秒。
 
 ### 9.2 出站保护
 
@@ -1255,6 +1332,7 @@ GET  /api/admin/v1/tasks/{id}
 POST /api/admin/v1/tasks/{id}/items-export
 POST /api/admin/v1/tasks/{id}/check-result
 POST /api/admin/v1/tasks/{id}/retry-callback
+DELETE /api/admin/v1/tasks/{id}
 
 GET  /api/admin/v1/providers
 GET  /api/admin/v1/dispatch-options
@@ -1263,15 +1341,17 @@ GET  /api/admin/v1/providers/{providerCode}/metrics
 GET  /api/admin/v1/platform-users
 GET  /api/admin/v1/platform-users/{id}
 GET  /api/admin/v1/platform-users/{id}/metrics
+POST /api/admin/v1/platform-users/{id}/reconciliation-export
 POST /api/admin/v1/platform-users
 PUT  /api/admin/v1/platform-users/{id}
 ```
 
 后台任务详情接口 `GET /api/admin/v1/tasks/{id}` 的问答结果服务端分页，避免任务问题量大时一次性加载所有回答和引用 JSON：
 
-- 查询参数：`itemPage` 默认 `1`，`itemPageSize` 默认 `20`，最大 `100`。
-- 响应字段：`data.items` 返回当前页问答结果；`data.itemTotal`、`data.itemPage`、`data.itemPageSize` 返回分页信息。
-- `data.files`、`data.events`、`data.callbacks` 当前仍按详情页辅助信息一次返回；后续数据量增大时再单独拆分页。
+- 查询参数：`itemPage`、`filePage`、`eventPage` 默认 `1`；`itemPageSize`、`filePageSize`、`eventPageSize` 默认 `20`，最大 `100`。
+- 响应字段：`data.items`、`data.files`、`data.events` 分别返回当前页问答结果、结果文件和任务事件。
+- 分页字段：`data.itemTotal/itemPage/itemPageSize`、`data.fileTotal/filePage/filePageSize`、`data.eventTotal/eventPage/eventPageSize` 返回对应列表的分页信息。
+- `data.callbacks` 当前仍按详情页辅助信息一次返回，默认最多 100 条。
 
 ### 10.3 鉴权和审计
 
@@ -1344,12 +1424,14 @@ GET  /api/admin/v1/tasks/{id}
 POST /api/admin/v1/tasks/{id}/items-export
 POST /api/admin/v1/tasks/{id}/check-result
 POST /api/admin/v1/tasks/{id}/retry-callback
+DELETE /api/admin/v1/tasks/{id}
 GET  /api/admin/v1/providers
 GET  /api/admin/v1/dispatch-options
 GET  /api/admin/v1/providers/{providerCode}/metrics
 GET  /api/admin/v1/platform-users
 GET  /api/admin/v1/platform-users/{id}
 GET  /api/admin/v1/platform-users/{id}/metrics
+POST /api/admin/v1/platform-users/{id}/reconciliation-export
 POST /api/admin/v1/platform-users
 PUT  /api/admin/v1/platform-users/{id}
 
@@ -1363,9 +1445,10 @@ GET  /admin/*
 
 后台任务详情接口 `GET /api/admin/v1/tasks/{id}` 的问答结果必须服务端分页，避免任务问题量大时一次性加载所有回答和引用 JSON：
 
-- 查询参数：`itemPage` 默认 `1`，`itemPageSize` 默认 `20`，最大 `100`。
-- 响应字段：`data.items` 返回当前页问答结果；`data.itemTotal`、`data.itemPage`、`data.itemPageSize` 返回分页信息。
-- `data.files`、`data.events`、`data.callbacks` 当前仍按详情页辅助信息一次返回；后续数据量增大时再单独拆分页。
+- 查询参数：`itemPage`、`filePage`、`eventPage` 默认 `1`；`itemPageSize`、`filePageSize`、`eventPageSize` 默认 `20`，最大 `100`。
+- 响应字段：`data.items`、`data.files`、`data.events` 分别返回当前页问答结果、结果文件和任务事件。
+- 分页字段：`data.itemTotal/itemPage/itemPageSize`、`data.fileTotal/filePage/filePageSize`、`data.eventTotal/eventPage/eventPageSize` 返回对应列表的分页信息。
+- `data.callbacks` 当前仍按详情页辅助信息一次返回，默认最多 100 条。
 
 网关对供应商调用的接口由 provider adapter 管理，不直接暴露给业务方：
 
@@ -1382,6 +1465,7 @@ GET  /api/v1/ai/batch/external/{externalBatchId}/files
   "batchNo": "Q2A2-20260608-vendor_a-8f3b7e21",
   "providerCode": "vendor_a",
   "bizDate": "2026-06-08",
+  "taskName": "某产品问答任务",
   "callbackUrl": "https://biz.example.com/cdp/tasks/callback",
   "items": [
     {
@@ -1511,7 +1595,7 @@ endpoint = https://oss-cn-shanghai.aliyuncs.com
 public_host = https://opensource-man.oss-cn-shanghai.aliyuncs.com
 host = https://opensource-man.oss-cn-shanghai.aliyuncs.com
 upload_dir = cdp-router/
-expire_seconds = 3600
+expire_seconds = 86400
 
 [providers.mpzdata]
 code = mpzdata
@@ -1523,7 +1607,7 @@ bucket_path_prefix = cdp-router/q2a/mpzdata
 token = <provider-token>
 api_key =
 result_mode = callback_upload
-timeout_seconds = 15
+timeout_seconds = 20
 qps_limit = 10
 concurrency_limit = 20
 enabled = true
@@ -1556,7 +1640,8 @@ callback_url =
 callback_config = {"baseURL":"https://staging-api-growth.wiredcraft.cn/api2","providerCode":"mpzdata2","providerToken":"<provider-token>"}
 
 [callbacks.http]
-timeout_seconds = 15
+timeout_seconds = 20
+upload_timeout_seconds = 300
 max_retry = 3
 ```
 

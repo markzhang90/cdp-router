@@ -17,26 +17,34 @@ const (
 	TaskStatusCallbackPending TaskStatus = "CALLBACK_PENDING"
 	TaskStatusDone            TaskStatus = "DONE"
 	TaskStatusFailed          TaskStatus = "FAILED"
+	TaskStatusReassigned      TaskStatus = "REASSIGNED"
 )
 
 type EventType string
 
 const (
-	EventTaskCreated          EventType = "TASK_CREATED"
-	EventTaskDispatched       EventType = "TASK_DISPATCHED"
-	EventProviderSubmitted    EventType = "PROVIDER_SUBMITTED"
-	EventProviderSubmitFailed EventType = "PROVIDER_SUBMIT_FAILED"
-	EventUploadURLIssued      EventType = "UPLOAD_URL_ISSUED"
-	EventProviderCallbackRecv EventType = "PROVIDER_CALLBACK_RECEIVED"
-	EventProviderCallback     EventType = "PROVIDER_CALLBACK"
-	EventProviderCallbackFail EventType = "PROVIDER_CALLBACK_FAILED"
-	EventProviderStatusPolled EventType = "PROVIDER_STATUS_POLLED"
-	EventProviderFilesFetched EventType = "PROVIDER_FILES_FETCHED"
-	EventTaskTimedOut         EventType = "TASK_TIMED_OUT"
-	EventResultImported       EventType = "RESULT_IMPORTED"
-	EventResultFetchCompleted EventType = "RESULT_FETCH_COMPLETED"
-	EventBusinessCallbackOK   EventType = "BUSINESS_CALLBACK_OK"
-	EventBusinessCallbackFail EventType = "BUSINESS_CALLBACK_FAIL"
+	EventTaskCreated           EventType = "TASK_CREATED"
+	EventTaskDispatched        EventType = "TASK_DISPATCHED"
+	EventTaskDispatchRuleHit   EventType = "TASK_DISPATCH_RULE_MATCHED"
+	EventTaskDispatchQuota     EventType = "TASK_DISPATCH_QUOTA_CHECKED"
+	EventProviderSubmitted     EventType = "PROVIDER_SUBMITTED"
+	EventProviderSubmitFailed  EventType = "PROVIDER_SUBMIT_FAILED"
+	EventUploadURLIssued       EventType = "UPLOAD_URL_ISSUED"
+	EventProviderCallbackRecv  EventType = "PROVIDER_CALLBACK_RECEIVED"
+	EventProviderCallbackProg  EventType = "PROVIDER_CALLBACK_PROGRESS"
+	EventProviderCallback      EventType = "PROVIDER_CALLBACK"
+	EventProviderCallbackFail  EventType = "PROVIDER_CALLBACK_FAILED"
+	EventProviderStatusPolled  EventType = "PROVIDER_STATUS_POLLED"
+	EventProviderFilesFetched  EventType = "PROVIDER_FILES_FETCHED"
+	EventTaskTimedOut          EventType = "TASK_TIMED_OUT"
+	EventResultImported        EventType = "RESULT_IMPORTED"
+	EventResultFetchCompleted  EventType = "RESULT_FETCH_COMPLETED"
+	EventBusinessCallbackOK    EventType = "BUSINESS_CALLBACK_OK"
+	EventBusinessCallbackFail  EventType = "BUSINESS_CALLBACK_FAIL"
+	EventTaskReassignRequested EventType = "TASK_REASSIGN_REQUESTED"
+	EventTaskReassignSubmitted EventType = "TASK_REASSIGN_SUBMITTED"
+	EventTaskReassigned        EventType = "TASK_REASSIGNED"
+	EventTaskReassignFailed    EventType = "TASK_REASSIGN_FAILED"
 )
 
 var (
@@ -48,6 +56,7 @@ var (
 	ErrPlatformUserDisabled = errors.New("platform user disabled")
 	ErrPlatformUserConflict = errors.New("platform user conflict")
 	ErrInvalidTaskRequest   = errors.New("invalid task request")
+	ErrTaskClosed           = errors.New("task is closed")
 )
 
 type PlatformUser struct {
@@ -68,29 +77,61 @@ type DispatchStrategy string
 
 const (
 	DispatchStrategyRoundRobin DispatchStrategy = "ROUND_ROBIN"
+	DispatchStrategyRuleBased  DispatchStrategy = "RULE_BASED"
+)
+
+type DispatchFallbackSelectionPolicy string
+
+const (
+	DispatchFallbackSelectionPolicyRoundRobin      DispatchFallbackSelectionPolicy = "ROUND_ROBIN"
+	DispatchFallbackSelectionPolicyLowestUsageRate DispatchFallbackSelectionPolicy = "LOWEST_USAGE_RATE"
 )
 
 type DispatchProfile struct {
-	ID               int64
-	PlatformUserID   int64
-	Code             string
-	Name             string
-	Strategy         DispatchStrategy
-	Enabled          bool
-	Cursor           int64
-	LastProviderCode string
-	Config           json.RawMessage
-	ProviderCodes    []string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                      int64
+	PlatformUserID          int64
+	Code                    string
+	Name                    string
+	Strategy                DispatchStrategy
+	Enabled                 bool
+	Cursor                  int64
+	LastProviderCode        string
+	Config                  json.RawMessage
+	ProviderCodes           []string
+	FallbackSelectionPolicy DispatchFallbackSelectionPolicy
+	Rules                   []DispatchRule
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 type DispatchProfileInput struct {
+	Code                    string
+	Name                    string
+	Strategy                DispatchStrategy
+	Enabled                 bool
+	ProviderCodes           []string
+	FallbackSelectionPolicy DispatchFallbackSelectionPolicy
+	Rules                   []DispatchRuleInput
+}
+
+type DispatchRule struct {
 	Code          string
 	Name          string
-	Strategy      DispatchStrategy
-	Enabled       bool
+	SortOrder     int
+	TaskNameRegex string
+	Labels        []string
 	ProviderCodes []string
+	Enabled       bool
+}
+
+type DispatchRuleInput struct {
+	Code          string
+	Name          string
+	SortOrder     int
+	TaskNameRegex string
+	Labels        []string
+	ProviderCodes []string
+	Enabled       bool
 }
 
 type Task struct {
@@ -99,15 +140,20 @@ type Task struct {
 	PlatformUserID          int64
 	PlatformCode            string
 	BatchNo                 string
+	TaskName                string
 	ProviderCode            string
 	GatewayCode             string
 	Source                  string
 	ExternalBatchID         string
 	ProviderExternalBatchID string
+	ReassignedFromTaskID    int64
+	CallbackBatchNo         string
+	CallbackExternalBatchID string
 	DispatchProfileID       int64
 	DispatchProfileCode     string
 	DispatchStrategy        DispatchStrategy
 	BizDate                 time.Time
+	QuotaDate               time.Time
 	Status                  TaskStatus
 	CallbackURL             string
 	ProviderCallbackURL     string
@@ -141,6 +187,7 @@ type CreateTaskInput struct {
 	PlatformUserID int64
 	PlatformCode   string
 	BatchNo        string
+	TaskName       string
 	GatewayCode    string
 	Source         string
 	BizDate        string
@@ -212,6 +259,7 @@ type TemporaryDownloadFile struct {
 }
 
 type ProviderCallbackInput struct {
+	TaskID          int64
 	ProviderCode    string
 	BatchNo         string
 	ExternalBatchID string
@@ -236,6 +284,28 @@ type CallbackDelivery struct {
 type RetryTaskCallbackOutcome struct {
 	Delivered bool
 	Readiness CallbackReadiness
+}
+
+type ReassignTaskInput struct {
+	BatchNo        string
+	ProviderCode   string
+	Reason         string
+	OperatorUserID string
+}
+
+type ReassignTaskRecordInput struct {
+	SourceBatchNo  string
+	TargetBatchNo  string
+	TargetJobID    string
+	ProviderCode   string
+	Reason         string
+	OperatorUserID string
+}
+
+type ReassignTaskOutcome struct {
+	Source        *Task
+	Target        *Task
+	AcceptedCount int
 }
 
 type CallbackCounts struct {
@@ -283,6 +353,7 @@ type ResultFileInput struct {
 	ObjectKey       string
 	FileURL         string
 	FileName        string
+	ParseStatus     string
 	Checksum        string
 	ExternalBatchID string
 	NotifyCallback  bool
@@ -344,25 +415,33 @@ type CallbackReadiness struct {
 }
 
 type TaskRepo interface {
-	CreateTask(ctx context.Context, input CreateTaskInput, providerCodes []string, providerCallbackBaseURL string) (*Task, error)
+	CreateTask(ctx context.Context, input CreateTaskInput, providers []ProviderSettings, providerCallbackBaseURL string) (*Task, error)
+	CreateReassignedTask(ctx context.Context, input ReassignTaskRecordInput, providerCallbackBaseURL string) (*Task, error)
+	MarkTaskReassigned(ctx context.Context, sourceTaskID, targetTaskID int64, payload any) error
+	PrepareTaskForSubmit(ctx context.Context, taskID int64, providers []ProviderSettings, providerCallbackBaseURL string) (*Task, error)
 	GetTask(ctx context.Context, id int64) (*Task, error)
 	GetTaskByJobID(ctx context.Context, jobID string, platformUserID int64) (*Task, error)
 	GetTaskByBatchNo(ctx context.Context, batchNo string) (*Task, error)
+	ResolveProviderTask(ctx context.Context, providerCode, batchNo string) (*Task, error)
 	CountTaskItems(ctx context.Context, taskID int64) (int, error)
 	ListTaskItems(ctx context.Context, taskID int64) ([]TaskItem, error)
 	ListTasksByStatus(ctx context.Context, status TaskStatus, limit int) ([]*Task, error)
+	ListResultImportedTasksWithProviderCallback(ctx context.Context, limit int) ([]*Task, error)
 	ListSubmittedTasksForProgress(ctx context.Context, limit int, submittedBefore time.Time) ([]*Task, error)
 	ListTaskItemResults(ctx context.Context, taskID int64) ([]TaskItemResultView, error)
 	GetCallbackReadiness(ctx context.Context, taskID int64) (CallbackReadiness, error)
 	ListTaskResultFiles(ctx context.Context, taskID int64) ([]CallbackResultFile, error)
 	ListUploadedResultFiles(ctx context.Context, taskID int64, includeImported bool) ([]ResultFileInput, error)
+	ListPendingResultFiles(ctx context.Context, taskID int64) ([]ResultFileInput, error)
 	CountSuccessfulResultFiles(ctx context.Context, taskID int64) (int, error)
 	MarkSubmitted(ctx context.Context, taskID int64, providerRequest json.RawMessage, result SubmitResult) error
 	MarkSubmitFailed(ctx context.Context, taskID int64, errMessage string) error
 	FailSubmittedOlderThan(ctx context.Context, cutoff time.Time, errMessage string, limit int) (int, error)
 	SaveUploadObjectKey(ctx context.Context, taskID int64, key string, fileName string) error
 	MarkProviderCallback(ctx context.Context, input ProviderCallbackInput) (*Task, error)
+	MarkProviderCallbackProgress(ctx context.Context, input ProviderCallbackInput) (*Task, error)
 	MarkProviderStatus(ctx context.Context, taskID int64, result ProviderStatusResult) error
+	UpsertPendingResultFiles(ctx context.Context, taskID int64, files []ResultFileInput) error
 	MarkResultFileFailed(ctx context.Context, taskID int64, file ResultFileInput, errMessage string) error
 	MarkResultImported(ctx context.Context, taskID int64, file ResultFileInput, result ParsedResult) error
 	CompleteResultImport(ctx context.Context, taskID int64, notifyCallback bool) (*Task, bool, error)
@@ -389,8 +468,10 @@ type ProviderRegistry interface {
 }
 
 type ProviderSettings struct {
-	ProviderCode     string
-	BucketPathPrefix string
+	ProviderCode       string
+	BucketPathPrefix   string
+	DailyQuestionQuota int
+	Enabled            bool
 }
 
 type ProviderSettingsRepo interface {
@@ -401,6 +482,7 @@ type ObjectStore interface {
 	SignedPutURL(ctx context.Context, key string, expires time.Duration) (string, time.Time, error)
 	PutTemporaryObject(ctx context.Context, key string, contentType string, content []byte, retentionDays int) error
 	SignedGetURL(ctx context.Context, key string, expires time.Duration) (string, time.Time, error)
+	ObjectExists(ctx context.Context, key string) (bool, error)
 	ReadObject(ctx context.Context, key string) ([]byte, error)
 }
 

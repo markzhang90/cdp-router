@@ -28,6 +28,7 @@ type AdminSession struct {
 }
 
 type AdminTaskFilter struct {
+	TaskName     string
 	BatchNo      string
 	Source       string
 	PlatformCode string
@@ -50,34 +51,55 @@ type AdminTaskItemFilter struct {
 	PageSize int
 }
 
+type AdminPaginationFilter struct {
+	Page     int
+	PageSize int
+}
+
+type AdminTaskDetailFilter struct {
+	Items  AdminTaskItemFilter
+	Files  AdminPaginationFilter
+	Events AdminPaginationFilter
+}
+
 type AdminTaskSummary struct {
-	TaskID           int64
-	TaskName         string
-	BatchNo          string
-	Source           string
-	PlatformCode     string
-	ExternalBatchID  string
-	ProviderCode     string
-	Status           TaskStatus
-	QuestionCount    int
-	CompletedCount   int
-	SuccessCount     int
-	FailedCount      int
-	Progress         float64
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	ExecutionEndedAt time.Time
+	TaskID               int64
+	TaskName             string
+	BatchNo              string
+	Source               string
+	PlatformCode         string
+	ExternalBatchID      string
+	ProviderCode         string
+	Status               TaskStatus
+	QuestionCount        int
+	CompletedCount       int
+	SuccessCount         int
+	FailedCount          int
+	Progress             float64
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	ExecutionEndedAt     time.Time
+	SubmitFailed         bool
+	DispatchLabels       []string
+	ReassignedFromTaskID int64
+	ReassignedToTaskID   int64
 }
 
 type AdminTaskDetail struct {
-	Task      AdminTaskSummary
-	Items     []AdminTaskItem
-	ItemTotal int
-	ItemPage  int
-	ItemSize  int
-	Files     []AdminResultFile
-	Events    []AdminTaskEvent
-	Callbacks []AdminTaskCallback
+	Task       AdminTaskSummary
+	Items      []AdminTaskItem
+	ItemTotal  int
+	ItemPage   int
+	ItemSize   int
+	Files      []AdminResultFile
+	FileTotal  int
+	FilePage   int
+	FileSize   int
+	Events     []AdminTaskEvent
+	EventTotal int
+	EventPage  int
+	EventSize  int
+	Callbacks  []AdminTaskCallback
 }
 
 type AdminTaskItemsExport struct {
@@ -179,6 +201,11 @@ type AdminPlatformUserMetricsFilter struct {
 	CreatedTo   time.Time
 }
 
+type AdminPlatformUserReconciliationFilter struct {
+	CreatedFrom time.Time
+	CreatedTo   time.Time
+}
+
 type AdminProviderMetricsFilter struct {
 	CreatedFrom time.Time
 	CreatedTo   time.Time
@@ -266,14 +293,38 @@ type AdminProviderDailyMetric struct {
 	FailedAnswerCount  int
 }
 
+type AdminPlatformUserReconciliationExport struct {
+	User        PlatformUser
+	CreatedFrom time.Time
+	CreatedTo   time.Time
+	Rows        []AdminPlatformUserReconciliationRow
+}
+
+type AdminPlatformUserReconciliationRow struct {
+	MetricDate          string
+	TaskName            string
+	BatchNo             string
+	ProviderCode        string
+	ProviderCompanyName string
+	QuestionCount       int
+}
+
+type AdminProviderQuotaUsage struct {
+	ProviderCode string
+	Used         int
+}
+
 type AdminRepo interface {
 	ListTasks(ctx context.Context, filter AdminTaskFilter) (AdminTaskList, error)
-	GetTaskDetail(ctx context.Context, id int64, itemFilter AdminTaskItemFilter) (AdminTaskDetail, error)
+	GetTaskDetail(ctx context.Context, id int64, filter AdminTaskDetailFilter) (AdminTaskDetail, error)
 	ExportTaskItems(ctx context.Context, id int64) (AdminTaskItemsExport, error)
+	SoftDeleteSubmitFailedTask(ctx context.Context, id int64, deletedBy string) (AdminTaskSummary, error)
 	ListPlatformUsers(ctx context.Context, filter AdminPlatformUserFilter) (AdminPlatformUserList, error)
 	GetPlatformUser(ctx context.Context, id int64) (PlatformUser, error)
 	GetPlatformUserMetrics(ctx context.Context, id int64, filter AdminPlatformUserMetricsFilter) (AdminPlatformUserMetrics, error)
+	ExportPlatformUserReconciliation(ctx context.Context, id int64, filter AdminPlatformUserReconciliationFilter) (AdminPlatformUserReconciliationExport, error)
 	GetProviderMetrics(ctx context.Context, providerCode string, filter AdminProviderMetricsFilter) (AdminProviderMetrics, error)
+	ListProviderQuotaUsage(ctx context.Context, providerCodes []string) (map[string]AdminProviderQuotaUsage, error)
 	CreatePlatformUser(ctx context.Context, input AdminPlatformUserInput) (PlatformUser, error)
 	UpdatePlatformUser(ctx context.Context, id int64, input AdminPlatformUserInput) (PlatformUser, error)
 	AddAuditLog(ctx context.Context, log AdminAuditLog) error

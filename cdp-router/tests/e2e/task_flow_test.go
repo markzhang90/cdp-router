@@ -60,6 +60,7 @@ func TestTaskProxyFlowWithRealPostgresAndOSS(t *testing.T) {
 	}
 
 	batchNo := fmt.Sprintf("Q2A2-e2e-%d", time.Now().UnixNano())
+	taskName := "E2E 产品问答任务"
 	defer func() {
 		cleanupTaskDataByBatchNo(t, db, batchNo)
 	}()
@@ -115,6 +116,16 @@ func TestTaskProxyFlowWithRealPostgresAndOSS(t *testing.T) {
 			return
 		}
 		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		var rawReq map[string]any
+		if err := json.Unmarshal(body, &rawReq); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, ok := rawReq["taskName"]; ok {
+			http.Error(w, "provider submit payload must not include taskName", http.StatusBadRequest)
+			return
+		}
 		var req struct {
 			BatchNo      string `json:"batchNo"`
 			ProviderCode string `json:"providerCode"`
@@ -122,7 +133,7 @@ func TestTaskProxyFlowWithRealPostgresAndOSS(t *testing.T) {
 			CallbackURL  string `json:"callbackUrl"`
 			Items        []any  `json:"items"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -185,6 +196,7 @@ func TestTaskProxyFlowWithRealPostgresAndOSS(t *testing.T) {
 		"batchNo":      batchNo,
 		"providerCode": "ignored_request_provider",
 		"bizDate":      time.Now().Format("2006-01-02"),
+		"taskName":     taskName,
 		"callbackUrl":  businessCallback.URL,
 		"items": []map[string]any{
 			{
@@ -224,6 +236,9 @@ func TestTaskProxyFlowWithRealPostgresAndOSS(t *testing.T) {
 	}
 
 	task := waitTaskStatus(t, ctx, repo, batchNo, biz.TaskStatusDone)
+	if task.TaskName != taskName {
+		t.Fatalf("taskName=%q, want %q", task.TaskName, taskName)
+	}
 	if len(task.ResultPayload) == 0 || string(task.ResultPayload) == "{}" {
 		t.Fatal("expected result payload saved in database")
 	}
@@ -444,7 +459,7 @@ func TestYangshiDevCustomCallbackWithRealPostgresAndOSS(t *testing.T) {
 	repo := data.NewTaskRepo(db)
 	platformUsers := syncPlatformUsers(t, ctx, db, cfg)
 	providers := provider.NewRegistry(cfg.Provider)
-	usecase := biz.NewTaskUsecase(repo, providers, providers, store, cleaner.NewExcelParser(), callback.NewClient(10*time.Second, cfg.PlatformUsers, store, cfg.OSS.PublicHost, cfg.OSS.Host), biz.TaskUsecaseOptions{
+	usecase := biz.NewTaskUsecase(repo, providers, providers, store, cleaner.NewExcelParser(), callback.NewClient(10*time.Second, 5*time.Minute, cfg.PlatformUsers, store, cfg.OSS.PublicHost, cfg.OSS.Host), biz.TaskUsecaseOptions{
 		PublicBaseURL:           cfg.Server.PublicBaseURL,
 		OSSUploadDir:            cfg.OSS.UploadDir,
 		OSSExpire:               time.Duration(cfg.OSS.ExpireSeconds) * time.Second,
@@ -1395,7 +1410,7 @@ func TestSubmittedTaskMaintenanceWithRealPostgres(t *testing.T) {
 		{ItemID: "progress-item-2", PlatformCode: "qwen", Seq: 2, Question: "进度任务测试 2"},
 	}, 16*time.Minute)
 
-	timedOut, err := usecase.FailTimedOutSubmitted(ctx, 24*time.Hour, 10)
+	timedOut, err := usecase.FailTimedOutSubmitted(ctx, 24*time.Hour, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1417,7 +1432,7 @@ func TestSubmittedTaskMaintenanceWithRealPostgres(t *testing.T) {
 		t.Fatal("expected timeout task event")
 	}
 
-	refreshed, err := usecase.RefreshSubmittedProgress(ctx, 15*time.Minute, 10)
+	refreshed, err := usecase.RefreshSubmittedProgress(ctx, 10*time.Minute, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1440,6 +1455,692 @@ func TestSubmittedTaskMaintenanceWithRealPostgres(t *testing.T) {
 	}
 	if doneStatus != 2 || processingStatus != 1 {
 		t.Fatalf("progress item statuses=%d,%d", doneStatus, processingStatus)
+	}
+}
+
+func TestRuleBasedDispatchWithProductionTaskDataDoesNotSubmitProvider(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.EnsureDatabase(ctx, cfg.Postgres); err != nil {
+		t.Fatal(err)
+	}
+	db, err := data.Open(ctx, cfg.Postgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := data.Migrate(ctx, db, filepath.Join("..", "..", "migrations")); err != nil {
+		t.Fatal(err)
+	}
+
+	items, rawRequest := loadProductionDispatchRequest(t, filepath.Join("..", "..", "..", "exports", "Q2A3-20260820-mpzdata-60d7980d-raw-request.json"))
+	if len(items) != 1680 {
+		t.Fatalf("production item count=%d, want 1680", len(items))
+	}
+
+	platformCode := fmt.Sprintf("rule-prod-e2e-%d", time.Now().UnixNano())
+	adminRepo := data.NewAdminRepo(db)
+	platformUser, err := adminRepo.CreatePlatformUser(ctx, biz.AdminPlatformUserInput{
+		PlatformCode: platformCode,
+		Name:         "Rule Production Dispatch E2E",
+		Status:       "ACTIVE",
+		CallbackMode: "DEFAULT_HTTP",
+		CallbackURL:  "https://example.com/callback",
+		DispatchProfile: biz.DispatchProfileInput{
+			Strategy:      biz.DispatchStrategyRuleBased,
+			Enabled:       true,
+			ProviderCodes: []string{"mpzdata", "vendor_a", "liuandata"},
+			Rules: []biz.DispatchRuleInput{
+				{
+					Code:          "manual_verify",
+					Name:          "人工校验任务",
+					SortOrder:     10,
+					TaskNameRegex: "人工校验",
+					Labels:        []string{"MANUAL_VERIFY"},
+					ProviderCodes: []string{"mpzdata"},
+					Enabled:       true,
+				},
+				{
+					Code:          "tire_default",
+					Name:          "轮胎任务默认池",
+					SortOrder:     20,
+					TaskNameRegex: "轮胎",
+					Labels:        []string{"TIRE"},
+					ProviderCodes: []string{"vendor_a", "liuandata"},
+					Enabled:       true,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanupPlatformUserWithTasks(t, db, platformCode)
+
+	providerSettings := []biz.ProviderSettings{
+		{ProviderCode: "mpzdata", DailyQuestionQuota: 2000, Enabled: true},
+		{ProviderCode: "vendor_a", DailyQuestionQuota: 1000, Enabled: true},
+		{ProviderCode: "liuandata", Enabled: true},
+	}
+	repo := data.NewTaskRepo(db)
+
+	manualBatchNo := "dispatch-only-manual-" + platformCode
+	manualTask, err := repo.CreateTask(ctx, biz.CreateTaskInput{
+		JobID:          "job-" + manualBatchNo,
+		PlatformUserID: platformUser.ID,
+		PlatformCode:   platformCode,
+		BatchNo:        manualBatchNo,
+		TaskName:       "上线人工校验轮胎任务",
+		BizDate:        time.Now().Format("2006-01-02"),
+		CallbackURL:    "https://example.com/callback",
+		Items:          items,
+		RawRequest:     rawRequest,
+	}, providerSettings, "https://gateway.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manualTask.ProviderCode != "mpzdata" {
+		t.Fatalf("manual task provider=%s, want mpzdata", manualTask.ProviderCode)
+	}
+	assertDispatchOnlyTask(t, ctx, db, manualTask.ID, "manual_verify", "MANUAL_VERIFY")
+
+	defaultBatchNo := "dispatch-only-default-" + platformCode
+	defaultTask, err := repo.CreateTask(ctx, biz.CreateTaskInput{
+		JobID:          "job-" + defaultBatchNo,
+		PlatformUserID: platformUser.ID,
+		PlatformCode:   platformCode,
+		BatchNo:        defaultBatchNo,
+		TaskName:       "上线轮胎推荐任务",
+		BizDate:        time.Now().Format("2006-01-02"),
+		CallbackURL:    "https://example.com/callback",
+		Items:          items,
+		RawRequest:     rawRequest,
+	}, providerSettings, "https://gateway.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultTask.ProviderCode != "liuandata" {
+		t.Fatalf("default tire task provider=%s, want liuandata because vendor_a quota is below 1680 questions", defaultTask.ProviderCode)
+	}
+	assertDispatchOnlyTask(t, ctx, db, defaultTask.ID, "tire_default", "TIRE")
+}
+
+func TestRuleBasedDispatchSelectionThroughHTTPWithRealPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Redis.Enabled = true
+	if err := data.EnsureDatabase(ctx, cfg.Postgres); err != nil {
+		t.Fatal(err)
+	}
+	db, err := data.Open(ctx, cfg.Postgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := data.Migrate(ctx, db, filepath.Join("..", "..", "migrations")); err != nil {
+		t.Fatal(err)
+	}
+	redisClient, cleanupRedis := openRealRedisForTest(t, ctx, cfg)
+	defer cleanupRedis()
+	defer redisClient.Close()
+
+	type submittedTask struct {
+		ProviderCode string
+		BatchNo      string
+		TaskName     string
+		Accepted     int
+	}
+	submitted := make(chan submittedTask, 8)
+	var submitSeq atomic.Int64
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/provider/submit" {
+			http.NotFound(w, r)
+			return
+		}
+		defer r.Body.Close()
+		var req struct {
+			BatchNo      string `json:"batchNo"`
+			ProviderCode string `json:"providerCode"`
+			TaskName     string `json:"taskName"`
+			Items        []any  `json:"items"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.TaskName != "" {
+			http.Error(w, "provider submit payload must not include taskName", http.StatusBadRequest)
+			return
+		}
+		if got, want := r.Header.Get("X-Provider-Token"), "token-"+req.ProviderCode; got != want {
+			http.Error(w, fmt.Sprintf("provider token=%q, want %q", got, want), http.StatusUnauthorized)
+			return
+		}
+		submitted <- submittedTask{
+			ProviderCode: req.ProviderCode,
+			BatchNo:      req.BatchNo,
+			Accepted:     len(req.Items),
+		}
+		externalBatchID := fmt.Sprintf("ext-%d-%s", submitSeq.Add(1), req.ProviderCode)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"message":"success","data":{"externalBatchId":%q,"acceptedCount":%d}}`, externalBatchID, len(req.Items))))
+	}))
+	defer providerServer.Close()
+
+	localProvider := func(code string, quota int) config.ProviderConfig {
+		return config.ProviderConfig{
+			Code:               code,
+			DisplayName:        code,
+			SubmitURL:          providerServer.URL + "/provider/submit",
+			Token:              "token-" + code,
+			ResultMode:         "polling",
+			Timeout:            10 * time.Second,
+			QPSLimit:           10,
+			ConcurrencyLimit:   10,
+			DailyQuestionQuota: quota,
+			Enabled:            true,
+		}
+	}
+	cfg.Provider = map[string]config.ProviderConfig{
+		"rule_local":       localProvider("rule_local", 1),
+		"fallback_local_a": localProvider("fallback_local_a", 0),
+		"fallback_local_b": localProvider("fallback_local_b", 0),
+	}
+	cfg.PlatformUsers = map[string]config.PlatformUserConfig{}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatewayBaseURL := "http://" + listener.Addr().String()
+	cfg.Server.PublicBaseURL = gatewayBaseURL
+
+	store, err := ossutil.New(cfg.OSS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskRepo := data.NewTaskRepo(db)
+	platformUsers := data.NewPlatformUserRepo(db)
+	providers := provider.NewRegistry(cfg.Provider)
+	usecase := biz.NewTaskUsecase(taskRepo, providers, providers, store, cleaner.NewExcelParser(), callback.NewHTTPClient(10*time.Second), biz.TaskUsecaseOptions{
+		PublicBaseURL:           cfg.Server.PublicBaseURL,
+		OSSUploadDir:            cfg.OSS.UploadDir,
+		OSSExpire:               time.Duration(cfg.OSS.ExpireSeconds) * time.Second,
+		TempObjectRetentionDays: cfg.OSS.TempObjectRetentionDays,
+		CallbackMaxTry:          cfg.Callback.MaxRetry,
+	})
+	adminService := service.NewAdminService(cfg.Admin, redisClient, data.NewAdminRepo(db), usecase, cfg.Provider)
+	server := httpapi.New(service.NewTaskService(usecase, providers, platformUsers, cfg.OSS.Bucket), adminService)
+	httpServer := &http.Server{Handler: server.Handler()}
+	go func() { _ = httpServer.Serve(listener) }()
+	defer func() { _ = httpServer.Shutdown(context.Background()) }()
+
+	auth := adminLogin(t, gatewayBaseURL, cfg)
+	platformCode := fmt.Sprintf("rule-http-%d", time.Now().UnixNano())
+	defer cleanupPlatformUserWithTasks(t, db, platformCode)
+	createPlatformResp := adminPostJSON(t, gatewayBaseURL+"/api/admin/v1/platform-users", auth, map[string]any{
+		"platformCode": platformCode,
+		"name":         "Rule HTTP Dispatch E2E",
+		"status":       "ACTIVE",
+		"callbackMode": "DEFAULT_HTTP",
+		"callbackUrl":  "https://example.com/callback",
+		"dispatchProfile": map[string]any{
+			"strategy":                "RULE_BASED",
+			"enabled":                 true,
+			"providerCodes":           []string{"fallback_local_a", "fallback_local_b"},
+			"fallbackSelectionPolicy": "ROUND_ROBIN",
+			"rules": []map[string]any{
+				{
+					"name":          "规则1",
+					"sortOrder":     10,
+					"taskNameRegex": "白酒",
+					"labels":        []string{"BAIJIU"},
+					"providerCodes": []string{"rule_local"},
+					"enabled":       true,
+				},
+			},
+		},
+	})
+	if createPlatformResp.StatusCode != http.StatusOK {
+		t.Fatalf("create platform user status=%d body=%s", createPlatformResp.StatusCode, readBody(createPlatformResp))
+	}
+	var createPlatformBody struct {
+		Data struct {
+			ID              string `json:"id"`
+			APIKey          string `json:"apiKey"`
+			DispatchProfile struct {
+				Strategy                string   `json:"strategy"`
+				ProviderCodes           []string `json:"providerCodes"`
+				FallbackSelectionPolicy string   `json:"fallbackSelectionPolicy"`
+				Rules                   []struct {
+					Code          string   `json:"code"`
+					Name          string   `json:"name"`
+					TaskNameRegex string   `json:"taskNameRegex"`
+					Labels        []string `json:"labels"`
+					ProviderCodes []string `json:"providerCodes"`
+				} `json:"rules"`
+			} `json:"dispatchProfile"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(createPlatformResp.Body).Decode(&createPlatformBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = createPlatformResp.Body.Close()
+	if createPlatformBody.Data.ID == "" ||
+		createPlatformBody.Data.APIKey == "" ||
+		createPlatformBody.Data.DispatchProfile.Strategy != "RULE_BASED" ||
+		createPlatformBody.Data.DispatchProfile.FallbackSelectionPolicy != "ROUND_ROBIN" ||
+		fmt.Sprint(createPlatformBody.Data.DispatchProfile.ProviderCodes) != "[fallback_local_a fallback_local_b]" ||
+		len(createPlatformBody.Data.DispatchProfile.Rules) != 1 ||
+		createPlatformBody.Data.DispatchProfile.Rules[0].Code == "" ||
+		fmt.Sprint(createPlatformBody.Data.DispatchProfile.Rules[0].ProviderCodes) != "[rule_local]" {
+		t.Fatalf("unexpected create platform dispatch profile: %+v", createPlatformBody.Data.DispatchProfile)
+	}
+
+	createHTTPTask := func(batchNo string, taskName string) *biz.Task {
+		t.Helper()
+		resp := postJSONWithAPIKey(t, gatewayBaseURL+"/api/v1/tasks", createPlatformBody.Data.APIKey, map[string]any{
+			"batchNo":     batchNo,
+			"bizDate":     time.Now().Format("2006-01-02"),
+			"taskName":    taskName,
+			"callbackUrl": "https://example.com/callback",
+			"items": []map[string]any{
+				{
+					"itemId":       "item-" + batchNo,
+					"platformCode": "yuanbao",
+					"seq":          1,
+					"question":     "本地 E2E 调度问题",
+				},
+			},
+		})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("create task %s status=%d body=%s", batchNo, resp.StatusCode, readBody(resp))
+		}
+		_ = resp.Body.Close()
+		task := waitTaskStatus(t, ctx, taskRepo, batchNo, biz.TaskStatusSubmitted)
+		select {
+		case got := <-submitted:
+			if got.ProviderCode != task.ProviderCode || got.BatchNo != batchNo || got.Accepted != 1 {
+				t.Fatalf("provider submit=%+v taskProvider=%s batch=%s", got, task.ProviderCode, batchNo)
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting provider submit for %s", batchNo)
+		}
+		return task
+	}
+
+	first := createHTTPTask("rule-http-1-"+platformCode, "白酒任务第一组")
+	if first.ProviderCode != "rule_local" {
+		t.Fatalf("first provider=%s, want rule_local", first.ProviderCode)
+	}
+	assertDispatchEvent(t, ctx, db, first.ID, "rule_1", "BAIJIU", "rule_local", "lowest_quota_usage_rate", []string{"rule_local"})
+
+	second := createHTTPTask("rule-http-2-"+platformCode, "白酒任务第二组")
+	if second.ProviderCode != "fallback_local_b" {
+		t.Fatalf("second provider=%s, want fallback_local_b after rule pool quota exhausted", second.ProviderCode)
+	}
+	assertDispatchEvent(t, ctx, db, second.ID, "rule_1", "fallback", "fallback_local_b", "rule_pool_fallback_round_robin", []string{"fallback_local_a", "fallback_local_b"})
+
+	third := createHTTPTask("rule-http-3-"+platformCode, "普通任务第一组")
+	if third.ProviderCode != "fallback_local_a" {
+		t.Fatalf("third provider=%s, want fallback_local_a", third.ProviderCode)
+	}
+	assertDispatchEvent(t, ctx, db, third.ID, "", "", "fallback_local_a", "fallback_round_robin", []string{"fallback_local_a", "fallback_local_b"})
+
+	fourth := createHTTPTask("rule-http-4-"+platformCode, "普通任务第二组")
+	if fourth.ProviderCode != "fallback_local_b" {
+		t.Fatalf("fourth provider=%s, want fallback_local_b", fourth.ProviderCode)
+	}
+	assertDispatchEvent(t, ctx, db, fourth.ID, "", "", "fallback_local_b", "fallback_round_robin", []string{"fallback_local_a", "fallback_local_b"})
+}
+
+func TestAdminReassignTaskCallbackUsesOriginalBatchNoWithRealPostgresAndRedis(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ensureE2EProviderConfig(cfg)
+	cfg.Redis.Enabled = true
+	if err := data.EnsureDatabase(ctx, cfg.Postgres); err != nil {
+		t.Fatal(err)
+	}
+	db, err := data.Open(ctx, cfg.Postgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := data.Migrate(ctx, db, filepath.Join("..", "..", "migrations")); err != nil {
+		t.Fatal(err)
+	}
+	redisClient, cleanupRedis := openRealRedisForTest(t, ctx, cfg)
+	defer cleanupRedis()
+	defer redisClient.Close()
+
+	platformCode := fmt.Sprintf("reassign-http-%d", time.Now().UnixNano())
+	batchNo := "batch-" + platformCode
+	if os.Getenv("CDP_E2E_KEEP_REASSIGN_DATA") != "1" {
+		defer cleanupPlatformUserWithTasks(t, db, platformCode)
+	}
+
+	var callbackMu sync.Mutex
+	var callbackPayload map[string]any
+	callbackDone := make(chan struct{})
+	businessCallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		callbackMu.Lock()
+		_ = json.Unmarshal(body, &callbackPayload)
+		callbackMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"accepted":true}`))
+		closeOnce(callbackDone)
+	}))
+	defer businessCallback.Close()
+
+	type providerSubmit struct {
+		ProviderCode    string
+		BatchNo         string
+		CallbackURL     string
+		ExternalBatchID string
+		ItemCount       int
+	}
+	submitted := make(chan providerSubmit, 4)
+	var providerServerURL string
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/provider/submit":
+			defer r.Body.Close()
+			var req struct {
+				BatchNo      string `json:"batchNo"`
+				ProviderCode string `json:"providerCode"`
+				CallbackURL  string `json:"callbackUrl"`
+				Items        []any  `json:"items"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if got, want := r.Header.Get("X-Provider-Token"), "token-"+req.ProviderCode; got != want {
+				http.Error(w, fmt.Sprintf("provider token=%q, want %q", got, want), http.StatusUnauthorized)
+				return
+			}
+			externalBatchID := "ext-" + req.ProviderCode + "-" + platformCode
+			submitted <- providerSubmit{
+				ProviderCode:    req.ProviderCode,
+				BatchNo:         req.BatchNo,
+				CallbackURL:     req.CallbackURL,
+				ExternalBatchID: externalBatchID,
+				ItemCount:       len(req.Items),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"message":"success","data":{"externalBatchId":%q,"acceptedCount":%d}}`, externalBatchID, len(req.Items))))
+		case strings.HasPrefix(r.URL.Path, "/provider/files/"):
+			if got, want := r.Header.Get("X-Provider-Token"), "token-liuandata"; got != want {
+				http.Error(w, fmt.Sprintf("provider token=%q, want %q", got, want), http.StatusUnauthorized)
+				return
+			}
+			externalBatchID := strings.TrimPrefix(r.URL.Path, "/provider/files/")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"success":true,"message":"查询成功","code":200,"data":{"externalBatchId":%q,"fileUrls":["%s/provider/result-reassigned.xlsx"]}}`, externalBatchID, providerServerURL)))
+		case r.URL.Path == "/provider/result-reassigned.xlsx":
+			w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+			_, _ = w.Write(resultWorkbookForItem(t, "reassign-item-1"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	providerServerURL = providerServer.URL
+	defer providerServer.Close()
+
+	localProvider := func(code string, enabled bool) config.ProviderConfig {
+		return config.ProviderConfig{
+			Code:             code,
+			DisplayName:      code,
+			SubmitURL:        providerServer.URL + "/provider/submit",
+			FilesURL:         providerServer.URL + "/provider/files/{externalBatchId}",
+			Token:            "token-" + code,
+			ResultMode:       "callback_upload",
+			Timeout:          10 * time.Second,
+			QPSLimit:         10,
+			ConcurrencyLimit: 10,
+			Enabled:          enabled,
+		}
+	}
+	cfg.Provider = map[string]config.ProviderConfig{
+		"vendor_a":  localProvider("vendor_a", true),
+		"liuandata": localProvider("liuandata", true),
+	}
+	cfg.PlatformUsers = map[string]config.PlatformUserConfig{}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatewayBaseURL := "http://" + listener.Addr().String()
+	cfg.Server.PublicBaseURL = gatewayBaseURL
+
+	store, err := ossutil.New(cfg.OSS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskRepo := data.NewTaskRepo(db)
+	platformUsers := data.NewPlatformUserRepo(db)
+	providers := provider.NewRegistry(cfg.Provider)
+	usecase := biz.NewTaskUsecase(taskRepo, providers, providers, store, cleaner.NewExcelParser(), callback.NewHTTPClient(10*time.Second), biz.TaskUsecaseOptions{
+		PublicBaseURL:           cfg.Server.PublicBaseURL,
+		OSSUploadDir:            cfg.OSS.UploadDir,
+		OSSExpire:               time.Duration(cfg.OSS.ExpireSeconds) * time.Second,
+		TempObjectRetentionDays: cfg.OSS.TempObjectRetentionDays,
+		CallbackMaxTry:          cfg.Callback.MaxRetry,
+	})
+	adminService := service.NewAdminService(cfg.Admin, redisClient, data.NewAdminRepo(db), usecase, cfg.Provider)
+	server := httpapi.New(service.NewTaskService(usecase, providers, platformUsers, cfg.OSS.Bucket), adminService)
+	httpServer := &http.Server{Handler: server.Handler()}
+	go func() { _ = httpServer.Serve(listener) }()
+	defer func() { _ = httpServer.Shutdown(context.Background()) }()
+
+	auth := adminLogin(t, gatewayBaseURL, cfg)
+	createPlatformResp := adminPostJSON(t, gatewayBaseURL+"/api/admin/v1/platform-users", auth, map[string]any{
+		"platformCode": platformCode,
+		"name":         "Reassign E2E Platform",
+		"status":       "ACTIVE",
+		"callbackMode": "DEFAULT_HTTP",
+		"callbackUrl":  businessCallback.URL,
+		"dispatchProfile": map[string]any{
+			"strategy":      "ROUND_ROBIN",
+			"enabled":       true,
+			"providerCodes": []string{"vendor_a"},
+		},
+	})
+	if createPlatformResp.StatusCode != http.StatusOK {
+		t.Fatalf("create platform user status=%d body=%s", createPlatformResp.StatusCode, readBody(createPlatformResp))
+	}
+	var createPlatformBody struct {
+		Data struct {
+			APIKey string `json:"apiKey"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(createPlatformResp.Body).Decode(&createPlatformBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = createPlatformResp.Body.Close()
+	if createPlatformBody.Data.APIKey == "" {
+		t.Fatal("created platform user missing api key")
+	}
+
+	createResp := postJSONWithAPIKey(t, gatewayBaseURL+"/api/v1/tasks", createPlatformBody.Data.APIKey, map[string]any{
+		"batchNo":     batchNo,
+		"bizDate":     time.Now().Format("2006-01-02"),
+		"taskName":    "转派 E2E 任务",
+		"callbackUrl": businessCallback.URL,
+		"items": []map[string]any{
+			{
+				"itemId":       "reassign-item-1",
+				"platformCode": "yuanbao",
+				"seq":          1,
+				"question":     "请评价某产品的优缺点",
+				"deepthink":    true,
+				"webSearch":    true,
+			},
+		},
+	})
+	if createResp.StatusCode != http.StatusOK {
+		t.Fatalf("create task status=%d body=%s", createResp.StatusCode, readBody(createResp))
+	}
+	var createBody struct {
+		Data struct {
+			ExternalBatchID string `json:"externalBatchId"`
+			AcceptedCount   int    `json:"acceptedCount"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&createBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = createResp.Body.Close()
+	if createBody.Data.ExternalBatchID == "" || createBody.Data.AcceptedCount != 1 {
+		t.Fatalf("unexpected create response: %+v", createBody.Data)
+	}
+	sourceTask := waitTaskStatus(t, ctx, taskRepo, batchNo, biz.TaskStatusSubmitted)
+	var sourceSubmit providerSubmit
+	select {
+	case sourceSubmit = <-submitted:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting source provider submit")
+	}
+	if sourceSubmit.ProviderCode != "vendor_a" || sourceSubmit.BatchNo != batchNo || sourceSubmit.CallbackURL != gatewayBaseURL+"/external/callback/vendor_a" {
+		t.Fatalf("source provider submit=%+v", sourceSubmit)
+	}
+
+	reassignResp := adminPostJSON(t, gatewayBaseURL+"/api/admin/v1/tasks/reassign", auth, map[string]any{
+		"batchNo":      batchNo,
+		"providerCode": "liuandata",
+		"reason":       "E2E verify reassignment callback identifiers",
+	})
+	if reassignResp.StatusCode != http.StatusOK {
+		t.Fatalf("reassign task status=%d body=%s", reassignResp.StatusCode, readBody(reassignResp))
+	}
+	var reassignBody struct {
+		Data struct {
+			SourceTaskID    int64  `json:"sourceTaskId,string"`
+			TargetTaskID    int64  `json:"targetTaskId,string"`
+			OriginalBatchNo string `json:"originalBatchNo"`
+			TargetBatchNo   string `json:"targetBatchNo"`
+			ProviderCode    string `json:"providerCode"`
+			TaskStatus      string `json:"taskStatus"`
+			AcceptedCount   int    `json:"acceptedCount"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(reassignResp.Body).Decode(&reassignBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = reassignResp.Body.Close()
+	if reassignBody.Data.SourceTaskID != sourceTask.ID ||
+		reassignBody.Data.TargetTaskID == 0 ||
+		reassignBody.Data.OriginalBatchNo != batchNo ||
+		reassignBody.Data.TargetBatchNo == "" ||
+		reassignBody.Data.TargetBatchNo == batchNo ||
+		reassignBody.Data.ProviderCode != "liuandata" ||
+		reassignBody.Data.AcceptedCount != 1 {
+		t.Fatalf("unexpected reassign response: %+v", reassignBody.Data)
+	}
+	sourceTask = waitTaskStatus(t, ctx, taskRepo, batchNo, biz.TaskStatusReassigned)
+
+	var targetSubmit providerSubmit
+	select {
+	case targetSubmit = <-submitted:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting target provider submit")
+	}
+	if targetSubmit.ProviderCode != "liuandata" ||
+		targetSubmit.BatchNo != batchNo ||
+		targetSubmit.CallbackURL != gatewayBaseURL+"/external/callback/liuandata" ||
+		targetSubmit.ItemCount != 1 {
+		t.Fatalf("target provider submit=%+v", targetSubmit)
+	}
+	targetTask, err := taskRepo.GetTask(ctx, reassignBody.Data.TargetTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targetTask.ReassignedFromTaskID != sourceTask.ID ||
+		targetTask.CallbackBatchNo != batchNo ||
+		targetTask.CallbackExternalBatchID != createBody.Data.ExternalBatchID {
+		t.Fatalf("unexpected target task linkage: %+v", targetTask)
+	}
+
+	oldProviderCallbackResp := postJSON(t, gatewayBaseURL+"/external/callback/vendor_a", cfg.Provider["vendor_a"].Token, map[string]any{
+		"batchNo":         batchNo,
+		"externalBatchId": sourceSubmit.ExternalBatchID,
+		"status":          "DONE",
+		"totalCount":      1,
+		"successCount":    1,
+		"failedCount":     0,
+	})
+	if oldProviderCallbackResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("old provider callback status=%d body=%s", oldProviderCallbackResp.StatusCode, readBody(oldProviderCallbackResp))
+	}
+	if body := readBody(oldProviderCallbackResp); !strings.Contains(body, "task is closed") {
+		t.Fatalf("old provider callback body=%s, want task is closed", body)
+	}
+
+	callbackResp := postJSON(t, gatewayBaseURL+"/external/callback/liuandata", cfg.Provider["liuandata"].Token, map[string]any{
+		"batchNo":         batchNo,
+		"externalBatchId": targetSubmit.ExternalBatchID,
+		"status":          "DONE",
+		"totalCount":      1,
+		"successCount":    1,
+		"failedCount":     0,
+		"finishedAt":      time.Now().Format(time.RFC3339),
+	})
+	if callbackResp.StatusCode != http.StatusOK {
+		t.Fatalf("target provider callback status=%d body=%s", callbackResp.StatusCode, readBody(callbackResp))
+	}
+	_ = callbackResp.Body.Close()
+
+	targetTask = waitTaskStatus(t, ctx, taskRepo, reassignBody.Data.TargetBatchNo, biz.TaskStatusCallbackPending)
+	if _, _, err := usecase.RetryTaskCallback(ctx, targetTask.ID, true); err != nil {
+		t.Fatalf("retry reassigned task callback: %v", err)
+	}
+	select {
+	case <-callbackDone:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting reassigned business callback")
+	}
+	targetTask = waitTaskStatus(t, ctx, taskRepo, reassignBody.Data.TargetBatchNo, biz.TaskStatusDone)
+	if targetTask.ID != reassignBody.Data.TargetTaskID {
+		t.Fatalf("done target task id=%d, want %d", targetTask.ID, reassignBody.Data.TargetTaskID)
+	}
+
+	callbackMu.Lock()
+	gotBatchNo := callbackPayload["batchNo"]
+	gotExternalBatchID := callbackPayload["externalBatchId"]
+	gotResultURL := callbackPayload["resultUrl"]
+	_, hasInlineResult := callbackPayload["result"]
+	callbackMu.Unlock()
+	if gotBatchNo != batchNo {
+		t.Fatalf("callback batchNo=%v, want %s", gotBatchNo, batchNo)
+	}
+	if gotExternalBatchID != createBody.Data.ExternalBatchID {
+		t.Fatalf("callback externalBatchId=%v, want %s", gotExternalBatchID, createBody.Data.ExternalBatchID)
+	}
+	resultURL, ok := gotResultURL.(string)
+	if !ok || !strings.Contains(resultURL, "/api/v1/external-tasks/"+createBody.Data.ExternalBatchID+"/result") {
+		t.Fatalf("callback resultUrl=%v, want original external batch id", gotResultURL)
+	}
+	if hasInlineResult {
+		t.Fatal("callback payload must not include inline result")
 	}
 }
 
@@ -1469,8 +2170,11 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	defer redisClient.Close()
 
 	batchNo := fmt.Sprintf("Q2A2-admin-e2e-%d", time.Now().UnixNano())
+	adminTaskName := "Admin E2E 某产品问答任务"
+	submitFailedBatchNo := batchNo + "-admin-delete-submit-failed"
 	defer func() {
 		cleanupTaskDataByBatchNo(t, db, batchNo)
+		cleanupTaskDataByBatchNo(t, db, submitFailedBatchNo)
 		_ = redisClient.Del(context.Background(), cfg.Admin.Session.RedisKeyPrefix+"*").Err()
 	}()
 
@@ -1502,6 +2206,21 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/provider/submit":
+			body, _ := io.ReadAll(r.Body)
+			var rawReq map[string]any
+			if err := json.Unmarshal(body, &rawReq); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if _, ok := rawReq["taskName"]; ok {
+				http.Error(w, "provider submit payload must not include taskName", http.StatusBadRequest)
+				return
+			}
+			if strings.Contains(string(body), "admin-delete-submit-failed") {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"code":500,"message":"submit failed for admin delete e2e","data":{}}`))
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"externalBatchId":"vendor-batch-admin-e2e","acceptedCount":2}}`))
 		case "/provider/status/vendor-batch-admin-e2e":
@@ -1524,6 +2243,8 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	providerCfg.SubmitURL = providerServer.URL + "/provider/submit"
 	providerCfg.StatusURL = providerServer.URL + "/provider/status/{externalBatchId}"
 	providerCfg.FilesURL = providerServer.URL + "/provider/files/{externalBatchId}"
+	providerCfg.CompanyName = "Vendor A Co., Ltd."
+	providerCfg.SettlementStartAt = "2026-01-01"
 	cfg.Provider = map[string]config.ProviderConfig{"vendor_a": providerCfg}
 	setDefaultProviderCode(cfg, "vendor_a")
 
@@ -1571,6 +2292,8 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 			Providers []struct {
 				ProviderCode        string `json:"providerCode"`
 				DisplayName         string `json:"displayName"`
+				CompanyName         string `json:"companyName"`
+				SettlementStartAt   string `json:"settlementStartAt"`
 				Enabled             bool   `json:"enabled"`
 				SubmitURLConfigured bool   `json:"submitUrlConfigured"`
 			} `json:"providers"`
@@ -1583,6 +2306,8 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	if len(providerListBody.Data.Providers) != 1 ||
 		providerListBody.Data.Providers[0].ProviderCode != "vendor_a" ||
 		providerListBody.Data.Providers[0].DisplayName == "" ||
+		providerListBody.Data.Providers[0].CompanyName != "Vendor A Co., Ltd." ||
+		providerListBody.Data.Providers[0].SettlementStartAt != "2026-01-01" ||
 		!providerListBody.Data.Providers[0].Enabled ||
 		!providerListBody.Data.Providers[0].SubmitURLConfigured {
 		t.Fatalf("unexpected provider list body: %+v", providerListBody.Data.Providers)
@@ -1593,6 +2318,7 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 		"providerCode": "vendor_a",
 		"source":       "admin-e2e-source",
 		"bizDate":      time.Now().Format("2006-01-02"),
+		"taskName":     adminTaskName,
 		"callbackUrl":  businessCallback.URL,
 		"items": []map[string]any{
 			{
@@ -1620,14 +2346,18 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 
 	task := waitTaskStatus(t, ctx, repo, batchNo, biz.TaskStatusSubmitted)
 	var storedSource string
-	if err := db.QueryRow(ctx, `select coalesce(source,'') from cdp_tasks where id=$1`, task.ID).Scan(&storedSource); err != nil {
+	var storedTaskName string
+	if err := db.QueryRow(ctx, `select coalesce(source,''), task_name from cdp_tasks where id=$1`, task.ID).Scan(&storedSource, &storedTaskName); err != nil {
 		t.Fatal(err)
 	}
 	if storedSource != "admin-e2e-source" {
 		t.Fatalf("source=%q, want admin-e2e-source", storedSource)
 	}
+	if storedTaskName != adminTaskName {
+		t.Fatalf("task_name=%q, want %q", storedTaskName, adminTaskName)
+	}
 
-	listResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks?batchNo="+batchNo+"&source=admin-e2e-source&resultStatus=PROCESSING&page=1&pageSize=10", auth)
+	listResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks?batchNo="+batchNo+"&taskName="+url.QueryEscape("某产品")+"&source=admin-e2e-source&resultStatus=PROCESSING&page=1&pageSize=10", auth)
 	if listResp.StatusCode != http.StatusOK {
 		t.Fatalf("admin list status=%d body=%s", listResp.StatusCode, readBody(listResp))
 	}
@@ -1650,7 +2380,7 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	}
 	_ = listResp.Body.Close()
 	if listBody.Data.Total != 1 ||
-		listBody.Data.Tasks[0].TaskName != batchNo ||
+		listBody.Data.Tasks[0].TaskName != adminTaskName ||
 		!strings.HasPrefix(listBody.Data.Tasks[0].ExternalBatchID, "job_") ||
 		listBody.Data.Tasks[0].Source != "admin-e2e-source" ||
 		listBody.Data.Tasks[0].QuestionCount != 2 {
@@ -1679,6 +2409,120 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 		t.Fatalf("unexpected platform filtered list body: %+v", platformFilteredBody.Data)
 	}
 
+	rejectDeleteResp := adminDelete(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(task.ID), auth)
+	if rejectDeleteResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete submitted task status=%d body=%s", rejectDeleteResp.StatusCode, readBody(rejectDeleteResp))
+	}
+	_ = rejectDeleteResp.Body.Close()
+
+	submitFailedResp := postJSONWithAPIKey(t, gatewayBaseURL+"/api/v1/tasks", cfg.PlatformUsers["mainland"].APIKey, map[string]any{
+		"batchNo":      submitFailedBatchNo,
+		"providerCode": "vendor_a",
+		"source":       "admin-delete-e2e-source",
+		"bizDate":      time.Now().Format("2006-01-02"),
+		"callbackUrl":  businessCallback.URL,
+		"items": []map[string]any{
+			{
+				"itemId":       "admin-delete-submit-failed-item",
+				"platformCode": "doubao",
+				"seq":          1,
+				"question":     "admin-delete-submit-failed question",
+			},
+		},
+	})
+	if submitFailedResp.StatusCode == http.StatusOK {
+		t.Fatalf("submit failed task unexpectedly succeeded: body=%s", readBody(submitFailedResp))
+	}
+	_ = submitFailedResp.Body.Close()
+	submitFailedTask := waitTaskStatus(t, ctx, repo, submitFailedBatchNo, biz.TaskStatusFailed)
+	if submitFailedTask.TaskName != "" {
+		t.Fatalf("omitted taskName=%q, want empty string", submitFailedTask.TaskName)
+	}
+	var submitFailedEventCount int
+	if err := db.QueryRow(ctx, `select count(*) from cdp_task_events where task_id=$1 and event_type='PROVIDER_SUBMIT_FAILED'`, submitFailedTask.ID).Scan(&submitFailedEventCount); err != nil {
+		t.Fatal(err)
+	}
+	if submitFailedEventCount != 1 {
+		t.Fatalf("submit failed event count=%d, want 1", submitFailedEventCount)
+	}
+	deleteResp := adminDelete(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(submitFailedTask.ID), auth)
+	if deleteResp.StatusCode != http.StatusOK {
+		t.Fatalf("delete submit failed task status=%d body=%s", deleteResp.StatusCode, readBody(deleteResp))
+	}
+	_ = deleteResp.Body.Close()
+	var taskRows, itemRows, eventRows, deleteAuditRows int
+	if err := db.QueryRow(ctx, `select count(*) from cdp_tasks where id=$1`, submitFailedTask.ID).Scan(&taskRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `select count(*) from cdp_task_items where task_id=$1`, submitFailedTask.ID).Scan(&itemRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `select count(*) from cdp_task_events where task_id=$1`, submitFailedTask.ID).Scan(&eventRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `select count(*) from cdp_admin_audit_logs where resource_type='TASK' and resource_id=$1 and action='SOFT_DELETE_SUBMIT_FAILED_TASK'`, fmt.Sprint(submitFailedTask.ID)).Scan(&deleteAuditRows); err != nil {
+		t.Fatal(err)
+	}
+	var deletedAtSet bool
+	var deletedBy string
+	if err := db.QueryRow(ctx, `select deleted_at is not null, coalesce(deleted_by,'') from cdp_tasks where id=$1`, submitFailedTask.ID).Scan(&deletedAtSet, &deletedBy); err != nil {
+		t.Fatal(err)
+	}
+	if taskRows != 1 || itemRows != 1 || eventRows < 1 || deleteAuditRows != 1 || !deletedAtSet || deletedBy == "" {
+		t.Fatalf("soft delete submit failed task rows: tasks=%d items=%d events=%d audit=%d deletedAt=%v deletedBy=%q", taskRows, itemRows, eventRows, deleteAuditRows, deletedAtSet, deletedBy)
+	}
+	deletedListResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks?batchNo="+submitFailedBatchNo+"&page=1&pageSize=10", auth)
+	if deletedListResp.StatusCode != http.StatusOK {
+		t.Fatalf("deleted admin list status=%d body=%s", deletedListResp.StatusCode, readBody(deletedListResp))
+	}
+	var deletedListBody struct {
+		Data struct {
+			Total int `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(deletedListResp.Body).Decode(&deletedListBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = deletedListResp.Body.Close()
+	if deletedListBody.Data.Total != 0 {
+		t.Fatalf("soft deleted task still visible in admin list: total=%d", deletedListBody.Data.Total)
+	}
+	recreateSubmitFailedResp := postJSONWithAPIKey(t, gatewayBaseURL+"/api/v1/tasks", cfg.PlatformUsers["mainland"].APIKey, map[string]any{
+		"batchNo":      submitFailedBatchNo,
+		"providerCode": "vendor_a",
+		"source":       "admin-delete-e2e-source",
+		"bizDate":      time.Now().Format("2006-01-02"),
+		"callbackUrl":  businessCallback.URL,
+		"items": []map[string]any{
+			{
+				"itemId":       "admin-delete-submit-failed-item-recreated",
+				"platformCode": "doubao",
+				"seq":          1,
+				"question":     "admin-delete-submit-failed recreated question",
+			},
+		},
+	})
+	if recreateSubmitFailedResp.StatusCode == http.StatusOK {
+		t.Fatalf("recreated submit failed task unexpectedly succeeded: body=%s", readBody(recreateSubmitFailedResp))
+	}
+	_ = recreateSubmitFailedResp.Body.Close()
+	var batchRowsAfterRecreate int
+	if err := db.QueryRow(ctx, `select count(*) from cdp_tasks where batch_no=$1`, submitFailedBatchNo).Scan(&batchRowsAfterRecreate); err != nil {
+		t.Fatal(err)
+	}
+	if batchRowsAfterRecreate != 2 {
+		t.Fatalf("soft deleted batch recreate rows=%d, want 2", batchRowsAfterRecreate)
+	}
+	var recreatedSubmitFailedTaskID int64
+	if err := db.QueryRow(ctx, `select id from cdp_tasks where batch_no=$1 and deleted_at is null`, submitFailedBatchNo).Scan(&recreatedSubmitFailedTaskID); err != nil {
+		t.Fatal(err)
+	}
+	deleteRecreatedResp := adminDelete(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(recreatedSubmitFailedTaskID), auth)
+	if deleteRecreatedResp.StatusCode != http.StatusOK {
+		t.Fatalf("delete recreated submit failed task status=%d body=%s", deleteRecreatedResp.StatusCode, readBody(deleteRecreatedResp))
+	}
+	_ = deleteRecreatedResp.Body.Close()
+
 	dispatchOptionsResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/dispatch-options", auth)
 	if dispatchOptionsResp.StatusCode != http.StatusOK {
 		t.Fatalf("dispatch options status=%d body=%s", dispatchOptionsResp.StatusCode, readBody(dispatchOptionsResp))
@@ -1698,7 +2542,11 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = dispatchOptionsResp.Body.Close()
-	if len(dispatchOptionsBody.Data.Strategies) != 1 || dispatchOptionsBody.Data.Strategies[0].Code != "ROUND_ROBIN" {
+	strategies := map[string]bool{}
+	for _, strategy := range dispatchOptionsBody.Data.Strategies {
+		strategies[strategy.Code] = true
+	}
+	if !strategies["ROUND_ROBIN"] || !strategies["RULE_BASED"] {
 		t.Fatalf("unexpected dispatch strategies: %+v", dispatchOptionsBody.Data.Strategies)
 	}
 	var hasVendorA bool
@@ -1860,19 +2708,28 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	const adminResultObjectKey = "cdp-router/e2e/admin-detail-result.xlsx"
 	if _, err := db.Exec(ctx, `
 update cdp_task_result_files
-set source_type='OSS_UPLOAD', object_key=$2, file_url=null, updated_at=now()
+set source_type='OSS_UPLOAD', object_key=$2, file_url=null, created_at=now() + interval '1 second', updated_at=now()
 where task_id=$1
 `, updatedTask.ID, adminResultObjectKey); err != nil {
 		t.Fatal(err)
 	}
+	const adminSecondResultObjectKey = "cdp-router/e2e/admin-detail-result-page-2.xlsx"
+	if _, err := db.Exec(ctx, `
+insert into cdp_task_result_files (
+  task_id, batch_no, external_batch_id, source_type, object_key, file_name, parse_status, row_count, valid_row_count
+) values ($1,$2,$3,'OSS_UPLOAD',$4,'admin-detail-result-page-2.xlsx','SUCCESS',1,1)
+`, updatedTask.ID, batchNo, updatedTask.ProviderExternalBatchID, adminSecondResultObjectKey); err != nil {
+		t.Fatal(err)
+	}
 
-	detailResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(updatedTask.ID)+"?itemPage=1&itemPageSize=1", auth)
+	detailResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(updatedTask.ID)+"?itemPage=1&itemPageSize=1&filePage=1&filePageSize=1&eventPage=1&eventPageSize=1", auth)
 	if detailResp.StatusCode != http.StatusOK {
 		t.Fatalf("admin detail status=%d body=%s", detailResp.StatusCode, readBody(detailResp))
 	}
 	var detailBody struct {
 		Data struct {
 			Task struct {
+				TaskName                 string `json:"taskName"`
 				ExternalBatchID          string `json:"externalBatchId"`
 				ExecutionDurationSeconds int32  `json:"executionDurationSeconds"`
 				ExecutionDurationText    string `json:"executionDurationText"`
@@ -1887,6 +2744,9 @@ where task_id=$1
 				ObjectKey string `json:"objectKey"`
 				FileURL   string `json:"fileUrl"`
 			} `json:"files"`
+			Events []struct {
+				EventType string `json:"eventType"`
+			} `json:"events"`
 			Callbacks []struct {
 				TargetURL      string `json:"targetUrl"`
 				ResponseStatus int    `json:"responseStatus"`
@@ -1894,23 +2754,34 @@ where task_id=$1
 				Status         string `json:"status"`
 				LastError      string `json:"lastError"`
 			} `json:"callbacks"`
-			ItemTotal    int `json:"itemTotal"`
-			ItemPage     int `json:"itemPage"`
-			ItemPageSize int `json:"itemPageSize"`
+			ItemTotal     int `json:"itemTotal"`
+			ItemPage      int `json:"itemPage"`
+			ItemPageSize  int `json:"itemPageSize"`
+			FileTotal     int `json:"fileTotal"`
+			FilePage      int `json:"filePage"`
+			FilePageSize  int `json:"filePageSize"`
+			EventTotal    int `json:"eventTotal"`
+			EventPage     int `json:"eventPage"`
+			EventPageSize int `json:"eventPageSize"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(detailResp.Body).Decode(&detailBody); err != nil {
 		t.Fatal(err)
 	}
 	_ = detailResp.Body.Close()
-	if len(detailBody.Data.Items) != 1 || detailBody.Data.ItemTotal != 2 || detailBody.Data.ItemPage != 1 || detailBody.Data.ItemPageSize != 1 || len(detailBody.Data.Files) != 1 {
+	if len(detailBody.Data.Items) != 1 || detailBody.Data.ItemTotal != 2 || detailBody.Data.ItemPage != 1 || detailBody.Data.ItemPageSize != 1 ||
+		len(detailBody.Data.Files) != 1 || detailBody.Data.FileTotal != 2 || detailBody.Data.FilePage != 1 || detailBody.Data.FilePageSize != 1 ||
+		len(detailBody.Data.Events) != 1 || detailBody.Data.EventTotal < 2 || detailBody.Data.EventPage != 1 || detailBody.Data.EventPageSize != 1 {
 		t.Fatalf("unexpected detail counts: %+v", detailBody.Data)
+	}
+	if detailBody.Data.Task.TaskName != adminTaskName {
+		t.Fatalf("detail taskName=%q, want %q", detailBody.Data.Task.TaskName, adminTaskName)
 	}
 	wantResultURL := strings.TrimRight(cfg.OSS.PublicHost, "/") + "/" + adminResultObjectKey
 	if detailBody.Data.Files[0].ObjectKey != adminResultObjectKey || detailBody.Data.Files[0].FileURL != wantResultURL {
 		t.Fatalf("unexpected detail file url: %+v want=%s", detailBody.Data.Files[0], wantResultURL)
 	}
-	detailPage2Resp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(updatedTask.ID)+"?itemPage=2&itemPageSize=1", auth)
+	detailPage2Resp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(updatedTask.ID)+"?itemPage=2&itemPageSize=1&filePage=2&filePageSize=1&eventPage=2&eventPageSize=1", auth)
 	if detailPage2Resp.StatusCode != http.StatusOK {
 		t.Fatalf("admin detail page2 status=%d body=%s", detailPage2Resp.StatusCode, readBody(detailPage2Resp))
 	}
@@ -1922,16 +2793,30 @@ where task_id=$1
 				ReferenceCount int    `json:"referenceCount"`
 				ResultStatus   string `json:"resultStatus"`
 			} `json:"items"`
-			ItemTotal    int `json:"itemTotal"`
-			ItemPage     int `json:"itemPage"`
-			ItemPageSize int `json:"itemPageSize"`
+			Files []struct {
+				ObjectKey string `json:"objectKey"`
+			} `json:"files"`
+			Events []struct {
+				EventType string `json:"eventType"`
+			} `json:"events"`
+			ItemTotal     int `json:"itemTotal"`
+			ItemPage      int `json:"itemPage"`
+			ItemPageSize  int `json:"itemPageSize"`
+			FileTotal     int `json:"fileTotal"`
+			FilePage      int `json:"filePage"`
+			FilePageSize  int `json:"filePageSize"`
+			EventTotal    int `json:"eventTotal"`
+			EventPage     int `json:"eventPage"`
+			EventPageSize int `json:"eventPageSize"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(detailPage2Resp.Body).Decode(&detailPage2Body); err != nil {
 		t.Fatal(err)
 	}
 	_ = detailPage2Resp.Body.Close()
-	if len(detailPage2Body.Data.Items) != 1 || detailPage2Body.Data.ItemTotal != 2 || detailPage2Body.Data.ItemPage != 2 || detailPage2Body.Data.ItemPageSize != 1 {
+	if len(detailPage2Body.Data.Items) != 1 || detailPage2Body.Data.ItemTotal != 2 || detailPage2Body.Data.ItemPage != 2 || detailPage2Body.Data.ItemPageSize != 1 ||
+		len(detailPage2Body.Data.Files) != 1 || detailPage2Body.Data.FileTotal != 2 || detailPage2Body.Data.FilePage != 2 || detailPage2Body.Data.FilePageSize != 1 ||
+		len(detailPage2Body.Data.Events) != 1 || detailPage2Body.Data.EventTotal != detailBody.Data.EventTotal || detailPage2Body.Data.EventPage != 2 || detailPage2Body.Data.EventPageSize != 1 {
 		t.Fatalf("unexpected detail page2 pagination: %+v", detailPage2Body.Data)
 	}
 	if len(detailBody.Data.Callbacks) != 1 {
@@ -2044,9 +2929,9 @@ where task_id=$1
 		metricsBody.Data.QuestionMetrics.AnswerCompletionRate != 1 {
 		t.Fatalf("unexpected platform question metrics: %+v", metricsBody.Data.QuestionMetrics)
 	}
-	if metricsBody.Data.ResultMetrics.ResultFileCount != 1 ||
-		metricsBody.Data.ResultMetrics.RowCount != 54 ||
-		metricsBody.Data.ResultMetrics.ValidRowCount != 54 ||
+	if metricsBody.Data.ResultMetrics.ResultFileCount != 2 ||
+		metricsBody.Data.ResultMetrics.RowCount != 55 ||
+		metricsBody.Data.ResultMetrics.ValidRowCount != 55 ||
 		metricsBody.Data.ResultMetrics.ValidRowRate != 1 {
 		t.Fatalf("unexpected platform result metrics: %+v", metricsBody.Data.ResultMetrics)
 	}
@@ -2060,7 +2945,7 @@ where task_id=$1
 		metricsBody.Data.StatusBreakdown[0].Value != 1 ||
 		len(metricsBody.Data.FailureReasons) != 0 ||
 		len(metricsBody.Data.RecentTasks) != 1 ||
-		metricsBody.Data.RecentTasks[0].TaskName != batchNo ||
+		metricsBody.Data.RecentTasks[0].TaskName != adminTaskName ||
 		metricsBody.Data.RecentTasks[0].Status != string(biz.TaskStatusDone) {
 		t.Fatalf("unexpected platform metric detail lists: %+v", metricsBody.Data)
 	}
@@ -2233,6 +3118,64 @@ where task_id=$1
 		failedRows[1][1] != "MPZ-REAL-20260723180500-qwen-002" ||
 		failedRows[1][4] != "PENDING" {
 		t.Fatalf("unexpected failed export rows: %+v", failedRows)
+	}
+	reconciliationResp := adminPostJSON(t, fmt.Sprintf("%s/api/admin/v1/platform-users/%d/reconciliation-export", gatewayBaseURL, mainlandPlatformUserID), auth, map[string]any{
+		"createdFrom": metricsFrom.Format(time.RFC3339Nano),
+		"createdTo":   metricsTo.Format(time.RFC3339Nano),
+	})
+	if reconciliationResp.StatusCode != http.StatusOK {
+		t.Fatalf("admin reconciliation export status=%d body=%s", reconciliationResp.StatusCode, readBody(reconciliationResp))
+	}
+	var reconciliationBody struct {
+		Data struct {
+			DownloadURL string `json:"downloadUrl"`
+			ObjectKey   string `json:"objectKey"`
+			ExpiresAt   string `json:"expiresAt"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(reconciliationResp.Body).Decode(&reconciliationBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = reconciliationResp.Body.Close()
+	if reconciliationBody.Data.DownloadURL == "" || reconciliationBody.Data.ObjectKey == "" || reconciliationBody.Data.ExpiresAt == "" {
+		t.Fatalf("unexpected reconciliation export body: %+v", reconciliationBody.Data)
+	}
+	defer deleteOSSObject(t, cfg.OSS, reconciliationBody.Data.ObjectKey)
+	reconciliationDownloadResp := get(t, reconciliationBody.Data.DownloadURL)
+	if reconciliationDownloadResp.StatusCode != http.StatusOK {
+		t.Fatalf("reconciliation export download status=%d body=%s", reconciliationDownloadResp.StatusCode, readBody(reconciliationDownloadResp))
+	}
+	reconciliationBytes, err := io.ReadAll(reconciliationDownloadResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = reconciliationDownloadResp.Body.Close()
+	reconciliationWorkbook, err := excelize.OpenReader(bytes.NewReader(reconciliationBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reconciliationWorkbook.Close() }()
+	reconciliationRows, err := reconciliationWorkbook.GetRows("对账单")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reconciliationRows) != 2 {
+		t.Fatalf("reconciliation export row count=%d rows=%+v", len(reconciliationRows), reconciliationRows)
+	}
+	wantReconciliationHeader := []string{"日期", "任务名称", "任务batchNo", "供应商code", "供应商公司名称", "问答数"}
+	for index, want := range wantReconciliationHeader {
+		if reconciliationRows[0][index] != want {
+			t.Fatalf("reconciliation header[%d]=%q, want %q: %+v", index, reconciliationRows[0][index], want, reconciliationRows[0])
+		}
+	}
+	wantReconciliationDate := timezone.InAdminLocation(updatedTask.CreatedAt).Format("2006-01-02")
+	if reconciliationRows[1][0] != wantReconciliationDate ||
+		reconciliationRows[1][1] != adminTaskName ||
+		reconciliationRows[1][2] != batchNo ||
+		reconciliationRows[1][3] != "vendor_a" ||
+		reconciliationRows[1][4] != "Vendor A Co., Ltd." ||
+		reconciliationRows[1][5] != "2" {
+		t.Fatalf("unexpected reconciliation export row: %+v", reconciliationRows[1])
 	}
 	if _, err := db.Exec(ctx, `update cdp_task_items set result_status='FAILED', updated_at=now() where task_id=$1 and item_id=$2`, updatedTask.ID, "MPZ-REAL-20260723180500-qwen-002"); err != nil {
 		t.Fatal(err)
@@ -2421,7 +3364,7 @@ func ensureE2EProviderConfig(cfg *config.Config) {
 		DisplayName:      "vendor_a",
 		Token:            "e2e-provider-token",
 		ResultMode:       "callback_upload",
-		Timeout:          15 * time.Second,
+		Timeout:          20 * time.Second,
 		QPSLimit:         10,
 		ConcurrencyLimit: 20,
 		Enabled:          true,
@@ -2510,6 +3453,21 @@ func adminPostJSON(t *testing.T, url string, auth adminAuth, payload any) *http.
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", auth.CSRF)
+	req.AddCookie(auth.Cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func adminDelete(t *testing.T, url string, auth adminAuth) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("X-CSRF-Token", auth.CSRF)
 	req.AddCookie(auth.Cookie)
 	resp, err := http.DefaultClient.Do(req)
@@ -2721,7 +3679,7 @@ on conflict (platform_user_id) do update set config=excluded.config, enabled=tru
 		CallbackURL:    "http://127.0.0.1/callback",
 		Items:          items,
 		RawRequest:     rawRequest,
-	}, []string{providerCode}, "http://127.0.0.1")
+	}, []biz.ProviderSettings{{ProviderCode: providerCode, Enabled: true}}, "http://127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3014,6 +3972,166 @@ func cleanupTaskDataByBatchNo(t *testing.T, db *pgxpool.Pool, batchNo string) {
 	for _, statement := range statements {
 		if _, err := db.Exec(ctx, statement, batchNo); err != nil {
 			t.Logf("cleanup task data for batch %s failed: %v", batchNo, err)
+		}
+	}
+}
+
+func loadProductionDispatchRequest(t *testing.T, path string) ([]biz.TaskItem, json.RawMessage) {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request struct {
+		Items []struct {
+			ItemID       string `json:"itemId"`
+			PlatformCode string `json:"platformCode"`
+			Seq          int    `json:"seq"`
+			Question     string `json:"question"`
+			Deepthink    bool   `json:"deepthink"`
+			WebSearch    bool   `json:"webSearch"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatal(err)
+	}
+	items := make([]biz.TaskItem, 0, len(request.Items))
+	for _, item := range request.Items {
+		rawItem, _ := json.Marshal(item)
+		items = append(items, biz.TaskItem{
+			ItemID:       item.ItemID,
+			PlatformCode: item.PlatformCode,
+			Seq:          item.Seq,
+			Question:     item.Question,
+			Deepthink:    item.Deepthink,
+			WebSearch:    item.WebSearch,
+			RawItem:      rawItem,
+		})
+	}
+	return items, json.RawMessage(body)
+}
+
+func assertDispatchOnlyTask(t *testing.T, ctx context.Context, db *pgxpool.Pool, taskID int64, wantRuleCode string, wantLabel string) {
+	t.Helper()
+	var status, providerExternalBatchID string
+	var totalCount int
+	if err := db.QueryRow(ctx, `
+select status, coalesce(provider_external_batch_id,''), total_count
+from cdp_tasks
+where id=$1
+`, taskID).Scan(&status, &providerExternalBatchID, &totalCount); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(biz.TaskStatusCreated) {
+		t.Fatalf("dispatch-only task status=%s, want CREATED", status)
+	}
+	if providerExternalBatchID != "" {
+		t.Fatalf("dispatch-only task provider_external_batch_id=%q, want empty", providerExternalBatchID)
+	}
+	if totalCount != 1680 {
+		t.Fatalf("dispatch-only task total_count=%d, want 1680", totalCount)
+	}
+	var providerSubmitEvents int
+	if err := db.QueryRow(ctx, `
+select count(*)
+from cdp_task_events
+where task_id=$1 and event_type in ($2,$3)
+`, taskID, string(biz.EventProviderSubmitted), string(biz.EventProviderSubmitFailed)).Scan(&providerSubmitEvents); err != nil {
+		t.Fatal(err)
+	}
+	if providerSubmitEvents != 0 {
+		t.Fatalf("dispatch-only provider submit events=%d, want 0", providerSubmitEvents)
+	}
+
+	var payload []byte
+	if err := db.QueryRow(ctx, `
+select payload
+from cdp_task_events
+where task_id=$1 and event_type=$2
+order by id desc
+limit 1
+`, taskID, string(biz.EventTaskDispatched)).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var event struct {
+		MatchedRuleCode string   `json:"matchedRuleCode"`
+		Labels          []string `json:"labels"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.MatchedRuleCode != wantRuleCode {
+		t.Fatalf("matched rule=%q, want %q; payload=%s", event.MatchedRuleCode, wantRuleCode, string(payload))
+	}
+	for _, label := range event.Labels {
+		if label == wantLabel {
+			return
+		}
+	}
+	t.Fatalf("dispatch labels=%v, want label %s", event.Labels, wantLabel)
+}
+
+func assertDispatchEvent(t *testing.T, ctx context.Context, db *pgxpool.Pool, taskID int64, wantRuleCode string, wantLabel string, wantProvider string, wantReason string, wantCandidates []string) {
+	t.Helper()
+	var payload []byte
+	if err := db.QueryRow(ctx, `
+select payload
+from cdp_task_events
+where task_id=$1 and event_type=$2
+order by id desc
+limit 1
+`, taskID, string(biz.EventTaskDispatched)).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var event struct {
+		MatchedRuleCode    string   `json:"matchedRuleCode"`
+		Labels             []string `json:"labels"`
+		ProviderCode       string   `json:"providerCode"`
+		CandidateProviders []string `json:"candidateProviders"`
+		Reason             string   `json:"reason"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.MatchedRuleCode != wantRuleCode ||
+		event.ProviderCode != wantProvider ||
+		event.Reason != wantReason ||
+		fmt.Sprint(event.CandidateProviders) != fmt.Sprint(wantCandidates) {
+		t.Fatalf("dispatch event=%+v, want rule=%q provider=%q reason=%q candidates=%v payload=%s", event, wantRuleCode, wantProvider, wantReason, wantCandidates, string(payload))
+	}
+	if wantLabel == "" {
+		if len(event.Labels) != 0 {
+			t.Fatalf("dispatch labels=%v, want empty; payload=%s", event.Labels, string(payload))
+		}
+		return
+	}
+	for _, label := range event.Labels {
+		if label == wantLabel {
+			return
+		}
+	}
+	t.Fatalf("dispatch labels=%v, want label %s; payload=%s", event.Labels, wantLabel, string(payload))
+}
+
+func cleanupPlatformUserWithTasks(t *testing.T, db *pgxpool.Pool, platformCode string) {
+	t.Helper()
+	ctx := context.Background()
+	statements := []string{
+		`delete from cdp_admin_audit_logs where resource_type='TASK' and resource_id in (select id::text from cdp_tasks where platform_code=$1)`,
+		`delete from cdp_task_callbacks where task_id in (select id from cdp_tasks where platform_code=$1)`,
+		`delete from cdp_task_events where task_id in (select id from cdp_tasks where platform_code=$1)`,
+		`delete from cdp_task_item_results where task_id in (select id from cdp_tasks where platform_code=$1)`,
+		`delete from cdp_task_result_rows where task_id in (select id from cdp_tasks where platform_code=$1)`,
+		`delete from cdp_task_result_files where task_id in (select id from cdp_tasks where platform_code=$1)`,
+		`delete from cdp_task_items where task_id in (select id from cdp_tasks where platform_code=$1)`,
+		`delete from cdp_tasks where platform_code=$1`,
+		`delete from cdp_admin_audit_logs where resource_type='PLATFORM_USER' and resource_id in (select id::text from platform_users where platform_code=$1)`,
+		`delete from cdp_dispatch_profiles where platform_user_id in (select id from platform_users where platform_code=$1)`,
+		`delete from platform_users where platform_code=$1`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(ctx, statement, platformCode); err != nil {
+			t.Logf("cleanup platform data for %s failed: %v", platformCode, err)
 		}
 	}
 }

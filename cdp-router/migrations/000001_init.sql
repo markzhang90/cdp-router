@@ -36,21 +36,41 @@ create table if not exists cdp_dispatch_profiles (
 create unique index if not exists idx_cdp_dispatch_profiles_platform_user_id on cdp_dispatch_profiles(platform_user_id);
 create unique index if not exists idx_cdp_dispatch_profiles_code on cdp_dispatch_profiles(code);
 
+comment on table cdp_dispatch_profiles is
+  '接入方任务调度配置表。第一阶段每个 platform_users.id 逻辑关联一条调度配置，通过 platform_user_id 唯一索引约束，不使用物理外键以保留历史数据兼容性。';
+comment on column cdp_dispatch_profiles.platform_user_id is
+  '逻辑关联 platform_users.id；用于定位接入方的调度配置。';
+comment on column cdp_dispatch_profiles.code is
+  '调度配置编码，默认由接入方 platform_code 派生，用于审计展示和历史任务冗余记录。';
+comment on column cdp_dispatch_profiles.strategy is
+  '调度模式：ROUND_ROBIN 表示顺序/均衡调度，RULE_BASED 表示按任务名称匹配规则后调度。';
+comment on column cdp_dispatch_profiles.cursor is
+  '调度游标。创建任务时在事务内锁定本行并推进，用于同分值供应商之间稳定轮转。';
+comment on column cdp_dispatch_profiles.last_provider_code is
+  '最近一次调度选中的供应商编码，仅用于审计展示。';
+comment on column cdp_dispatch_profiles.config is
+  '调度配置 JSON。providers 为默认供应商池；rules 为规则列表，按 sortOrder 和数组顺序第一条命中 taskName 的规则生效，规则内包含 taskNameRegex、labels、providerCodes、enabled。';
+
 create table if not exists cdp_tasks (
   id bigserial primary key,
   job_id varchar(64),
   platform_user_id bigint,
   platform_code varchar(64),
   batch_no varchar(128) not null,
+  task_name varchar(255) not null default '',
   provider_code varchar(64) not null,
   gateway_code varchar(64),
   source varchar(128),
   external_batch_id varchar(128),
   provider_external_batch_id varchar(128),
+  reassigned_from_task_id bigint,
+  callback_batch_no varchar(128),
+  callback_external_batch_id varchar(128),
   dispatch_profile_id bigint,
   dispatch_profile_code varchar(64),
   dispatch_strategy varchar(32),
   biz_date date,
+  quota_date date,
   status varchar(32) not null,
   callback_url text,
   provider_callback_url text,
@@ -87,24 +107,46 @@ create index if not exists idx_cdp_tasks_status_due_at
 alter table cdp_tasks add column if not exists job_id varchar(64);
 alter table cdp_tasks add column if not exists platform_user_id bigint;
 alter table cdp_tasks add column if not exists platform_code varchar(64);
+alter table cdp_tasks add column if not exists task_name varchar(255) not null default '';
+alter table cdp_tasks alter column task_name set default '';
+update cdp_tasks set task_name = '' where task_name is null;
+alter table cdp_tasks alter column task_name set not null;
 alter table cdp_tasks add column if not exists provider_external_batch_id varchar(128);
+alter table cdp_tasks add column if not exists reassigned_from_task_id bigint;
+alter table cdp_tasks add column if not exists callback_batch_no varchar(128);
+alter table cdp_tasks add column if not exists callback_external_batch_id varchar(128);
 alter table cdp_tasks add column if not exists dispatch_profile_id bigint;
 alter table cdp_tasks add column if not exists dispatch_profile_code varchar(64);
 alter table cdp_tasks add column if not exists dispatch_strategy varchar(32);
+alter table cdp_tasks add column if not exists quota_date date;
 alter table cdp_tasks add column if not exists result_row_count int not null default 0;
 alter table cdp_tasks add column if not exists source varchar(128);
+alter table cdp_tasks add column if not exists deleted_at timestamptz;
+alter table cdp_tasks add column if not exists deleted_by varchar(128);
 update cdp_tasks set source = gateway_code where source is null and gateway_code is not null;
 update cdp_tasks set provider_external_batch_id = external_batch_id where provider_external_batch_id is null and external_batch_id is not null;
 update cdp_tasks set job_id = 'job_' || id::text where job_id is null;
 
 create unique index if not exists idx_cdp_tasks_job_id on cdp_tasks(job_id) where job_id is not null;
+alter table cdp_tasks drop constraint if exists cdp_tasks_batch_no_key;
+create unique index if not exists idx_cdp_tasks_batch_no_active on cdp_tasks(batch_no) where deleted_at is null;
 create index if not exists idx_cdp_tasks_platform_user_created_at on cdp_tasks(platform_user_id, created_at) where platform_user_id is not null;
 create index if not exists idx_cdp_tasks_platform_code_created_at on cdp_tasks(platform_code, created_at) where platform_code is not null;
 create index if not exists idx_cdp_tasks_provider_external_batch_id on cdp_tasks(provider_external_batch_id) where provider_external_batch_id is not null;
+create index if not exists idx_cdp_tasks_reassigned_from_task_id on cdp_tasks(reassigned_from_task_id) where reassigned_from_task_id is not null;
+create index if not exists idx_cdp_tasks_provider_callback_batch_no
+  on cdp_tasks(provider_code, callback_batch_no, created_at desc)
+  where reassigned_from_task_id is not null and callback_batch_no is not null and deleted_at is null;
 create index if not exists idx_cdp_tasks_dispatch_profile_created_at on cdp_tasks(dispatch_profile_id, created_at) where dispatch_profile_id is not null;
+create index if not exists idx_cdp_tasks_provider_quota_date_quota
+  on cdp_tasks(provider_code, quota_date, status)
+  include (total_count, provider_external_batch_id)
+  where deleted_at is null;
 create index if not exists idx_cdp_tasks_source_created_at on cdp_tasks(source, created_at) where source is not null;
+create index if not exists idx_cdp_tasks_not_deleted_created_at on cdp_tasks(created_at desc) where deleted_at is null;
 create index if not exists idx_cdp_tasks_batch_no_pattern on cdp_tasks(batch_no text_pattern_ops);
 create index if not exists idx_cdp_tasks_batch_no_trgm on cdp_tasks using gin (batch_no gin_trgm_ops);
+create index if not exists idx_cdp_tasks_task_name_trgm on cdp_tasks using gin (task_name gin_trgm_ops) where task_name <> '';
 
 create table if not exists cdp_task_items (
   id bigserial primary key,
@@ -160,6 +202,27 @@ create table if not exists cdp_task_events (
 
 create index if not exists idx_cdp_task_events_task_id on cdp_task_events(task_id, created_at);
 create index if not exists idx_cdp_task_events_type_created_at on cdp_task_events(event_type, created_at);
+create index if not exists idx_cdp_task_events_dispatch_label
+  on cdp_task_events(task_id, created_at desc)
+  where event_type = 'TASK_DISPATCHED';
+create index if not exists idx_cdp_task_events_submit_failed
+  on cdp_task_events(task_id)
+  where event_type = 'PROVIDER_SUBMIT_FAILED';
+
+comment on column cdp_tasks.dispatch_profile_id is
+  '任务创建/调度时命中的 cdp_dispatch_profiles.id 快照，逻辑关联调度配置；历史任务允许为空，不建立物理外键。';
+comment on column cdp_tasks.dispatch_profile_code is
+  '任务创建/调度时命中的调度配置编码快照，用于后台审计展示。';
+comment on column cdp_tasks.dispatch_strategy is
+  '任务创建/调度时使用的调度模式快照，例如 ROUND_ROBIN 或 RULE_BASED。';
+comment on column cdp_tasks.provider_code is
+  '任务实际选中的供应商编码。第一阶段供应商来自运行配置 [providers.<code>]，不关联独立 provider 表。';
+comment on column cdp_tasks.quota_date is
+  '供应商每日额度归属日期，按任务实际提交到供应商时的 Asia/Shanghai 自然日计算，不使用上游 biz_date。用于统计 provider 每日 question 额度。';
+comment on column cdp_task_events.task_id is
+  '逻辑关联 cdp_tasks.id，记录任务生命周期事件；调度决策、规则命中、额度快照也写入此表。';
+comment on column cdp_task_events.event_type is
+  '任务事件类型，例如 TASK_CREATED、TASK_DISPATCHED、TASK_DISPATCH_RULE_MATCHED、TASK_DISPATCH_QUOTA_CHECKED、PROVIDER_SUBMIT_FAILED。';
 
 insert into cdp_dispatch_profiles (
   platform_user_id,

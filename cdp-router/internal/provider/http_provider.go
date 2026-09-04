@@ -30,6 +30,7 @@ func NewRegistry(configs map[string]config.ProviderConfig) *Registry {
 		if cfg.BucketPathPrefix == "" {
 			cfg.BucketPathPrefix = "cdp-router/q2a/" + cfg.Code
 		}
+		cfg = config.NormalizeProviderConfig(cfg)
 		providers[code] = NewHTTPProvider(cfg)
 		copiedConfigs[code] = cfg
 	}
@@ -59,6 +60,7 @@ type HTTPProvider struct {
 }
 
 func NewHTTPProvider(cfg config.ProviderConfig) *HTTPProvider {
+	cfg = config.NormalizeProviderConfig(cfg)
 	return &HTTPProvider{
 		cfg:        cfg,
 		client:     httphelper.NewClient("provider."+cfg.Code, cfg.Timeout),
@@ -246,16 +248,23 @@ func (p *HTTPProvider) DownloadResultFile(ctx context.Context, fileURL string) (
 }
 
 func (p *HTTPProvider) do(req *http.Request, maxReadBytes int64, attrs ...any) (httphelper.Result, error) {
-	if err := p.limiter.Wait(req.Context()); err != nil {
+	ctx := req.Context()
+	if p.cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.cfg.Timeout)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
+	if err := p.limiter.Wait(ctx); err != nil {
 		return httphelper.Result{}, err
 	}
 	select {
 	case p.semaphore <- struct{}{}:
 		defer func() { <-p.semaphore }()
-	case <-req.Context().Done():
-		return httphelper.Result{}, req.Context().Err()
+	case <-ctx.Done():
+		return httphelper.Result{}, ctx.Err()
 	}
-	return p.client.DoRead(req.Context(), req, maxReadBytes, attrs...)
+	return p.client.DoRead(ctx, req, maxReadBytes, attrs...)
 }
 
 func (p *HTTPProvider) setAuthHeader(req *http.Request) {
@@ -289,7 +298,9 @@ func (r *Registry) GetSettings(_ context.Context, code string) (biz.ProviderSett
 		return biz.ProviderSettings{}, false
 	}
 	return biz.ProviderSettings{
-		ProviderCode:     cfg.Code,
-		BucketPathPrefix: cfg.BucketPathPrefix,
+		ProviderCode:       cfg.Code,
+		BucketPathPrefix:   cfg.BucketPathPrefix,
+		DailyQuestionQuota: cfg.DailyQuestionQuota,
+		Enabled:            cfg.Enabled,
 	}, true
 }

@@ -14,7 +14,10 @@ import type {
   PlatformUserListQuery,
   PlatformUserMetricsData,
   PlatformUserMetricsQuery,
+  PlatformUserReconciliationExportQuery,
   PlatformUserPayload,
+  ReassignTaskData,
+  ReassignTaskPayload,
   RetryCallbackData,
   TaskDetailData,
   TaskDetailQuery,
@@ -105,10 +108,23 @@ export function checkTaskResult(id: number): Promise<CheckResultData> {
 }
 
 export function retryTaskCallback(id: number, force = false): Promise<RetryCallbackData> {
-	return request<RetryCallbackData>(`/tasks/${id}/retry-callback`, {
-		method: "POST",
-		body: JSON.stringify({ force })
-	});
+  return request<RetryCallbackData>(`/tasks/${id}/retry-callback`, {
+    method: "POST",
+    body: JSON.stringify({ force })
+  });
+}
+
+export function reassignTask(payload: ReassignTaskPayload): Promise<ReassignTaskData> {
+  return request<ReassignTaskData>("/tasks/reassign", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTask(id: number): Promise<void> {
+  await request<{ ok: boolean }>(`/tasks/${id}`, {
+    method: "DELETE"
+  });
 }
 
 export function listProviders(): Promise<ProviderListData> {
@@ -147,6 +163,16 @@ export function getPlatformUserMetrics(id: number, query: PlatformUserMetricsQue
   });
   const search = params.toString();
   return request<PlatformUserMetricsData>(`/platform-users/${id}/metrics${search ? `?${search}` : ""}`);
+}
+
+export function exportPlatformUserReconciliationXlsx(
+  id: number,
+  query: PlatformUserReconciliationExportQuery
+): Promise<ExportTaskItemsData> {
+  return request<ExportTaskItemsData>(`/platform-users/${id}/reconciliation-export`, {
+    method: "POST",
+    body: JSON.stringify(query)
+  });
 }
 
 export function createPlatformUser(payload: PlatformUserPayload): Promise<PlatformUser> {

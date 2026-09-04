@@ -235,6 +235,36 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
+    /api/admin/v1/platform-users/{id}/reconciliation-export:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_ExportPlatformUserReconciliation
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ExportPlatformUserReconciliationRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ExportPlatformUserReconciliationResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
     /api/admin/v1/providers:
         get:
             tags:
@@ -325,6 +355,10 @@ paths:
                   in: query
                   schema:
                     type: string
+                - name: taskName
+                  in: query
+                  schema:
+                    type: string
             responses:
                 "200":
                     description: OK
@@ -332,6 +366,30 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListTasksResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/tasks/reassign:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_ReassignTask
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ReassignTaskRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ReassignTaskResponse'
                 default:
                     description: Default error response
                     content:
@@ -359,6 +417,26 @@ paths:
                   schema:
                     type: integer
                     format: int32
+                - name: filePage
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: filePageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: eventPage
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: eventPageSize
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
             responses:
                 "200":
                     description: OK
@@ -366,6 +444,29 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/GetTaskDetailResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+        delete:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_DeleteTask
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DeleteTaskResponse'
                 default:
                     description: Default error response
                     content:
@@ -815,6 +916,16 @@ components:
                     format: int32
                 executionDurationText:
                     type: string
+                submitFailed:
+                    type: boolean
+                dispatchLabels:
+                    type: array
+                    items:
+                        type: string
+                reassignedFromTaskId:
+                    type: string
+                reassignedToTaskId:
+                    type: string
         AdminUser:
             type: object
             properties:
@@ -912,6 +1023,8 @@ components:
                         $ref: '#/components/schemas/TaskItem'
                 source:
                     type: string
+                taskName:
+                    type: string
         CreateTaskResponse:
             type: object
             properties:
@@ -922,6 +1035,16 @@ components:
                     type: string
                 data:
                     $ref: '#/components/schemas/CreateTaskData'
+        DeleteTaskResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/EmptyData'
         DispatchOptionsData:
             type: object
             properties:
@@ -954,6 +1077,12 @@ components:
                     type: array
                     items:
                         type: string
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DispatchRule'
+                fallbackSelectionPolicy:
+                    type: string
         DispatchProfileInput:
             type: object
             properties:
@@ -969,6 +1098,56 @@ components:
                     type: array
                     items:
                         type: string
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DispatchRuleInput'
+                fallbackSelectionPolicy:
+                    type: string
+        DispatchRule:
+            type: object
+            properties:
+                code:
+                    type: string
+                name:
+                    type: string
+                sortOrder:
+                    type: integer
+                    format: int32
+                taskNameRegex:
+                    type: string
+                labels:
+                    type: array
+                    items:
+                        type: string
+                providerCodes:
+                    type: array
+                    items:
+                        type: string
+                enabled:
+                    type: boolean
+        DispatchRuleInput:
+            type: object
+            properties:
+                code:
+                    type: string
+                name:
+                    type: string
+                sortOrder:
+                    type: integer
+                    format: int32
+                taskNameRegex:
+                    type: string
+                labels:
+                    type: array
+                    items:
+                        type: string
+                providerCodes:
+                    type: array
+                    items:
+                        type: string
+                enabled:
+                    type: boolean
         DispatchStrategyOption:
             type: object
             properties:
@@ -981,6 +1160,25 @@ components:
             properties:
                 ok:
                     type: boolean
+        ExportPlatformUserReconciliationRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                createdFrom:
+                    type: string
+                createdTo:
+                    type: string
+        ExportPlatformUserReconciliationResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ExportTaskItemsData'
         ExportTaskItemsData:
             type: object
             properties:
@@ -1470,6 +1668,21 @@ components:
                     type: boolean
                 filesUrlConfigured:
                     type: boolean
+                dailyQuestionQuota:
+                    type: integer
+                    format: int32
+                dailyQuestionUsed:
+                    type: integer
+                    format: int32
+                dailyQuestionRemaining:
+                    type: integer
+                    format: int32
+                dailyQuestionUnlimited:
+                    type: boolean
+                companyName:
+                    type: string
+                settlementStartAt:
+                    type: string
         ProviderCallbackData:
             type: object
             properties:
@@ -1594,6 +1807,43 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/ProviderQuestionStatus'
+        ReassignTaskData:
+            type: object
+            properties:
+                sourceTaskId:
+                    type: string
+                targetTaskId:
+                    type: string
+                originalBatchNo:
+                    type: string
+                targetBatchNo:
+                    type: string
+                providerCode:
+                    type: string
+                taskStatus:
+                    type: string
+                acceptedCount:
+                    type: integer
+                    format: int32
+        ReassignTaskRequest:
+            type: object
+            properties:
+                batchNo:
+                    type: string
+                providerCode:
+                    type: string
+                reason:
+                    type: string
+        ReassignTaskResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ReassignTaskData'
         RefetchTaskResultData:
             type: object
             properties:
@@ -1815,6 +2065,8 @@ components:
                     type: string
                 resultUrl:
                     type: string
+                taskName:
+                    type: string
         TaskDetailData:
             type: object
             properties:
@@ -1843,6 +2095,24 @@ components:
                     type: integer
                     format: int32
                 itemPageSize:
+                    type: integer
+                    format: int32
+                fileTotal:
+                    type: integer
+                    format: int32
+                filePage:
+                    type: integer
+                    format: int32
+                filePageSize:
+                    type: integer
+                    format: int32
+                eventTotal:
+                    type: integer
+                    format: int32
+                eventPage:
+                    type: integer
+                    format: int32
+                eventPageSize:
                     type: integer
                     format: int32
         TaskEvent:

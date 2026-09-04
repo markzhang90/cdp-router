@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Descriptions, Empty, Modal, Progress, Space, Table, Tabs, Typography, message } from "antd";
+import { Button, Descriptions, Empty, Modal, Progress, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ArrowLeft, Download, ExternalLink, RefreshCw, RotateCcw, Send } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import { checkTaskResult, exportTaskItemsXlsx, getTaskDetail, retryTaskCallback } from "../api/client";
+import { checkTaskResult, deleteTask, exportTaskItemsXlsx, getTaskDetail, retryTaskCallback } from "../api/client";
 import { JsonBlock } from "../components/JsonBlock";
 import { PageHeader } from "../components/PageHeader";
 import { ResultStatusTag, TaskStatusTag } from "../components/StatusTag";
-import type { ResultFile, TaskCallback, TaskDetailData, TaskEvent, TaskItem } from "../types/admin";
-import { compactText, formatFullDateTime, percent, taskProgress } from "../utils/format";
+import type { ResultFile, TaskCallback, TaskDetailData, TaskDetailQuery, TaskEvent, TaskItem, TaskSummary } from "../types/admin";
+import { compactText, formatFullDateTime, positiveID, precisePercent, taskProgress } from "../utils/format";
 
 export function TaskDetailPage() {
   const navigate = useNavigate();
@@ -16,23 +16,39 @@ export function TaskDetailPage() {
   const taskId = Number(params.id);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [retryingCallback, setRetryingCallback] = useState(false);
   const [detail, setDetail] = useState<TaskDetailData | null>(null);
+  const [sourceTask, setSourceTask] = useState<TaskSummary | null>(null);
+  const [targetTask, setTargetTask] = useState<TaskSummary | null>(null);
   const [itemPage, setItemPage] = useState(1);
   const [itemPageSize, setItemPageSize] = useState(20);
+  const [filePage, setFilePage] = useState(1);
+  const [filePageSize, setFilePageSize] = useState(20);
+  const [eventPage, setEventPage] = useState(1);
+  const [eventPageSize, setEventPageSize] = useState(20);
 
-  const load = async (nextItemPage = itemPage, nextItemPageSize = itemPageSize) => {
+  const load = async (nextQuery: TaskDetailQuery = {}) => {
     if (!Number.isFinite(taskId)) return;
+    const query = {
+      itemPage: nextQuery.itemPage ?? itemPage,
+      itemPageSize: nextQuery.itemPageSize ?? itemPageSize,
+      filePage: nextQuery.filePage ?? filePage,
+      filePageSize: nextQuery.filePageSize ?? filePageSize,
+      eventPage: nextQuery.eventPage ?? eventPage,
+      eventPageSize: nextQuery.eventPageSize ?? eventPageSize
+    };
     setLoading(true);
     try {
-      const data = await getTaskDetail(taskId, {
-        itemPage: nextItemPage,
-        itemPageSize: nextItemPageSize
-      });
+      const data = await getTaskDetail(taskId, query);
       setDetail(data);
-      setItemPage(data.itemPage || nextItemPage);
-      setItemPageSize(data.itemPageSize || nextItemPageSize);
+      setItemPage(data.itemPage || query.itemPage);
+      setItemPageSize(data.itemPageSize || query.itemPageSize);
+      setFilePage(data.filePage || query.filePage);
+      setFilePageSize(data.filePageSize || query.filePageSize);
+      setEventPage(data.eventPage || query.eventPage);
+      setEventPageSize(data.eventPageSize || query.eventPageSize);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "加载任务详情失败");
     } finally {
@@ -41,16 +57,49 @@ export function TaskDetailPage() {
   };
 
   useEffect(() => {
-    void load(1, itemPageSize);
+    void load({ itemPage: 1, filePage: 1, eventPage: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
+
+  const sourceTaskId = positiveID(detail?.task.reassignedFromTaskId);
+  const targetTaskId = positiveID(detail?.task.reassignedToTaskId);
+
+  useEffect(() => {
+    let active = true;
+    setSourceTask(null);
+    setTargetTask(null);
+    const relatedIDs = [
+      { id: sourceTaskId, setter: setSourceTask },
+      { id: targetTaskId, setter: setTargetTask }
+    ].filter((item) => item.id > 0 && item.id !== taskId);
+    if (relatedIDs.length === 0) return;
+    const relatedQuery: TaskDetailQuery = {
+      itemPage: 1,
+      itemPageSize: 1,
+      filePage: 1,
+      filePageSize: 1,
+      eventPage: 1,
+      eventPageSize: 1
+    };
+    void Promise.all(
+      relatedIDs.map(async (item) => {
+        const data = await getTaskDetail(item.id, relatedQuery);
+        if (active) item.setter(data.task);
+      })
+    ).catch((error) => {
+      if (active) message.warning(error instanceof Error ? error.message : "加载关联任务失败");
+    });
+    return () => {
+      active = false;
+    };
+  }, [sourceTaskId, targetTaskId, taskId]);
 
   const handleCheck = async () => {
     setChecking(true);
     try {
       const data = await checkTaskResult(taskId);
       message.success(data.msg || `检查完成：文件 ${data.fileCount} 个，结果行 ${data.rowCount} 条`);
-      await load(itemPage, itemPageSize);
+      await load();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "检查结果失败");
     } finally {
@@ -84,7 +133,7 @@ export function TaskDetailPage() {
               message[forced.delivered ? "success" : "warning"](
                 forced.delivered ? "强制回调已发送" : forced.reason || "强制回调未成功"
               );
-              await load(itemPage, itemPageSize);
+              await load();
             } finally {
               setRetryingCallback(false);
             }
@@ -95,7 +144,7 @@ export function TaskDetailPage() {
       message[data.delivered ? "success" : "warning"](
         data.delivered ? "回调重试成功" : data.reason || "回调重试未发送，请查看回调详情"
       );
-      await load(itemPage, itemPageSize);
+      await load();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "重新回调失败");
     } finally {
@@ -121,6 +170,29 @@ export function TaskDetailPage() {
     } finally {
       setExporting(false);
     }
+  };
+
+  const handleDeleteSubmitFailedTask = () => {
+    if (!detail?.task) return;
+    Modal.confirm({
+      title: "删除提交失败任务？",
+      content: `确认删除任务 ${detail.task.batchNo}？删除后将从后台列表隐藏，底层任务和关联数据会保留。`,
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setDeleting(true);
+        try {
+          await deleteTask(taskId);
+          message.success("任务已删除");
+          navigate("/tasks", { replace: true });
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : "删除任务失败");
+        } finally {
+          setDeleting(false);
+        }
+      }
+    });
   };
 
   const itemColumns = useMemo<ColumnsType<TaskItem>>(
@@ -272,23 +344,36 @@ export function TaskDetailPage() {
   }
 
   const task = detail?.task;
+  const renderRelatedBatchNo = (relatedTask: TaskSummary | null, relatedTaskId: number) => {
+    if (!relatedTaskId) return "-";
+    return (
+      <Button className="related-batch-link" type="link" onClick={() => navigate(`/tasks/${relatedTaskId}`)}>
+        <Typography.Text className="mono-text">{compactText(relatedTask?.batchNo ?? `#${relatedTaskId}`)}</Typography.Text>
+      </Button>
+    );
+  };
 
   return (
     <section>
       <PageHeader
-        title={task?.taskName ?? "任务详情"}
+        title={task ? task.taskName || "-" : "任务详情"}
         description={task?.batchNo}
         extra={
           <Space>
             <Button icon={<ArrowLeft size={16} />} onClick={() => navigate("/tasks")}>
               返回
             </Button>
-            <Button icon={<RefreshCw size={16} />} onClick={() => load(itemPage, itemPageSize)}>
+            <Button icon={<RefreshCw size={16} />} onClick={() => load()}>
               刷新
             </Button>
             <Button icon={<Send size={16} />} loading={retryingCallback} onClick={handleRetryCallback}>
               重新回调
             </Button>
+            {task?.submitFailed ? (
+              <Button danger icon={<Trash2 size={16} />} loading={deleting} onClick={handleDeleteSubmitFailedTask}>
+                删除
+              </Button>
+            ) : null}
             <Button icon={<RotateCcw size={16} />} loading={checking} type="primary" onClick={handleCheck}>
               检查结果
             </Button>
@@ -297,12 +382,33 @@ export function TaskDetailPage() {
       />
       <div className="detail-summary">
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 4 }} size="small">
+          <Descriptions.Item label="任务名称">
+            <Space size={6} wrap>
+              <span>{task?.taskName || "-"}</span>
+              {sourceTaskId ? <Tag>转派</Tag> : null}
+            </Space>
+          </Descriptions.Item>
+          <Descriptions.Item label="batchNo">
+            <Typography.Text copyable={Boolean(task?.batchNo)} className="mono-text">
+              {compactText(task?.batchNo ?? "") || "-"}
+            </Typography.Text>
+          </Descriptions.Item>
           <Descriptions.Item label="状态">{task ? <TaskStatusTag status={task.status} /> : "-"}</Descriptions.Item>
+          {sourceTaskId ? (
+            <Descriptions.Item label="来源 batchNo">
+              {renderRelatedBatchNo(sourceTask, sourceTaskId)}
+            </Descriptions.Item>
+          ) : null}
+          {task?.status === "REASSIGNED" ? (
+            <Descriptions.Item label="转派到 batchNo">
+              {renderRelatedBatchNo(targetTask, targetTaskId)}
+            </Descriptions.Item>
+          ) : null}
           <Descriptions.Item label="来源">{compactText(task?.source ?? "")}</Descriptions.Item>
           <Descriptions.Item label="供应商">{task?.providerCode ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="问答">{task ? `${task.completedCount}/${task.questionCount}` : "-"}</Descriptions.Item>
           <Descriptions.Item label="进度">
-            <Progress percent={task ? percent(taskProgress(task)) : 0} size="small" />
+            <Progress percent={task ? precisePercent(taskProgress(task)) : 0} size="small" />
           </Descriptions.Item>
           <Descriptions.Item label="执行耗时">{compactText(task?.executionDurationText ?? "")}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{formatFullDateTime(task?.createdAt ?? "")}</Descriptions.Item>
@@ -334,7 +440,7 @@ export function TaskDetailPage() {
                   onChange: (page, pageSize) => {
                     setItemPage(page);
                     setItemPageSize(pageSize);
-                    void load(page, pageSize);
+                    void load({ itemPage: page, itemPageSize: pageSize });
                   }
                 }}
                 rowKey={(row) => `${row.taskItemId}-${row.seq}`}
@@ -370,7 +476,18 @@ export function TaskDetailPage() {
                 columns={fileColumns}
                 dataSource={detail?.files ?? []}
                 loading={loading}
-                pagination={false}
+                pagination={{
+                  current: filePage,
+                  pageSize: filePageSize,
+                  total: detail?.fileTotal ?? 0,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 条`,
+                  onChange: (page, pageSize) => {
+                    setFilePage(page);
+                    setFilePageSize(pageSize);
+                    void load({ filePage: page, filePageSize: pageSize });
+                  }
+                }}
                 rowKey="id"
                 scroll={{ x: 1100 }}
               />
@@ -384,7 +501,18 @@ export function TaskDetailPage() {
                 columns={eventColumns}
                 dataSource={detail?.events ?? []}
                 loading={loading}
-                pagination={false}
+                pagination={{
+                  current: eventPage,
+                  pageSize: eventPageSize,
+                  total: detail?.eventTotal ?? 0,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 条`,
+                  onChange: (page, pageSize) => {
+                    setEventPage(page);
+                    setEventPageSize(pageSize);
+                    void load({ eventPage: page, eventPageSize: pageSize });
+                  }
+                }}
                 rowKey="id"
               />
             )

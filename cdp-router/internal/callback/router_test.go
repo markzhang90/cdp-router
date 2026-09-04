@@ -43,17 +43,17 @@ func TestYangshiModeMatchesKeyword(t *testing.T) {
 	}
 }
 
-func TestYangshiUploadClientHasNoTimeout(t *testing.T) {
+func TestYangshiUploadClientUsesSeparateTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(25 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	c := NewYangshiClient(time.Nanosecond, nil)
+	c := NewYangshiClient(time.Nanosecond, time.Second, nil)
 	err := c.putFile(context.Background(), yangshiUploadURL{UploadURL: server.URL, Method: http.MethodPut}, []byte("xlsx"), "batch-no")
 	if err != nil {
-		t.Fatalf("putFile with no upload timeout failed: %v", err)
+		t.Fatalf("putFile should use upload timeout instead of API timeout: %v", err)
 	}
 }
 

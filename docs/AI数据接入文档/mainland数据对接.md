@@ -10,7 +10,7 @@
 | mainland 公网地址 | `https://openapi.mainland.vip` | 供应商回调和申请上传地址使用 |
 | 供应商编码 | `mpzdata为例` | mainland提供 |
 | 结果模式 | `callback_upload` | 供应商上传结果文件后通知mainland |
-| 上传 URL 有效期 | `3600` 秒 | `oss.expire_seconds` |
+| 上传 URL 有效期 | `86400` 秒（24 小时） | `oss.expire_seconds` |
 
 `X-Provider-Token` 由双方单独提供，不写入本文档。
 
@@ -229,7 +229,7 @@ PUT <uploadUrl>
 | HTTP 方法 | 使用响应中的 `data.method`，当前为 `PUT` |
 | 上传地址 | 使用响应中的 `data.uploadUrl` |
 | 上传 header | 按 `data.headers` 设置；为空时不要额外设置 |
-| 有效期 | 当前为 `3600` 秒 |
+| 有效期 | 当前为 `86400` 秒（24 小时） |
 | 上传完成后 | 调用 `/external/callback/mpzdata` 通知 mainland |
 
 ## 6. 供应商调用 mainland：结果完成通知

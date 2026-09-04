@@ -3,28 +3,36 @@ import { Button, DatePicker, Descriptions, Empty, Progress, Segmented, Space, Ta
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import type { Dayjs } from "dayjs";
-import { ArrowLeft, BarChart3, Clock3, FileSpreadsheet, HelpCircle, RefreshCw, Search, Send, ServerCrash, Table2 } from "lucide-react";
+import { ArrowLeft, BarChart3, Clock3, Download, FileSpreadsheet, HelpCircle, RefreshCw, Search, Send, ServerCrash, Table2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getPlatformUserMetrics } from "../api/client";
+import { exportPlatformUserReconciliationXlsx, getPlatformUserMetrics } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { TaskStatusTag } from "../components/StatusTag";
 import type { MetricBreakdown, PlatformUserMetricsData, ProviderDailyMetric, TaskSummary } from "../types/admin";
-import { compactText, formatDateTime, formatFullDateTime, percent } from "../utils/format";
+import { compactText, formatDateTime, formatFullDateTime, formatRate, percent, precisePercent, rateFromCounts } from "../utils/format";
 
 const { RangePicker } = DatePicker;
 
 type DateRange = [Dayjs, Dayjs];
+type RangeMode = "month" | "custom";
+
+function monthRange(value: Dayjs): DateRange {
+  return [value.startOf("month"), value.endOf("month")];
+}
 
 function defaultRange(): DateRange {
-  return [dayjs().subtract(24, "hour"), dayjs()];
+  return monthRange(dayjs());
+}
+
+function rangeQuery(range: DateRange) {
+  return {
+    createdFrom: range[0].startOf("day").format("YYYY-MM-DD 00:00:00"),
+    createdTo: range[1].endOf("day").format("YYYY-MM-DD 23:59:59")
+  };
 }
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("zh-CN").format(value || 0);
-}
-
-function formatRate(value: number): string {
-  return `${percent(value)}%`;
 }
 
 function formatDecimal(value: number): string {
@@ -96,21 +104,20 @@ export function PlatformUserDetailPage() {
   const navigate = useNavigate();
   const params = useParams();
   const platformUserId = Number(params.id);
-  const [range, setRange] = useState<DateRange>(() => defaultRange());
+  const [rangeMode, setRangeMode] = useState<RangeMode>("month");
+  const [month, setMonth] = useState<Dayjs>(() => dayjs());
+  const [customRange, setCustomRange] = useState<DateRange>(() => defaultRange());
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [metrics, setMetrics] = useState<PlatformUserMetricsData | null>(null);
   const [providerView, setProviderView] = useState<"table" | "chart">("table");
+  const selectedRange = useMemo<DateRange>(() => (rangeMode === "month" ? monthRange(month) : customRange), [customRange, month, rangeMode]);
 
-  const load = async (nextRange = range) => {
+  const load = async (nextRange = selectedRange) => {
     if (!Number.isFinite(platformUserId)) return;
     setLoading(true);
     try {
-      setMetrics(
-        await getPlatformUserMetrics(platformUserId, {
-          createdFrom: nextRange[0].toISOString(),
-          createdTo: nextRange[1].toISOString()
-        })
-      );
+      setMetrics(await getPlatformUserMetrics(platformUserId, rangeQuery(nextRange)));
     } catch (error) {
       message.error(error instanceof Error ? error.message : "加载接入方数据失败");
     } finally {
@@ -119,14 +126,26 @@ export function PlatformUserDetailPage() {
   };
 
   useEffect(() => {
-    void load(range);
+    void load(selectedRange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platformUserId]);
 
-  const setQuickRange = (amount: number, unit: "hour" | "day") => {
-    const nextRange: DateRange = [dayjs().subtract(amount, unit), dayjs()];
-    setRange(nextRange);
-    void load(nextRange);
+  const handleExportReconciliation = async () => {
+    if (!Number.isFinite(platformUserId)) return;
+    setExporting(true);
+    try {
+      const data = await exportPlatformUserReconciliationXlsx(platformUserId, rangeQuery(selectedRange));
+      const link = document.createElement("a");
+      link.href = data.downloadUrl;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.click();
+      message.success("对账单已生成");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "导出对账单失败");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const statusColumns = useMemo<ColumnsType<MetricBreakdown>>(
@@ -159,7 +178,7 @@ export function PlatformUserDetailPage() {
         )
       },
       { title: "次数", dataIndex: "value", width: 90, render: formatNumber },
-      { title: "占比", dataIndex: "ratio", width: 110, render: formatRate }
+      { title: "占比", dataIndex: "ratio", width: 110, render: (value: number) => formatRate(value) }
     ],
     []
   );
@@ -181,7 +200,7 @@ export function PlatformUserDetailPage() {
         title: "成功率",
         width: 160,
         render: (_, row) => (
-          <Progress percent={row.questionCount > 0 ? Math.round((row.successAnswerCount / row.questionCount) * 100) : 0} size="small" />
+          <Progress percent={precisePercent(rateFromCounts(row.successAnswerCount, row.questionCount))} size="small" />
         )
       }
     ],
@@ -196,7 +215,7 @@ export function PlatformUserDetailPage() {
         width: 260,
         render: (_, task) => (
           <Button type="link" className="table-link" onClick={() => navigate(`/tasks/${task.taskId}`)}>
-            {task.taskName}
+            {task.taskName || "-"}
           </Button>
         )
       },
@@ -234,7 +253,7 @@ export function PlatformUserDetailPage() {
             <Button icon={<ArrowLeft size={16} />} onClick={() => navigate("/platform-users")}>
               返回
             </Button>
-            <Button icon={<RefreshCw size={16} />} loading={loading} onClick={() => load(range)}>
+            <Button icon={<RefreshCw size={16} />} loading={loading} onClick={() => load(selectedRange)}>
               刷新
             </Button>
           </Space>
@@ -265,21 +284,33 @@ export function PlatformUserDetailPage() {
 
       <div className="filter-bar platform-metrics-filter">
         <Space wrap>
-          <RangePicker
-            showTime
-            value={range}
-            onChange={(value) => {
-              if (value?.[0] && value?.[1]) {
-                setRange([value[0], value[1]]);
-              }
-            }}
+          <Segmented
+            size="small"
+            value={rangeMode}
+            onChange={(value) => setRangeMode(value as RangeMode)}
+            options={[
+              { label: "自然月", value: "month" },
+              { label: "自定义", value: "custom" }
+            ]}
           />
-          <Button type="primary" icon={<Search size={16} />} loading={loading} onClick={() => load(range)}>
+          {rangeMode === "month" ? (
+            <DatePicker picker="month" allowClear={false} value={month} onChange={(value) => value && setMonth(value)} />
+          ) : (
+            <RangePicker
+              value={customRange}
+              onChange={(value) => {
+                if (value?.[0] && value?.[1]) {
+                  setCustomRange([value[0], value[1]]);
+                }
+              }}
+            />
+          )}
+          <Button type="primary" icon={<Search size={16} />} loading={loading} onClick={() => load(selectedRange)}>
             查询
           </Button>
-          <Button onClick={() => setQuickRange(24, "hour")}>近 24 小时</Button>
-          <Button onClick={() => setQuickRange(7, "day")}>近 7 天</Button>
-          <Button onClick={() => setQuickRange(30, "day")}>近 30 天</Button>
+          <Button icon={<Download size={16} />} loading={exporting} onClick={handleExportReconciliation}>
+            导出对账单
+          </Button>
         </Space>
       </div>
 

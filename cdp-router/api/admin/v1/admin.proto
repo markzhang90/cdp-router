@@ -60,6 +60,19 @@ service AdminAPI {
     };
   }
 
+  rpc ReassignTask(ReassignTaskRequest) returns (ReassignTaskResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/tasks/reassign"
+      body: "*"
+    };
+  }
+
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse) {
+    option (google.api.http) = {
+      delete: "/api/admin/v1/tasks/{id}"
+    };
+  }
+
   rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse) {
     option (google.api.http) = {
       get: "/api/admin/v1/providers"
@@ -93,6 +106,13 @@ service AdminAPI {
   rpc GetPlatformUserMetrics(GetPlatformUserMetricsRequest) returns (GetPlatformUserMetricsResponse) {
     option (google.api.http) = {
       get: "/api/admin/v1/platform-users/{id}/metrics"
+    };
+  }
+
+  rpc ExportPlatformUserReconciliation(ExportPlatformUserReconciliationRequest) returns (ExportPlatformUserReconciliationResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/platform-users/{id}/reconciliation-export"
+      body: "*"
     };
   }
 
@@ -168,6 +188,7 @@ message ListTasksRequest {
   int32 page = 6;
   int32 page_size = 7 [json_name = "pageSize"];
   string platform_code = 8 [json_name = "platformCode"];
+  string task_name = 9 [json_name = "taskName"];
 }
 
 message ListTasksResponse {
@@ -201,12 +222,20 @@ message AdminTaskSummary {
   string platform_code = 15 [json_name = "platformCode"];
   int32 execution_duration_seconds = 16 [json_name = "executionDurationSeconds"];
   string execution_duration_text = 17 [json_name = "executionDurationText"];
+  bool submit_failed = 18 [json_name = "submitFailed"];
+  repeated string dispatch_labels = 19 [json_name = "dispatchLabels"];
+  int64 reassigned_from_task_id = 20 [json_name = "reassignedFromTaskId"];
+  int64 reassigned_to_task_id = 21 [json_name = "reassignedToTaskId"];
 }
 
 message GetTaskDetailRequest {
   int64 id = 1;
   int32 item_page = 2 [json_name = "itemPage"];
   int32 item_page_size = 3 [json_name = "itemPageSize"];
+  int32 file_page = 4 [json_name = "filePage"];
+  int32 file_page_size = 5 [json_name = "filePageSize"];
+  int32 event_page = 6 [json_name = "eventPage"];
+  int32 event_page_size = 7 [json_name = "eventPageSize"];
 }
 
 message GetTaskDetailResponse {
@@ -240,6 +269,12 @@ message TaskDetailData {
   int32 item_total = 6 [json_name = "itemTotal"];
   int32 item_page = 7 [json_name = "itemPage"];
   int32 item_page_size = 8 [json_name = "itemPageSize"];
+  int32 file_total = 9 [json_name = "fileTotal"];
+  int32 file_page = 10 [json_name = "filePage"];
+  int32 file_page_size = 11 [json_name = "filePageSize"];
+  int32 event_total = 12 [json_name = "eventTotal"];
+  int32 event_page = 13 [json_name = "eventPage"];
+  int32 event_page_size = 14 [json_name = "eventPageSize"];
 }
 
 message AdminTaskItem {
@@ -345,6 +380,38 @@ message RetryTaskCallbackData {
   int32 task_item_count = 12 [json_name = "taskItemCount"];
 }
 
+message ReassignTaskRequest {
+  string batch_no = 1 [json_name = "batchNo"];
+  string provider_code = 2 [json_name = "providerCode"];
+  string reason = 3;
+}
+
+message ReassignTaskResponse {
+  int32 status = 1;
+  string message = 2;
+  ReassignTaskData data = 3;
+}
+
+message ReassignTaskData {
+  int64 source_task_id = 1 [json_name = "sourceTaskId"];
+  int64 target_task_id = 2 [json_name = "targetTaskId"];
+  string original_batch_no = 3 [json_name = "originalBatchNo"];
+  string target_batch_no = 4 [json_name = "targetBatchNo"];
+  string provider_code = 5 [json_name = "providerCode"];
+  string task_status = 6 [json_name = "taskStatus"];
+  int32 accepted_count = 7 [json_name = "acceptedCount"];
+}
+
+message DeleteTaskRequest {
+  int64 id = 1;
+}
+
+message DeleteTaskResponse {
+  int32 status = 1;
+  string message = 2;
+  EmptyData data = 3;
+}
+
 message ListProvidersRequest {}
 
 message ListProvidersResponse {
@@ -369,6 +436,12 @@ message Provider {
   bool submit_url_configured = 9 [json_name = "submitUrlConfigured"];
   bool status_url_configured = 10 [json_name = "statusUrlConfigured"];
   bool files_url_configured = 11 [json_name = "filesUrlConfigured"];
+  int32 daily_question_quota = 12 [json_name = "dailyQuestionQuota"];
+  int32 daily_question_used = 13 [json_name = "dailyQuestionUsed"];
+  int32 daily_question_remaining = 14 [json_name = "dailyQuestionRemaining"];
+  bool daily_question_unlimited = 15 [json_name = "dailyQuestionUnlimited"];
+  string company_name = 16 [json_name = "companyName"];
+  string settlement_start_at = 17 [json_name = "settlementStartAt"];
 }
 
 message GetDispatchOptionsRequest {}
@@ -439,6 +512,8 @@ message DispatchProfile {
   int64 cursor = 6;
   string last_provider_code = 7 [json_name = "lastProviderCode"];
   repeated string provider_codes = 8 [json_name = "providerCodes"];
+  repeated DispatchRule rules = 9;
+  string fallback_selection_policy = 10 [json_name = "fallbackSelectionPolicy"];
 }
 
 message DispatchProfileInput {
@@ -447,6 +522,28 @@ message DispatchProfileInput {
   string strategy = 3;
   bool enabled = 4;
   repeated string provider_codes = 5 [json_name = "providerCodes"];
+  repeated DispatchRuleInput rules = 6;
+  string fallback_selection_policy = 7 [json_name = "fallbackSelectionPolicy"];
+}
+
+message DispatchRule {
+  string code = 1;
+  string name = 2;
+  int32 sort_order = 3 [json_name = "sortOrder"];
+  string task_name_regex = 4 [json_name = "taskNameRegex"];
+  repeated string labels = 5;
+  repeated string provider_codes = 6 [json_name = "providerCodes"];
+  bool enabled = 7;
+}
+
+message DispatchRuleInput {
+  string code = 1;
+  string name = 2;
+  int32 sort_order = 3 [json_name = "sortOrder"];
+  string task_name_regex = 4 [json_name = "taskNameRegex"];
+  repeated string labels = 5;
+  repeated string provider_codes = 6 [json_name = "providerCodes"];
+  bool enabled = 7;
 }
 
 message ListPlatformUsersRequest {
@@ -489,6 +586,18 @@ message GetPlatformUserMetricsResponse {
   int32 status = 1;
   string message = 2;
   PlatformUserMetricsData data = 3;
+}
+
+message ExportPlatformUserReconciliationRequest {
+  int64 id = 1;
+  string created_from = 2 [json_name = "createdFrom"];
+  string created_to = 3 [json_name = "createdTo"];
+}
+
+message ExportPlatformUserReconciliationResponse {
+  int32 status = 1;
+  string message = 2;
+  ExportTaskItemsData data = 3;
 }
 
 message PlatformUserMetricsData {

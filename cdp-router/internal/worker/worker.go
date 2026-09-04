@@ -21,7 +21,7 @@ func New(tasks *biz.TaskUsecase) *Worker {
 	return &Worker{
 		tasks:             tasks,
 		interval:          5 * time.Second,
-		submittedInterval: 15 * time.Minute,
+		submittedInterval: 10 * time.Minute,
 		submittedMaxAge:   24 * time.Hour,
 		limit:             20,
 	}

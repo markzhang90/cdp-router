@@ -1,26 +1,52 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, DatePicker, Form, Input, Progress, Select, Space, Table, Tooltip, Typography, message } from "antd";
+import { Button, DatePicker, Form, Input, Modal, Progress, Select, Space, Table, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Copy, RefreshCw, RotateCcw, Search } from "lucide-react";
+import { Copy, ExternalLink, GitBranch, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { checkTaskResult, listPlatformUsers, listTasks } from "../api/client";
+import { checkTaskResult, deleteTask, listPlatformUsers, listProviders, listTasks, reassignTask } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { TaskStatusTag } from "../components/StatusTag";
-import type { PlatformUser, TaskListQuery, TaskSummary } from "../types/admin";
-import { compactText, formatDateTime, percent, taskProgress } from "../utils/format";
+import type { PlatformUser, Provider, TaskListQuery, TaskSummary } from "../types/admin";
+import { compactText, formatDateTime, positiveID, precisePercent, taskProgress } from "../utils/format";
 
 const { RangePicker } = DatePicker;
+const CLOSED_REASSIGN_STATUSES = new Set(["CALLBACK_PENDING", "DONE", "REASSIGNED"]);
+
+function DispatchLabelPill({ label }: { label: string }) {
+  const normalized = label.trim().toLowerCase();
+  const tone = normalized === "fallback" ? "fallback" : "rule";
+
+  return (
+    <span className={`dispatch-label-pill dispatch-label-pill--${tone}`} title={label}>
+      <span className="dispatch-label-pill__text">{label}</span>
+    </span>
+  );
+}
+
+function canReassignTask(task: TaskSummary): boolean {
+  return !CLOSED_REASSIGN_STATUSES.has(task.status?.trim().toUpperCase() ?? "");
+}
+
+function isReassignedTask(task: TaskSummary): boolean {
+  return positiveID(task.reassignedFromTaskId) > 0;
+}
 
 export function TaskListPage() {
   const navigate = useNavigate();
   const [form] = Form.useForm();
+  const [reassignForm] = Form.useForm<{ providerCode: string; reason?: string }>();
   const [loading, setLoading] = useState(false);
   const [checkingId, setCheckingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [reassigningId, setReassigningId] = useState<number | null>(null);
+  const [reassignTaskRow, setReassignTaskRow] = useState<TaskSummary | null>(null);
   const [query, setQuery] = useState<TaskListQuery>({ page: 1, pageSize: 20 });
   const [rows, setRows] = useState<TaskSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [platformUsers, setPlatformUsers] = useState<PlatformUser[]>([]);
   const [platformLoading, setPlatformLoading] = useState(false);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerLoading, setProviderLoading] = useState(false);
 
   const load = async (nextQuery = query) => {
     setLoading(true);
@@ -58,6 +84,7 @@ export function TaskListPage() {
     const values = form.getFieldsValue();
     const range = values.createdRange as [unknown, unknown] | undefined;
     const nextQuery: TaskListQuery = {
+      taskName: values.taskName,
       batchNo: values.batchNo,
       platformCode: values.platformCode,
       resultStatus: values.resultStatus,
@@ -82,6 +109,75 @@ export function TaskListPage() {
     }
   };
 
+  const handleDeleteSubmitFailedTask = (task: TaskSummary) => {
+    Modal.confirm({
+      title: "删除提交失败任务？",
+      content: `确认删除任务 ${task.batchNo}？删除后将从后台列表隐藏，底层任务和关联数据会保留。`,
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setDeletingId(task.taskId);
+        try {
+          await deleteTask(task.taskId);
+          message.success("任务已删除");
+          await load(query);
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : "删除任务失败");
+        } finally {
+          setDeletingId(null);
+        }
+      }
+    });
+  };
+
+  const loadReassignProviders = async () => {
+    setProviderLoading(true);
+    try {
+      const data = await listProviders();
+      setProviders(data.providers.filter((provider) => provider.enabled && provider.submitUrlConfigured));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "加载供应商失败");
+    } finally {
+      setProviderLoading(false);
+    }
+  };
+
+  const handleOpenReassign = (task: TaskSummary) => {
+    setReassignTaskRow(task);
+    reassignForm.resetFields();
+    void loadReassignProviders();
+  };
+
+  const handleConfirmReassign = async () => {
+    if (!reassignTaskRow) return;
+    const values = await reassignForm.validateFields();
+    Modal.confirm({
+      title: "确认转派任务？",
+      content: `确认将任务 ${reassignTaskRow.batchNo} 转派给 ${values.providerCode}？`,
+      okText: "确认转派",
+      cancelText: "取消",
+      onOk: async () => {
+        setReassigningId(reassignTaskRow.taskId);
+        try {
+          const data = await reassignTask({
+            batchNo: reassignTaskRow.batchNo,
+            providerCode: values.providerCode,
+            reason: values.reason
+          });
+          message.success(`任务已转派到 ${data.providerCode}`);
+          setReassignTaskRow(null);
+          await load(query);
+          navigate(`/tasks/${data.targetTaskId}`);
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : "转派失败");
+        } finally {
+          setReassigningId(null);
+        }
+      }
+    });
+  };
+
   const handleCopyBatchNo = async (batchNo: string) => {
     try {
       await navigator.clipboard.writeText(batchNo);
@@ -97,12 +193,23 @@ export function TaskListPage() {
         title: "任务名称",
         dataIndex: "taskName",
         fixed: "left",
-        width: 280,
+        width: 240,
         render: (_, task) => (
           <div className="task-name-cell">
             <Button type="link" className="table-link" onClick={() => navigate(`/tasks/${task.taskId}`)}>
-              {task.taskName}
+              {task.taskName || "-"}
             </Button>
+            {isReassignedTask(task) ? <Tag>转派</Tag> : null}
+          </div>
+        )
+      },
+      {
+        title: "batchNo",
+        dataIndex: "batchNo",
+        width: 280,
+        render: (value: string) => (
+          <div className="batch-no-cell">
+            <Typography.Text className="mono-text">{compactText(value)}</Typography.Text>
             <Tooltip title="复制 batchNo">
               <Button
                 aria-label="复制 batchNo"
@@ -110,7 +217,7 @@ export function TaskListPage() {
                 icon={<Copy size={14} />}
                 size="small"
                 type="text"
-                onClick={() => handleCopyBatchNo(task.batchNo)}
+                onClick={() => handleCopyBatchNo(value)}
               />
             </Tooltip>
           </div>
@@ -146,12 +253,20 @@ export function TaskListPage() {
       {
         title: "进度",
         width: 150,
-        render: (_, task) => <Progress percent={percent(taskProgress(task))} size="small" />
+        render: (_, task) => <Progress percent={precisePercent(taskProgress(task))} size="small" />
       },
       {
         title: "供应商",
         dataIndex: "providerCode",
-        width: 130
+        width: 190,
+        render: (value: string, task) => (
+          <Space size={[4, 4]} wrap className="provider-label-cell">
+            <Typography.Text>{value || "-"}</Typography.Text>
+            {(task.dispatchLabels ?? []).map((label) => (
+              <DispatchLabelPill key={label} label={label} />
+            ))}
+          </Space>
+        )
       },
       {
         title: "状态",
@@ -180,7 +295,7 @@ export function TaskListPage() {
       {
         title: "操作",
         fixed: "right",
-        width: 128,
+        width: 212,
         render: (_, task) => (
           <Space>
             <Tooltip title="检查结果">
@@ -190,12 +305,53 @@ export function TaskListPage() {
                 onClick={() => handleCheck(task)}
               />
             </Tooltip>
+            {(() => {
+              const reassignedToTaskId = positiveID(task.reassignedToTaskId);
+              if (task.status === "REASSIGNED") {
+                return (
+                  <Tooltip title={reassignedToTaskId ? "查看转派任务" : "未找到转派任务"}>
+                    <Button
+                      disabled={!reassignedToTaskId}
+                      icon={<ExternalLink size={16} />}
+                      onClick={() => navigate(`/tasks/${reassignedToTaskId}`)}
+                    />
+                  </Tooltip>
+                );
+              }
+              if (!canReassignTask(task)) return null;
+              return (
+                <Tooltip title="转派">
+                  <Button
+                    icon={<GitBranch size={16} />}
+                    loading={reassigningId === task.taskId}
+                    onClick={() => handleOpenReassign(task)}
+                  />
+                </Tooltip>
+              );
+            })()}
+            {task.submitFailed ? (
+              <Tooltip title="删除提交失败任务">
+                <Button
+                  danger
+                  icon={<Trash2 size={16} />}
+                  loading={deletingId === task.taskId}
+                  onClick={() => handleDeleteSubmitFailedTask(task)}
+                />
+              </Tooltip>
+            ) : null}
           </Space>
         )
       }
     ],
-    [checkingId, navigate, query]
+    [checkingId, deletingId, navigate, query, reassigningId]
   );
+
+  const reassignProviderOptions = providers
+    .filter((provider) => provider.providerCode !== reassignTaskRow?.providerCode)
+    .map((provider) => ({
+      label: `${provider.providerCode}${provider.displayName ? ` · ${provider.displayName}` : ""}`,
+      value: provider.providerCode
+    }));
 
   return (
     <section>
@@ -210,6 +366,9 @@ export function TaskListPage() {
       />
       <div className="filter-bar">
         <Form form={form} layout="inline">
+          <Form.Item name="taskName">
+            <Input allowClear placeholder="任务名称" prefix={<Search size={15} />} />
+          </Form.Item>
           <Form.Item name="batchNo">
             <Input allowClear placeholder="batchNo" prefix={<Search size={15} />} />
           </Form.Item>
@@ -267,8 +426,39 @@ export function TaskListPage() {
           onChange: (page, pageSize) => load({ ...query, page, pageSize })
         }}
         rowKey="taskId"
-        scroll={{ x: 1680 }}
+        scroll={{ x: 1960 }}
       />
+      <Modal
+        title="任务转派"
+        open={Boolean(reassignTaskRow)}
+        okText="转派"
+        cancelText="取消"
+        confirmLoading={reassigningId === reassignTaskRow?.taskId}
+        onCancel={() => setReassignTaskRow(null)}
+        onOk={() => void handleConfirmReassign()}
+      >
+        <Form form={reassignForm} layout="vertical">
+          <Form.Item label="原 batchNo">
+            <Typography.Text className="mono-text">{reassignTaskRow?.batchNo ?? "-"}</Typography.Text>
+          </Form.Item>
+          <Form.Item
+            label="目标供应商"
+            name="providerCode"
+            rules={[{ required: true, message: "请选择目标供应商" }]}
+          >
+            <Select
+              showSearch
+              loading={providerLoading}
+              optionFilterProp="label"
+              placeholder="选择启用的供应商"
+              options={reassignProviderOptions}
+            />
+          </Form.Item>
+          <Form.Item label="转派原因" name="reason">
+            <Input.TextArea rows={3} maxLength={200} showCount placeholder="可选" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </section>
   );
 }

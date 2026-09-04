@@ -12,17 +12,26 @@
 [providers.vendor_x]
 code = vendor_x
 display_name = vendor_x
+company_name = Vendor X Co., Ltd.
+settlement_start_at = 2026-01-01
 token = <provider-token>
 result_mode = callback_upload
 submit_url = https://example.com/api/v1/ai/batch/create
 status_url = https://example.com/api/v1/ai/batch/external/{externalBatchId}
 files_url = https://example.com/api/v1/ai/batch/external/{externalBatchId}/files
 bucket_path_prefix = cdp-router/q2a/vendor_x
-timeout_seconds = 30
+timeout_seconds = 20
 qps_limit = 10
 concurrency_limit = 20
+daily_question_quota = 0
 enabled = true
 ```
+
+`timeout_seconds` 可按供应商下调；未配置或配置超过 20 秒时，运行时会按 20 秒处理。
+
+`company_name` 用于后台展示和接入方任务对账单导出；未配置时回退使用 `display_name`。`settlement_start_at` 表示供应商开始结算时间，建议使用 `YYYY-MM-DD`。
+
+`daily_question_quota` 表示该供应商按提交当天 Asia/Shanghai 自然日可处理的 question 总额度。未配置、配置为 0 或负数时表示无上限；配置为正数时，任务调度基于 `cdp_tasks.quota_date + provider_code` 汇总 `cdp_tasks.total_count` 判断剩余额度，不扫描 `cdp_task_items` 明细表。
 
 通用 HTTP provider 默认能力：
 
@@ -30,11 +39,11 @@ enabled = true
 - 获取进度：`GET status_url`，解析 `data.questions[]`。
 - 获取文件：`GET files_url`，解析 `data.fileUrls[]`。
 - 下载文件：直接 HTTP GET `fileUrl`。
-- 完成回调后文件处理：默认处理供应商通过本网关 OSS 上传接口登记的文件。
+- 完成回调后文件处理：`/external/callback/{provider}` 只做完成确认、`files_url` 校对和待导入文件登记，不下载或解析结果文件；下载和导入由 worker 扫描 `PROVIDER_DONE` 后异步执行。
 
 配置变更后需要重启服务，配置会在启动时加载到内存。
 
-新增 provider 只表示服务具备调用该供应商的能力，不会自动接收业务任务。需要在后台接入方页面或管理 API 中，把 provider code 加入目标接入方绑定的 `cdp_dispatch_profiles.config.providers`，并确保调度配置 `enabled=true`。当前调度粒度是整任务维度：一个任务被选中某个 provider 后，任务内全部 `items[]` 都提交给同一个 provider。
+新增 provider 只表示服务具备调用该供应商的能力，不会自动接收业务任务。需要在后台接入方页面或管理 API 中，把 provider code 加入目标接入方绑定的 `cdp_dispatch_profiles.config.providers`，并确保调度配置 `enabled=true`。当前调度粒度是整任务维度：一个任务被选中某个 provider 后，任务内全部 `items[]` 都提交给同一个 provider。接入方调度策略可选 `ROUND_ROBIN` 或 `RULE_BASED`；`ROUND_ROBIN` 下 `config.providers` 是默认供应商池，按顺序下发；`RULE_BASED` 下 `config.providers` 是 `FALLBACK` 供应商池，规则配置保存在 `cdp_dispatch_profiles.config.rules`，按 `taskName` 正则第一条命中规则确定标签并优先使用规则供应商池。规则供应商池可以不包含在 `FALLBACK` 池内；未命中规则或规则供应商池全部额度不足/不可用时进入 `FALLBACK` 池，其中规则池失败进入 fallback 时标签记录为 `fallback`。`FALLBACK` 池的选择方式由 `config.fallbackSelectionPolicy` 控制，可选 `ROUND_ROBIN` 或 `LOWEST_USAGE_RATE`，未配置时默认 `LOWEST_USAGE_RATE`。
 
 调度可选 provider 来自 `GET /api/admin/v1/dispatch-options`。配置中未启用、缺少提交地址或缺少鉴权 token/API key 的 provider 不会进入可选列表，也不会在创建任务时被选中。
 
@@ -42,7 +51,7 @@ enabled = true
 
 如果供应商完成回调后需要特殊文件处理，不要在 biz 层写 provider code 判断，应在 `internal/provider` 下为该供应商增加独立文件。
 
-例如 `mpzdata` 的规则是：收到完成回调后，先调用供应商 `files_url` 获取最终文件列表，按返回列表处理所有文件；如果列表为空，再回退到 OSS 上传记录。实现位于：
+例如 `mpzdata`/`liuandata` 的规则是：收到完成回调且 counts 100% 后，先调用供应商 `files_url` 获取最终文件列表并登记待导入文件；worker 导入时优先消费待导入记录，如果列表为空再回退到 OSS 上传记录。实现位于：
 
 ```text
 internal/provider/mpzdata_provider.go

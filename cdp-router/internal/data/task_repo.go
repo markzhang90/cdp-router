@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"path"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/GitMarkZhang/cdp-router/internal/biz"
+	"github.com/GitMarkZhang/cdp-router/internal/pkg/timezone"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,13 +30,51 @@ type taskDispatchDecision struct {
 	CursorBefore       int64
 	CursorAfter        int64
 	CandidateProviders []string
+	MatchedRuleCode    string
+	MatchedRuleName    string
+	Labels             []string
+	QuestionCount      int
+	QuotaDate          time.Time
+	QuotaSnapshots     []dispatchQuotaSnapshot
+	Reason             string
+}
+
+type dispatchQuotaSnapshot struct {
+	ProviderCode string  `json:"providerCode"`
+	DailyQuota   int     `json:"dailyQuota"`
+	Used         int     `json:"used"`
+	Remaining    int     `json:"remaining"`
+	Score        float64 `json:"score"`
+	Unlimited    bool    `json:"unlimited"`
+}
+
+type dispatchProviderSettings struct {
+	DailyQuestionQuota int
+}
+
+type dispatchProfileConfig struct {
+	Providers []struct {
+		Code string `json:"code"`
+	} `json:"providers"`
+	FallbackSelectionPolicy string               `json:"fallbackSelectionPolicy"`
+	Rules                   []dispatchRuleConfig `json:"rules"`
+}
+
+type dispatchRuleConfig struct {
+	Code          string   `json:"code"`
+	Name          string   `json:"name"`
+	SortOrder     int      `json:"sortOrder"`
+	TaskNameRegex string   `json:"taskNameRegex"`
+	Labels        []string `json:"labels"`
+	ProviderCodes []string `json:"providerCodes"`
+	Enabled       *bool    `json:"enabled"`
 }
 
 func NewTaskRepo(db *pgxpool.Pool) *TaskRepo {
 	return &TaskRepo{db: db}
 }
 
-func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, providerCodes []string, providerCallbackBaseURL string) (*biz.Task, error) {
+func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, providerSettings []biz.ProviderSettings, providerCallbackBaseURL string) (*biz.Task, error) {
 	bizDate, err := time.Parse("2006-01-02", input.BizDate)
 	if err != nil {
 		return nil, fmt.Errorf("%w: bizDate must be yyyy-MM-dd", biz.ErrInvalidTaskRequest)
@@ -40,13 +83,18 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 	if source == "" {
 		source = input.GatewayCode
 	}
+	taskName := strings.TrimSpace(input.TaskName)
+	questionCount := dispatchQuestionCount(input.Items)
+	if questionCount <= 0 {
+		return nil, biz.ErrInvalidTaskRequest
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	existing, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where batch_no=$1`, input.BatchNo))
+	existing, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where batch_no=$1 and deleted_at is null`, input.BatchNo))
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
@@ -57,7 +105,7 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 		return nil, err
 	}
 
-	decision, err := r.selectDispatchProvider(ctx, tx, input.PlatformUserID, providerCodes)
+	decision, err := r.selectDispatchProvider(ctx, tx, input.PlatformUserID, taskName, questionCount, providerSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -66,22 +114,24 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 	var task biz.Task
 	err = tx.QueryRow(ctx, `
 	insert into cdp_tasks (
-	  job_id, platform_user_id, platform_code, batch_no, provider_code, gateway_code, source, external_batch_id,
+	  job_id, platform_user_id, platform_code, batch_no, task_name, provider_code, gateway_code, source, external_batch_id,
 	  provider_external_batch_id, dispatch_profile_id, dispatch_profile_code, dispatch_strategy,
-	  biz_date, status, callback_url, provider_callback_url, raw_request, total_count
-	) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-	returning id, coalesce(job_id,''), coalesce(platform_user_id,0), coalesce(platform_code,''), batch_no, provider_code,
+	  biz_date, quota_date, status, callback_url, provider_callback_url, raw_request, total_count
+	) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+	returning id, coalesce(job_id,''), coalesce(platform_user_id,0), coalesce(platform_code,''), batch_no, coalesce(task_name,''), provider_code,
 	  coalesce(gateway_code,''), coalesce(source,''), coalesce(external_batch_id,''), coalesce(provider_external_batch_id,''),
-	  coalesce(dispatch_profile_id,0), coalesce(dispatch_profile_code,''), coalesce(dispatch_strategy,''), biz_date, status,
+	  coalesce(reassigned_from_task_id,0), coalesce(callback_batch_no,''), coalesce(callback_external_batch_id,''),
+	  coalesce(dispatch_profile_id,0), coalesce(dispatch_profile_code,''), coalesce(dispatch_strategy,''), biz_date, coalesce(quota_date,biz_date), status,
 	  coalesce(callback_url,''), coalesce(provider_callback_url,''), raw_request, coalesce(provider_request,'{}'::jsonb),
 	  coalesce(provider_response,'{}'::jsonb), coalesce(result_payload,'{}'::jsonb), coalesce(result_object_key,''),
 	  coalesce(result_file_name,''), result_row_count, total_count, success_count, failed_count, coalesce(last_error,''), created_at, updated_at
-		`, input.JobID, input.PlatformUserID, input.PlatformCode, input.BatchNo, decision.ProviderCode, input.GatewayCode, source, input.JobID,
+		`, input.JobID, input.PlatformUserID, input.PlatformCode, input.BatchNo, taskName, decision.ProviderCode, input.GatewayCode, source, input.JobID,
 		nil, decision.ProfileID, decision.ProfileCode, decision.Strategy,
-		bizDate, biz.TaskStatusCreated, input.CallbackURL, providerCallbackURL, input.RawRequest, taskItemExpectedCount(input.Items)).
-		Scan(&task.ID, &task.JobID, &task.PlatformUserID, &task.PlatformCode, &task.BatchNo, &task.ProviderCode,
+		bizDate, decision.QuotaDate, biz.TaskStatusCreated, input.CallbackURL, providerCallbackURL, input.RawRequest, questionCount).
+		Scan(&task.ID, &task.JobID, &task.PlatformUserID, &task.PlatformCode, &task.BatchNo, &task.TaskName, &task.ProviderCode,
 			&task.GatewayCode, &task.Source, &task.ExternalBatchID, &task.ProviderExternalBatchID,
-			&task.DispatchProfileID, &task.DispatchProfileCode, &task.DispatchStrategy, &task.BizDate, &task.Status,
+			&task.ReassignedFromTaskID, &task.CallbackBatchNo, &task.CallbackExternalBatchID,
+			&task.DispatchProfileID, &task.DispatchProfileCode, &task.DispatchStrategy, &task.BizDate, &task.QuotaDate, &task.Status,
 			&task.CallbackURL, &task.ProviderCallbackURL, &task.RawRequest, &task.ProviderRequest, &task.ProviderResponse,
 			&task.ResultPayload, &task.ResultObjectKey, &task.ResultFileName, &task.ResultRowCount, &task.TotalCount, &task.SuccessCount,
 			&task.FailedCount, &task.LastError, &task.CreatedAt, &task.UpdatedAt)
@@ -103,15 +153,15 @@ on conflict (task_id, item_id) do nothing
 			return nil, err
 		}
 	}
-	dispatchPayload, _ := json.Marshal(map[string]any{
-		"profileId":          decision.ProfileID,
-		"profileCode":        decision.ProfileCode,
-		"strategy":           decision.Strategy,
-		"providerCode":       decision.ProviderCode,
-		"cursorBefore":       decision.CursorBefore,
-		"cursorAfter":        decision.CursorAfter,
-		"candidateProviders": decision.CandidateProviders,
-	})
+	dispatchPayload := taskDispatchPayload(task, decision)
+	if decision.MatchedRuleCode != "" {
+		if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, task.ID, biz.EventTaskDispatchRuleHit, dispatchPayload); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, task.ID, biz.EventTaskDispatchQuota, dispatchPayload); err != nil {
+		return nil, err
+	}
 	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, task.ID, biz.EventTaskDispatched, dispatchPayload); err != nil {
 		return nil, err
 	}
@@ -134,14 +184,227 @@ returning total_count
 	return &task, nil
 }
 
-func (r *TaskRepo) selectDispatchProvider(ctx context.Context, tx pgx.Tx, platformUserID int64, providerCodes []string) (taskDispatchDecision, error) {
-	available := make(map[string]bool, len(providerCodes))
-	for _, code := range providerCodes {
-		code = strings.TrimSpace(code)
-		if code != "" {
-			available[code] = true
+func (r *TaskRepo) CreateReassignedTask(ctx context.Context, input biz.ReassignTaskRecordInput, providerCallbackBaseURL string) (*biz.Task, error) {
+	if strings.TrimSpace(input.SourceBatchNo) == "" || strings.TrimSpace(input.TargetBatchNo) == "" || strings.TrimSpace(input.ProviderCode) == "" {
+		return nil, biz.ErrInvalidTaskRequest
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	source, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where batch_no=$1 and deleted_at is null for update`, input.SourceBatchNo))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, biz.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if source.Status == biz.TaskStatusCallbackPending || source.Status == biz.TaskStatusDone || source.Status == biz.TaskStatusReassigned {
+		return nil, biz.ErrTaskClosed
+	}
+	if source.ProviderCode == input.ProviderCode {
+		return nil, fmt.Errorf("%w: target provider must differ from source provider", biz.ErrInvalidTaskRequest)
+	}
+	if input.TargetJobID == "" {
+		input.TargetJobID = "job_" + input.TargetBatchNo
+	}
+	callbackBatchNo := reassignCallbackBatchNo(source)
+	callbackExternalBatchID := reassignCallbackExternalBatchID(source)
+	providerCallbackURL := strings.TrimRight(providerCallbackBaseURL, "/") + "/external/callback/" + input.ProviderCode
+	var target biz.Task
+	err = tx.QueryRow(ctx, `
+insert into cdp_tasks (
+  job_id, platform_user_id, platform_code, batch_no, task_name, provider_code, gateway_code, source, external_batch_id,
+  provider_external_batch_id, reassigned_from_task_id, callback_batch_no, callback_external_batch_id,
+  dispatch_profile_id, dispatch_profile_code, dispatch_strategy, biz_date, quota_date, status,
+  callback_url, provider_callback_url, raw_request, total_count
+) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+returning id, coalesce(job_id,''), coalesce(platform_user_id,0), coalesce(platform_code,''), batch_no, coalesce(task_name,''), provider_code,
+  coalesce(gateway_code,''), coalesce(source,''), coalesce(external_batch_id,''), coalesce(provider_external_batch_id,''),
+  coalesce(reassigned_from_task_id,0), coalesce(callback_batch_no,''), coalesce(callback_external_batch_id,''),
+  coalesce(dispatch_profile_id,0), coalesce(dispatch_profile_code,''), coalesce(dispatch_strategy,''), biz_date, coalesce(quota_date,biz_date), status,
+  coalesce(callback_url,''), coalesce(provider_callback_url,''), raw_request, coalesce(provider_request,'{}'::jsonb),
+  coalesce(provider_response,'{}'::jsonb), coalesce(result_payload,'{}'::jsonb), coalesce(result_object_key,''),
+  coalesce(result_file_name,''), result_row_count, total_count, success_count, failed_count, coalesce(last_error,''), created_at, updated_at
+`, input.TargetJobID, source.PlatformUserID, source.PlatformCode, input.TargetBatchNo, source.TaskName, input.ProviderCode,
+		source.GatewayCode, source.Source, input.TargetJobID, nil, source.ID, callbackBatchNo, callbackExternalBatchID,
+		source.DispatchProfileID, source.DispatchProfileCode, source.DispatchStrategy, source.BizDate, currentQuotaDate(), biz.TaskStatusCreated,
+		source.CallbackURL, providerCallbackURL, source.RawRequest, source.TotalCount).
+		Scan(&target.ID, &target.JobID, &target.PlatformUserID, &target.PlatformCode, &target.BatchNo, &target.TaskName, &target.ProviderCode,
+			&target.GatewayCode, &target.Source, &target.ExternalBatchID, &target.ProviderExternalBatchID,
+			&target.ReassignedFromTaskID, &target.CallbackBatchNo, &target.CallbackExternalBatchID,
+			&target.DispatchProfileID, &target.DispatchProfileCode, &target.DispatchStrategy, &target.BizDate, &target.QuotaDate, &target.Status,
+			&target.CallbackURL, &target.ProviderCallbackURL, &target.RawRequest, &target.ProviderRequest, &target.ProviderResponse,
+			&target.ResultPayload, &target.ResultObjectKey, &target.ResultFileName, &target.ResultRowCount, &target.TotalCount, &target.SuccessCount,
+			&target.FailedCount, &target.LastError, &target.CreatedAt, &target.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+insert into cdp_task_items (task_id, item_id, platform_code, seq, question, deepthink, web_search, raw_item, question_id, status, result_status, updated_at)
+select $1, item_id, platform_code, seq, question, deepthink, web_search, raw_item, null, 0, 'PENDING', now()
+from cdp_task_items
+where task_id=$2
+on conflict (task_id, item_id) do nothing
+`, target.ID, source.ID); err != nil {
+		return nil, err
+	}
+	if err := tx.QueryRow(ctx, `
+update cdp_tasks
+set total_count=(select count(*)::int from cdp_task_items where task_id=$1),
+  updated_at=now()
+where id=$1
+returning total_count
+`, target.ID).Scan(&target.TotalCount); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{
+		"sourceTaskId":            source.ID,
+		"targetTaskId":            target.ID,
+		"targetBatchNo":           target.BatchNo,
+		"originalBatchNo":         callbackBatchNo,
+		"sourceProviderCode":      source.ProviderCode,
+		"targetProviderCode":      target.ProviderCode,
+		"callbackExternalBatchId": target.CallbackExternalBatchID,
+		"operatorUserId":          input.OperatorUserID,
+		"reason":                  input.Reason,
+	}
+	payloadBody, _ := json.Marshal(payload)
+	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, source.ID, biz.EventTaskReassignRequested, payloadBody); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, target.ID, biz.EventTaskReassignRequested, payloadBody); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
+func reassignCallbackBatchNo(source *biz.Task) string {
+	if source == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(source.CallbackBatchNo); value != "" {
+		return value
+	}
+	return source.BatchNo
+}
+
+func reassignCallbackExternalBatchID(source *biz.Task) string {
+	if source == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(source.CallbackExternalBatchID); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(source.JobID); value != "" {
+		return value
+	}
+	return strings.TrimSpace(source.ExternalBatchID)
+}
+
+func (r *TaskRepo) MarkTaskReassigned(ctx context.Context, sourceTaskID, targetTaskID int64, payload any) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	source, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where id=$1 and deleted_at is null for update`, sourceTaskID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return biz.ErrTaskNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if source.Status == biz.TaskStatusCallbackPending || source.Status == biz.TaskStatusDone || source.Status == biz.TaskStatusReassigned {
+		return biz.ErrTaskClosed
+	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set status=$2,updated_at=now() where id=$1`, sourceTaskID, biz.TaskStatusReassigned); err != nil {
+		return err
+	}
+	payloadBody, _ := json.Marshal(payload)
+	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, sourceTaskID, biz.EventTaskReassigned, payloadBody); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, targetTaskID, biz.EventTaskReassignSubmitted, payloadBody); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *TaskRepo) PrepareTaskForSubmit(ctx context.Context, taskID int64, providerSettings []biz.ProviderSettings, providerCallbackBaseURL string) (*biz.Task, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	task, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where id=$1 and deleted_at is null for update`, taskID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, biz.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if task.ReassignedFromTaskID > 0 || task.Status != biz.TaskStatusCreated || task.ProviderExternalBatchID != "" || sameQuotaDate(task.QuotaDate, currentQuotaDate()) {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return task, nil
+	}
+	if task.TotalCount <= 0 {
+		if err := tx.QueryRow(ctx, `select count(*)::int from cdp_task_items where task_id=$1`, task.ID).Scan(&task.TotalCount); err != nil {
+			return nil, err
 		}
 	}
+	decision, err := r.selectDispatchProvider(ctx, tx, task.PlatformUserID, task.TaskName, task.TotalCount, providerSettings)
+	if err != nil {
+		return nil, err
+	}
+	providerCallbackURL := strings.TrimRight(providerCallbackBaseURL, "/") + "/external/callback/" + decision.ProviderCode
+	if _, err := tx.Exec(ctx, `
+update cdp_tasks
+set provider_code=$2,
+  provider_callback_url=$3,
+  dispatch_profile_id=$4,
+  dispatch_profile_code=$5,
+  dispatch_strategy=$6,
+  quota_date=$7,
+  updated_at=now()
+where id=$1
+`, task.ID, decision.ProviderCode, providerCallbackURL, decision.ProfileID, decision.ProfileCode, decision.Strategy, decision.QuotaDate); err != nil {
+		return nil, err
+	}
+	task.ProviderCode = decision.ProviderCode
+	task.ProviderCallbackURL = providerCallbackURL
+	task.DispatchProfileID = decision.ProfileID
+	task.DispatchProfileCode = decision.ProfileCode
+	task.DispatchStrategy = decision.Strategy
+	task.QuotaDate = decision.QuotaDate
+	dispatchPayload := taskDispatchPayload(*task, decision)
+	if decision.MatchedRuleCode != "" {
+		if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, task.ID, biz.EventTaskDispatchRuleHit, dispatchPayload); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, task.ID, biz.EventTaskDispatchQuota, dispatchPayload); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, task.ID, biz.EventTaskDispatched, dispatchPayload); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return r.GetTask(ctx, task.ID)
+}
+
+func (r *TaskRepo) selectDispatchProvider(ctx context.Context, tx pgx.Tx, platformUserID int64, taskName string, questionCount int, providers []biz.ProviderSettings) (taskDispatchDecision, error) {
+	available := dispatchProviderSettingsMap(providers)
 	var profileID int64
 	var profileCode string
 	var strategy string
@@ -166,38 +429,89 @@ for update
 	if strategy == "" {
 		strategy = string(biz.DispatchStrategyRoundRobin)
 	}
-	if strategy != string(biz.DispatchStrategyRoundRobin) {
+	if strategy != string(biz.DispatchStrategyRoundRobin) && strategy != string(biz.DispatchStrategyRuleBased) {
 		return taskDispatchDecision{}, biz.ErrProviderUnavailable
-	}
-	var parsed struct {
-		Providers []struct {
-			Code string `json:"code"`
-		} `json:"providers"`
 	}
 	if len(config) == 0 {
 		config = json.RawMessage(`{}`)
 	}
-	if err := json.Unmarshal(config, &parsed); err != nil {
+	parsed, err := parseDispatchProfileConfig(config)
+	if err != nil {
 		return taskDispatchDecision{}, biz.ErrProviderUnavailable
 	}
+	fallbackCandidates := dispatchProfileProviderCodes(parsed, available)
+	if len(fallbackCandidates) == 0 {
+		return taskDispatchDecision{}, biz.ErrProviderUnavailable
+	}
+	quotaDate := currentQuotaDate()
+
+	switch biz.DispatchStrategy(strategy) {
+	case biz.DispatchStrategyRoundRobin:
+		return r.selectRoundRobinDispatchProvider(ctx, tx, profileID, profileCode, cursor, fallbackCandidates, available, quotaDate, questionCount)
+	case biz.DispatchStrategyRuleBased:
+		return r.selectRuleBasedDispatchProvider(ctx, tx, profileID, profileCode, cursor, taskName, parsed, fallbackCandidates, available, quotaDate, questionCount)
+	default:
+		return taskDispatchDecision{}, biz.ErrProviderUnavailable
+	}
+}
+
+func parseDispatchProfileConfig(config json.RawMessage) (dispatchProfileConfig, error) {
+	var parsed dispatchProfileConfig
+	if err := json.Unmarshal(config, &parsed); err != nil {
+		return dispatchProfileConfig{}, err
+	}
+	sort.SliceStable(parsed.Rules, func(i, j int) bool {
+		if parsed.Rules[i].SortOrder == parsed.Rules[j].SortOrder {
+			return i < j
+		}
+		return parsed.Rules[i].SortOrder < parsed.Rules[j].SortOrder
+	})
+	return parsed, nil
+}
+
+func dispatchProviderSettingsMap(providers []biz.ProviderSettings) map[string]dispatchProviderSettings {
+	available := make(map[string]dispatchProviderSettings, len(providers))
+	for _, provider := range providers {
+		code := strings.TrimSpace(provider.ProviderCode)
+		if code == "" || !provider.Enabled {
+			continue
+		}
+		available[code] = dispatchProviderSettings{
+			DailyQuestionQuota: provider.DailyQuestionQuota,
+		}
+	}
+	return available
+}
+
+func dispatchProfileProviderCodes(parsed dispatchProfileConfig, available map[string]dispatchProviderSettings) []string {
 	candidates := make([]string, 0, len(parsed.Providers))
 	seen := map[string]bool{}
 	for _, provider := range parsed.Providers {
 		code := strings.TrimSpace(provider.Code)
-		if code == "" || seen[code] || !available[code] {
+		if code == "" || seen[code] {
+			continue
+		}
+		if _, ok := available[code]; !ok {
 			continue
 		}
 		seen[code] = true
 		candidates = append(candidates, code)
 	}
-	if len(candidates) == 0 {
-		return taskDispatchDecision{}, biz.ErrProviderUnavailable
-	}
+	return candidates
+}
+
+func (r *TaskRepo) selectRoundRobinDispatchProvider(ctx context.Context, tx pgx.Tx, profileID int64, profileCode string, cursor int64, candidates []string, available map[string]dispatchProviderSettings, quotaDate time.Time, questionCount int) (taskDispatchDecision, error) {
 	if cursor < 0 {
 		cursor = 0
 	}
-	selected := candidates[int(cursor%int64(len(candidates)))]
-	nextCursor := cursor + 1
+	snapshots, err := r.dispatchQuotaSnapshots(ctx, tx, candidates, available, quotaDate, questionCount)
+	if err != nil {
+		return taskDispatchDecision{}, err
+	}
+	selected, nextCursor := selectRoundRobinProviderFromSnapshots(candidates, snapshots, cursor)
+	if selected == "" {
+		return taskDispatchDecision{}, biz.ErrProviderUnavailable
+	}
 	if _, err := tx.Exec(ctx, `
 update cdp_dispatch_profiles
 set cursor=$2,
@@ -210,16 +524,379 @@ where id=$1
 	return taskDispatchDecision{
 		ProfileID:          profileID,
 		ProfileCode:        profileCode,
-		Strategy:           biz.DispatchStrategy(strategy),
+		Strategy:           biz.DispatchStrategyRoundRobin,
 		ProviderCode:       selected,
 		CursorBefore:       cursor,
 		CursorAfter:        nextCursor,
 		CandidateProviders: candidates,
+		QuestionCount:      questionCount,
+		QuotaDate:          quotaDate,
+		QuotaSnapshots:     snapshots,
+		Reason:             "round_robin",
 	}, nil
 }
 
+func (r *TaskRepo) selectRuleBasedDispatchProvider(ctx context.Context, tx pgx.Tx, profileID int64, profileCode string, cursor int64, taskName string, parsed dispatchProfileConfig, fallbackCandidates []string, available map[string]dispatchProviderSettings, quotaDate time.Time, questionCount int) (taskDispatchDecision, error) {
+	match, err := matchedDispatchRule(taskName, parsed.Rules, available)
+	if err != nil {
+		return taskDispatchDecision{}, err
+	}
+	fallbackPolicy := normalizeDispatchFallbackSelectionPolicy(parsed.FallbackSelectionPolicy)
+	ruleCandidates := []string(nil)
+	if match.Code != "" {
+		ruleCandidates = cleanDispatchProviderCodes(match.ProviderCodes, available)
+	}
+	allCandidates := mergeDispatchProviderCodes(fallbackCandidates, ruleCandidates, available)
+	allSnapshots, err := r.dispatchQuotaSnapshots(ctx, tx, allCandidates, available, quotaDate, questionCount)
+	if err != nil {
+		return taskDispatchDecision{}, err
+	}
+	fallbackSnapshots := filterDispatchQuotaSnapshots(allSnapshots, fallbackCandidates)
+	candidates := fallbackCandidates
+	snapshots := fallbackSnapshots
+	reason := "lowest_quota_usage_rate"
+	labels := cleanStringList(match.Labels)
+	selected := ""
+	nextCursor := cursor + 1
+	if match.Code != "" {
+		ruleSnapshots := filterDispatchQuotaSnapshots(allSnapshots, ruleCandidates)
+		selected = selectLowestQuotaScoreProvider(ruleSnapshots, cursor)
+		if selected != "" {
+			candidates = ruleCandidates
+			snapshots = ruleSnapshots
+		} else {
+			selected, nextCursor = selectFallbackProvider(fallbackCandidates, fallbackSnapshots, cursor, fallbackPolicy)
+			reason = fallbackReason("rule_pool_fallback", fallbackPolicy)
+			labels = []string{"fallback"}
+		}
+	} else {
+		selected, nextCursor = selectFallbackProvider(fallbackCandidates, fallbackSnapshots, cursor, fallbackPolicy)
+		reason = fallbackReason("fallback", fallbackPolicy)
+	}
+	if selected == "" {
+		return taskDispatchDecision{}, biz.ErrProviderUnavailable
+	}
+	if _, err := tx.Exec(ctx, `
+update cdp_dispatch_profiles
+set cursor=$2,
+  last_provider_code=$3,
+  updated_at=now()
+where id=$1
+`, profileID, nextCursor, selected); err != nil {
+		return taskDispatchDecision{}, err
+	}
+	return taskDispatchDecision{
+		ProfileID:          profileID,
+		ProfileCode:        profileCode,
+		Strategy:           biz.DispatchStrategyRuleBased,
+		ProviderCode:       selected,
+		CursorBefore:       cursor,
+		CursorAfter:        nextCursor,
+		CandidateProviders: candidates,
+		MatchedRuleCode:    match.Code,
+		MatchedRuleName:    match.Name,
+		Labels:             labels,
+		QuestionCount:      questionCount,
+		QuotaDate:          quotaDate,
+		QuotaSnapshots:     snapshots,
+		Reason:             reason,
+	}, nil
+}
+
+func matchedDispatchRule(taskName string, rules []dispatchRuleConfig, available map[string]dispatchProviderSettings) (dispatchRuleConfig, error) {
+	for _, rule := range rules {
+		if rule.Enabled != nil && !*rule.Enabled {
+			continue
+		}
+		if strings.TrimSpace(rule.TaskNameRegex) == "" {
+			continue
+		}
+		compiled, err := regexp.Compile(rule.TaskNameRegex)
+		if err != nil {
+			return dispatchRuleConfig{}, fmt.Errorf("%w: invalid dispatch rule regex %s: %v", biz.ErrInvalidTaskRequest, rule.Code, err)
+		}
+		if !compiled.MatchString(taskName) {
+			continue
+		}
+		rule.ProviderCodes = cleanDispatchProviderCodes(rule.ProviderCodes, available)
+		return rule, nil
+	}
+	return dispatchRuleConfig{}, nil
+}
+
+func normalizeDispatchFallbackSelectionPolicy(value string) biz.DispatchFallbackSelectionPolicy {
+	switch biz.DispatchFallbackSelectionPolicy(strings.TrimSpace(strings.ToUpper(value))) {
+	case biz.DispatchFallbackSelectionPolicyRoundRobin:
+		return biz.DispatchFallbackSelectionPolicyRoundRobin
+	case biz.DispatchFallbackSelectionPolicyLowestUsageRate:
+		return biz.DispatchFallbackSelectionPolicyLowestUsageRate
+	default:
+		return biz.DispatchFallbackSelectionPolicyLowestUsageRate
+	}
+}
+
+func mergeDispatchProviderCodes(a []string, b []string, available map[string]dispatchProviderSettings) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(a)+len(b))
+	for _, values := range [][]string{a, b} {
+		for _, code := range cleanDispatchProviderCodes(values, available) {
+			if seen[code] {
+				continue
+			}
+			seen[code] = true
+			out = append(out, code)
+		}
+	}
+	return out
+}
+
+func selectFallbackProvider(candidates []string, snapshots []dispatchQuotaSnapshot, cursor int64, policy biz.DispatchFallbackSelectionPolicy) (string, int64) {
+	switch policy {
+	case biz.DispatchFallbackSelectionPolicyRoundRobin:
+		return selectRoundRobinProviderFromSnapshots(candidates, snapshots, cursor)
+	default:
+		return selectLowestQuotaScoreProvider(snapshots, cursor), cursor + 1
+	}
+}
+
+func fallbackReason(prefix string, policy biz.DispatchFallbackSelectionPolicy) string {
+	switch policy {
+	case biz.DispatchFallbackSelectionPolicyRoundRobin:
+		return prefix + "_round_robin"
+	default:
+		return prefix + "_lowest_quota_usage_rate"
+	}
+}
+
+func cleanDispatchProviderCodes(values []string, available map[string]dispatchProviderSettings) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		code := strings.TrimSpace(value)
+		if code == "" || seen[code] {
+			continue
+		}
+		if _, ok := available[code]; !ok {
+			continue
+		}
+		seen[code] = true
+		out = append(out, code)
+	}
+	return out
+}
+
+func filterDispatchQuotaSnapshots(snapshots []dispatchQuotaSnapshot, candidates []string) []dispatchQuotaSnapshot {
+	allowed := make(map[string]bool, len(candidates))
+	for _, code := range candidates {
+		allowed[code] = true
+	}
+	out := make([]dispatchQuotaSnapshot, 0, len(candidates))
+	for _, snapshot := range snapshots {
+		if allowed[snapshot.ProviderCode] {
+			out = append(out, snapshot)
+		}
+	}
+	return out
+}
+
+func cleanStringList(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		item := strings.TrimSpace(value)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func eligibleQuotaProviders(snapshots []dispatchQuotaSnapshot) map[string]bool {
+	out := map[string]bool{}
+	for _, snapshot := range snapshots {
+		if snapshot.Unlimited || snapshot.Remaining >= 0 {
+			out[snapshot.ProviderCode] = true
+		}
+	}
+	return out
+}
+
+func selectRoundRobinProviderFromSnapshots(candidates []string, snapshots []dispatchQuotaSnapshot, cursor int64) (string, int64) {
+	if cursor < 0 {
+		cursor = 0
+	}
+	eligible := eligibleQuotaProviders(snapshots)
+	if len(eligible) == 0 || len(candidates) == 0 {
+		return "", cursor
+	}
+	for offset := int64(0); offset < int64(len(candidates)); offset++ {
+		code := candidates[int((cursor+offset)%int64(len(candidates)))]
+		if eligible[code] {
+			return code, cursor + offset + 1
+		}
+	}
+	return "", cursor
+}
+
+func selectLowestQuotaScoreProvider(snapshots []dispatchQuotaSnapshot, cursor int64) string {
+	eligible := make([]dispatchQuotaSnapshot, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if snapshot.Unlimited || snapshot.Remaining >= 0 {
+			eligible = append(eligible, snapshot)
+		}
+	}
+	if len(eligible) == 0 {
+		return ""
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	order := make(map[string]int64, len(eligible))
+	for i, snapshot := range eligible {
+		rotated := (int64(i) - cursor) % int64(len(eligible))
+		if rotated < 0 {
+			rotated += int64(len(eligible))
+		}
+		order[snapshot.ProviderCode] = rotated
+	}
+	sort.SliceStable(eligible, func(i, j int) bool {
+		if math.Abs(eligible[i].Score-eligible[j].Score) > 0.000001 {
+			return eligible[i].Score < eligible[j].Score
+		}
+		rotatedI := order[eligible[i].ProviderCode]
+		rotatedJ := order[eligible[j].ProviderCode]
+		if rotatedI == rotatedJ {
+			return eligible[i].ProviderCode < eligible[j].ProviderCode
+		}
+		return rotatedI < rotatedJ
+	})
+	return eligible[0].ProviderCode
+}
+
+func (r *TaskRepo) dispatchQuotaSnapshots(ctx context.Context, tx pgx.Tx, candidates []string, available map[string]dispatchProviderSettings, quotaDate time.Time, questionCount int) ([]dispatchQuotaSnapshot, error) {
+	candidates = cleanDispatchProviderCodes(candidates, available)
+	sort.Strings(candidates)
+	for _, code := range candidates {
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext($1), hashtext($2))`, code, quotaDate.Format("2006-01-02")); err != nil {
+			return nil, err
+		}
+	}
+	usedByProvider, err := r.providerQuotaUsage(ctx, tx, candidates, quotaDate)
+	if err != nil {
+		return nil, err
+	}
+	maxQuota := 0
+	for _, code := range candidates {
+		quota := available[code].DailyQuestionQuota
+		if quota > maxQuota {
+			maxQuota = quota
+		}
+	}
+	if maxQuota <= 0 {
+		maxQuota = 1
+	}
+	snapshots := make([]dispatchQuotaSnapshot, 0, len(candidates))
+	for _, code := range candidates {
+		quota := available[code].DailyQuestionQuota
+		used := usedByProvider[code]
+		unlimited := quota <= 0
+		remaining := quota - used - questionCount
+		scoreBase := quota
+		if scoreBase <= 0 {
+			scoreBase = maxQuota
+		}
+		snapshots = append(snapshots, dispatchQuotaSnapshot{
+			ProviderCode: code,
+			DailyQuota:   quota,
+			Used:         used,
+			Remaining:    remaining,
+			Score:        float64(used) / float64(scoreBase),
+			Unlimited:    unlimited,
+		})
+	}
+	return snapshots, nil
+}
+
+func (r *TaskRepo) providerQuotaUsage(ctx context.Context, tx pgx.Tx, candidates []string, quotaDate time.Time) (map[string]int, error) {
+	usage := make(map[string]int, len(candidates))
+	for _, code := range candidates {
+		usage[code] = 0
+	}
+	if len(candidates) == 0 {
+		return usage, nil
+	}
+	rows, err := tx.Query(ctx, `
+select provider_code, coalesce(sum(total_count), 0)::int
+from cdp_tasks
+where provider_code = any($1::text[])
+  and quota_date=$2
+  and deleted_at is null
+  and (
+    status = any($3::text[])
+    or (status='FAILED' and provider_external_batch_id is not null)
+  )
+group by provider_code
+`, candidates, quotaDate, []string{
+		string(biz.TaskStatusCreated),
+		string(biz.TaskStatusSubmitted),
+		string(biz.TaskStatusProviderDone),
+		string(biz.TaskStatusResultImported),
+		string(biz.TaskStatusCallbackPending),
+		string(biz.TaskStatusDone),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var code string
+		var used int
+		if err := rows.Scan(&code, &used); err != nil {
+			return nil, err
+		}
+		usage[code] = used
+	}
+	return usage, rows.Err()
+}
+
+func currentQuotaDate() time.Time {
+	now := time.Now().In(timezone.AdminLocation())
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, timezone.AdminLocation())
+}
+
+func sameQuotaDate(a time.Time, b time.Time) bool {
+	if a.IsZero() || b.IsZero() {
+		return false
+	}
+	return a.In(timezone.AdminLocation()).Format("2006-01-02") == b.In(timezone.AdminLocation()).Format("2006-01-02")
+}
+
+func taskDispatchPayload(task biz.Task, decision taskDispatchDecision) json.RawMessage {
+	payload, _ := json.Marshal(map[string]any{
+		"profileId":            decision.ProfileID,
+		"profileCode":          decision.ProfileCode,
+		"strategy":             decision.Strategy,
+		"taskName":             task.TaskName,
+		"matchedRuleCode":      decision.MatchedRuleCode,
+		"matchedRuleName":      decision.MatchedRuleName,
+		"labels":               decision.Labels,
+		"providerCode":         decision.ProviderCode,
+		"selectedProviderCode": decision.ProviderCode,
+		"cursorBefore":         decision.CursorBefore,
+		"cursorAfter":          decision.CursorAfter,
+		"candidateProviders":   decision.CandidateProviders,
+		"quotaDate":            decision.QuotaDate.Format("2006-01-02"),
+		"questionCount":        decision.QuestionCount,
+		"quotaSnapshots":       decision.QuotaSnapshots,
+		"reason":               decision.Reason,
+	})
+	return payload
+}
+
 func (r *TaskRepo) GetTask(ctx context.Context, id int64) (*biz.Task, error) {
-	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where id=$1`, id))
+	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where id=$1 and deleted_at is null`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, biz.ErrTaskNotFound
 	}
@@ -227,23 +904,98 @@ func (r *TaskRepo) GetTask(ctx context.Context, id int64) (*biz.Task, error) {
 }
 
 func (r *TaskRepo) GetTaskByJobID(ctx context.Context, jobID string, platformUserID int64) (*biz.Task, error) {
-	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where job_id=$1 and platform_user_id=$2`, jobID, platformUserID))
+	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where job_id=$1 and platform_user_id=$2 and deleted_at is null`, jobID, platformUserID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, biz.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if task.Status == biz.TaskStatusReassigned {
+		reassigned, reassignErr := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+`
+where reassigned_from_task_id=$1
+  and platform_user_id=$2
+  and deleted_at is null
+order by created_at desc, id desc
+limit 1
+`, task.ID, platformUserID))
+		if reassignErr == nil {
+			return reassigned, nil
+		}
+		if !errors.Is(reassignErr, pgx.ErrNoRows) {
+			return nil, reassignErr
+		}
 	}
 	return task, err
 }
 
 func (r *TaskRepo) GetTaskByBatchNo(ctx context.Context, batchNo string) (*biz.Task, error) {
-	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where batch_no=$1`, batchNo))
+	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where batch_no=$1 and deleted_at is null`, batchNo))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, biz.ErrTaskNotFound
 	}
 	return task, err
 }
 
+func (r *TaskRepo) ResolveProviderTask(ctx context.Context, providerCode, batchNo string) (*biz.Task, error) {
+	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+`
+where id=(
+  select child.id
+  from cdp_tasks child
+  join cdp_tasks source on source.id=child.reassigned_from_task_id
+  where child.provider_code=$1
+    and child.callback_batch_no=$2
+    and source.batch_no=$2
+    and child.deleted_at is null
+    and source.deleted_at is null
+  order by child.created_at desc, child.id desc
+  limit 1
+)
+`, providerCode, batchNo))
+	if err == nil {
+		return task, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	task, err = r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where provider_code=$1 and batch_no=$2 and deleted_at is null`, providerCode, batchNo))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, biz.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if task.Status == biz.TaskStatusReassigned {
+		return nil, biz.ErrTaskClosed
+	}
+	return task, nil
+}
+
 func (r *TaskRepo) ListTasksByStatus(ctx context.Context, status biz.TaskStatus, limit int) ([]*biz.Task, error) {
-	rows, err := r.db.Query(ctx, taskSelectSQL()+` where status=$1 order by created_at asc limit $2`, status, limit)
+	rows, err := r.db.Query(ctx, taskSelectSQL()+` where status=$1 and deleted_at is null order by created_at asc limit $2`, status, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []*biz.Task
+	for rows.Next() {
+		task, err := r.scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, rows.Err()
+}
+
+func (r *TaskRepo) ListResultImportedTasksWithProviderCallback(ctx context.Context, limit int) ([]*biz.Task, error) {
+	rows, err := r.db.Query(ctx, taskSelectSQL()+`
+where status=$1
+  and coalesce(provider_response, '{}'::jsonb) ? 'providerCallback'
+  and deleted_at is null
+order by coalesce(result_imported_at, updated_at) asc, id asc
+limit $2
+`, biz.TaskStatusResultImported, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +1015,7 @@ func (r *TaskRepo) ListSubmittedTasksForProgress(ctx context.Context, limit int,
 	rows, err := r.db.Query(ctx, taskSelectSQL()+`
 where status=$1
   and provider_external_batch_id is not null
+  and deleted_at is null
   and coalesce(submitted_at, created_at) <= $2
 order by coalesce(submitted_at, created_at) asc, id asc
 limit $3
@@ -403,10 +1156,11 @@ with stats as (
         where tir.task_item_id=ti.id and tir.parse_status <> 'SUCCESS'
       )
     )::int as failed_count
-  from cdp_tasks t
-  left join cdp_task_items ti on ti.task_id=t.id
-  where t.id=$1
-  group by t.id
+	  from cdp_tasks t
+	  left join cdp_task_items ti on ti.task_id=t.id
+	  where t.id=$1
+	    and t.deleted_at is null
+	  group by t.id
 )
 select
   status,
@@ -462,7 +1216,7 @@ limit 20
 
 func (r *TaskRepo) ListUploadedResultFiles(ctx context.Context, taskID int64, includeImported bool) ([]biz.ResultFileInput, error) {
 	rows, err := r.db.Query(ctx, `
-select source_type, coalesce(object_key,''), coalesce(file_name,''), coalesce(external_batch_id,'')
+select source_type, coalesce(object_key,''), coalesce(file_name,''), coalesce(external_batch_id,''), parse_status
 from cdp_task_result_files
 where task_id=$1
   and object_key is not null
@@ -478,7 +1232,31 @@ order by created_at asc, id asc
 	var files []biz.ResultFileInput
 	for rows.Next() {
 		var file biz.ResultFileInput
-		if err := rows.Scan(&file.SourceType, &file.ObjectKey, &file.FileName, &file.ExternalBatchID); err != nil {
+		if err := rows.Scan(&file.SourceType, &file.ObjectKey, &file.FileName, &file.ExternalBatchID, &file.ParseStatus); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
+func (r *TaskRepo) ListPendingResultFiles(ctx context.Context, taskID int64) ([]biz.ResultFileInput, error) {
+	rows, err := r.db.Query(ctx, `
+select source_type, coalesce(object_key,''), coalesce(file_url,''), coalesce(file_name,''), coalesce(external_batch_id,''), parse_status
+from cdp_task_result_files
+where task_id=$1
+  and parse_status <> 'SUCCESS'
+order by created_at asc, id asc
+	`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []biz.ResultFileInput
+	for rows.Next() {
+		var file biz.ResultFileInput
+		if err := rows.Scan(&file.SourceType, &file.ObjectKey, &file.FileURL, &file.FileName, &file.ExternalBatchID, &file.ParseStatus); err != nil {
 			return nil, err
 		}
 		files = append(files, file)
@@ -500,6 +1278,7 @@ set status=$2,
   provider_response=$4,
   provider_external_batch_id=$5,
   total_count=(select count(*)::int from cdp_task_items where task_id=$1),
+  quota_date=(now() at time zone 'Asia/Shanghai')::date,
   submitted_at=now(),
   updated_at=now()
 where id=$1
@@ -517,9 +1296,11 @@ func (r *TaskRepo) FailSubmittedOlderThan(ctx context.Context, cutoff time.Time,
 with picked as (
   select id
   from cdp_tasks
-  where status=$1 and coalesce(submitted_at, created_at) < $2
-  order by coalesce(submitted_at, created_at) asc, id asc
-  limit $3
+  where status=$1
+    and deleted_at is null
+    and coalesce(submitted_at, created_at) < $2
+	  order by coalesce(submitted_at, created_at) asc, id asc
+	  limit $3
 ),
 updated as (
 update cdp_tasks t
@@ -562,6 +1343,7 @@ func (r *TaskRepo) SaveUploadObjectKey(ctx context.Context, taskID int64, key st
 	if err != nil {
 		return err
 	}
+	batchNo := taskBatchNoForProvider(task)
 	if _, err := tx.Exec(ctx, `update cdp_tasks set result_object_key=$2,result_file_name=$3,updated_at=now() where id=$1`, taskID, key, fileName); err != nil {
 		return err
 	}
@@ -575,7 +1357,7 @@ on conflict (batch_no, object_key) where object_key is not null do update set
   source_type=excluded.source_type,
   file_name=excluded.file_name,
   updated_at=now()
-`, taskID, task.BatchNo, task.ProviderExternalBatchID, key, fileName)
+`, taskID, batchNo, task.ProviderExternalBatchID, key, fileName)
 	if err != nil {
 		return err
 	}
@@ -583,7 +1365,7 @@ on conflict (batch_no, object_key) where object_key is not null do update set
 }
 
 func (r *TaskRepo) MarkProviderCallback(ctx context.Context, input biz.ProviderCallbackInput) (*biz.Task, error) {
-	task, err := r.GetTaskByBatchNo(ctx, input.BatchNo)
+	task, err := r.getProviderCallbackTask(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -602,27 +1384,27 @@ func (r *TaskRepo) MarkProviderCallback(ctx context.Context, input biz.ProviderC
 		rawRequest = json.RawMessage(`{}`)
 	}
 	_, err = r.db.Exec(ctx, `
-		with item_counts as (
-		  select
-		    cdp_tasks.id as task_id,
-		    coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id), 0) as item_count,
-		    coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id and status=2), 0) as local_success_count
-		  from cdp_tasks
-		  where batch_no=$1 and provider_code=$8
-		),
-		callback_counts as (
-		  select
-		    task_id,
-		    item_count as total_count,
-		    least(greatest(case when $4::int > 0 then $4::int else local_success_count end, 0), item_count) as success_count,
-		    least(greatest($5::int, 0), greatest(item_count - least(greatest(case when $4::int > 0 then $4::int else local_success_count end, 0), item_count), 0)) as failed_count
-		  from item_counts
-		)
-		update cdp_tasks
-		set status=$2,
-		  total_count=callback_counts.total_count,
-		  provider_external_batch_id=coalesce(nullif($3,''), provider_external_batch_id),
-		  provider_response=coalesce(provider_response, '{}'::jsonb) || jsonb_build_object(
+with item_counts as (
+  select
+    cdp_tasks.id as task_id,
+    coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id), 0) as item_count,
+    coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id and status=2), 0) as local_success_count
+  from cdp_tasks
+  where id=$1 and provider_code=$8 and deleted_at is null
+),
+callback_counts as (
+  select
+    task_id,
+    item_count as total_count,
+    least(greatest(case when $4::int > 0 then $4::int else local_success_count end, 0), item_count) as success_count,
+    least(greatest($5::int, 0), greatest(item_count - least(greatest(case when $4::int > 0 then $4::int else local_success_count end, 0), item_count), 0)) as failed_count
+  from item_counts
+)
+update cdp_tasks
+set status=case when cdp_tasks.status in ($10,$11,$12) then cdp_tasks.status else $2 end,
+  total_count=case when cdp_tasks.status in ($10,$11,$12) then cdp_tasks.total_count else callback_counts.total_count end,
+  provider_external_batch_id=coalesce(nullif($3,''), provider_external_batch_id),
+  provider_response=coalesce(provider_response, '{}'::jsonb) || jsonb_build_object(
 		    'providerCallback', jsonb_build_object(
 		      'totalCount', $6::int,
 		      'successCount', $4,
@@ -632,17 +1414,88 @@ func (r *TaskRepo) MarkProviderCallback(ctx context.Context, input biz.ProviderC
 		      'rawRequest', $9::jsonb
 		    )
 		  ),
-		  success_count=callback_counts.success_count,
-		  failed_count=callback_counts.failed_count,
+			  success_count=case when cdp_tasks.status in ($10,$11,$12) then cdp_tasks.success_count else callback_counts.success_count end,
+			  failed_count=case when cdp_tasks.status in ($10,$11,$12) then cdp_tasks.failed_count else callback_counts.failed_count end,
 		  provider_finished_at=coalesce(provider_finished_at, $7::timestamptz),
 		  updated_at=now()
 		from callback_counts
-		where batch_no=$1 and provider_code=$8
-		`, input.BatchNo, biz.TaskStatusProviderDone, input.ExternalBatchID, input.SuccessCount, input.FailedCount, nullableInt(input.TotalCount), finishedAt, input.ProviderCode, rawRequest)
+		where id=$1 and provider_code=$8
+			`, task.ID, biz.TaskStatusProviderDone, input.ExternalBatchID, input.SuccessCount, input.FailedCount, nullableInt(input.TotalCount), finishedAt, input.ProviderCode, rawRequest, biz.TaskStatusResultImported, biz.TaskStatusCallbackPending, biz.TaskStatusDone)
 	if err != nil {
 		return nil, err
 	}
-	return r.GetTaskByBatchNo(ctx, input.BatchNo)
+	return r.GetTask(ctx, task.ID)
+}
+
+func (r *TaskRepo) MarkProviderCallbackProgress(ctx context.Context, input biz.ProviderCallbackInput) (*biz.Task, error) {
+	task, err := r.getProviderCallbackTask(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if task.ProviderCode != input.ProviderCode {
+		return nil, biz.ErrProviderNotFound
+	}
+	if task.Status == biz.TaskStatusCallbackPending || task.Status == biz.TaskStatusDone {
+		return task, nil
+	}
+	finishedAt := time.Now()
+	if !input.FinishedAt.IsZero() {
+		finishedAt = input.FinishedAt
+	}
+	rawRequest := input.RawRequest
+	if len(rawRequest) == 0 {
+		rawRequest = json.RawMessage(`{}`)
+	}
+	_, err = r.db.Exec(ctx, `
+update cdp_tasks
+set provider_external_batch_id=coalesce(nullif($2,''), provider_external_batch_id),
+  provider_response=coalesce(provider_response, '{}'::jsonb) || jsonb_build_object(
+    'providerCallbackProgress', jsonb_build_object(
+      'totalCount', $3::int,
+      'successCount', $4::int,
+      'failedCount', $5::int,
+      'externalBatchId', nullif($2, ''),
+      'finishedAt', $6::timestamptz,
+      'rawRequest', $7::jsonb
+    )
+  ),
+  total_count=coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id), 0),
+  success_count=least(greatest($4::int, 0), coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id), 0)),
+  failed_count=least(greatest($5::int, 0), greatest(coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id), 0) - least(greatest($4::int, 0), coalesce((select count(*)::int from cdp_task_items where task_id=cdp_tasks.id), 0)), 0)),
+  updated_at=now()
+where id=$1 and provider_code=$8 and deleted_at is null
+	`, task.ID, input.ExternalBatchID, nullableInt(input.TotalCount), input.SuccessCount, input.FailedCount, finishedAt, rawRequest, input.ProviderCode)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetTask(ctx, task.ID)
+}
+
+func (r *TaskRepo) getProviderCallbackTask(ctx context.Context, input biz.ProviderCallbackInput) (*biz.Task, error) {
+	if input.TaskID > 0 {
+		task, err := r.GetTask(ctx, input.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		if task.ProviderCode != input.ProviderCode {
+			return nil, biz.ErrProviderNotFound
+		}
+		if task.Status == biz.TaskStatusReassigned {
+			return nil, biz.ErrTaskClosed
+		}
+		return task, nil
+	}
+	return r.ResolveProviderTask(ctx, input.ProviderCode, input.BatchNo)
+}
+
+func taskBatchNoForProvider(task *biz.Task) string {
+	if task != nil && task.ReassignedFromTaskID > 0 && strings.TrimSpace(task.CallbackBatchNo) != "" {
+		return task.CallbackBatchNo
+	}
+	if task == nil {
+		return ""
+	}
+	return task.BatchNo
 }
 
 func (r *TaskRepo) MarkProviderStatus(ctx context.Context, taskID int64, result biz.ProviderStatusResult) error {
@@ -681,11 +1534,90 @@ where id=$1
 	return tx.Commit(ctx)
 }
 
+func (r *TaskRepo) UpsertPendingResultFiles(ctx context.Context, taskID int64, files []biz.ResultFileInput) error {
+	if len(files) == 0 {
+		return nil
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	task, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where id=$1 for update`, taskID))
+	if err != nil {
+		return err
+	}
+	batchNo := taskBatchNoForProvider(task)
+	for _, file := range files {
+		if file.ExternalBatchID == "" {
+			file.ExternalBatchID = task.ProviderExternalBatchID
+		}
+		if file.ParseStatus == "" {
+			file.ParseStatus = "PENDING"
+		}
+		if file.SourceType == "" {
+			if file.ObjectKey != "" {
+				file.SourceType = "OSS"
+			} else {
+				file.SourceType = "PROVIDER_FILE"
+			}
+		}
+		if file.ObjectKey != "" {
+			if file.FileName == "" {
+				file.FileName = path.Base(file.ObjectKey)
+			}
+			if _, err := tx.Exec(ctx, `
+insert into cdp_task_result_files (
+  task_id,batch_no,external_batch_id,source_type,object_key,file_name,parse_status
+) values ($1,$2,$3,$4,$5,$6,$7)
+on conflict (batch_no, object_key) where object_key is not null do update set
+  task_id=excluded.task_id,
+  external_batch_id=excluded.external_batch_id,
+  source_type=excluded.source_type,
+  file_name=excluded.file_name,
+  parse_status=case
+    when cdp_task_result_files.parse_status='SUCCESS' then cdp_task_result_files.parse_status
+    else excluded.parse_status
+  end,
+  updated_at=now()
+`, taskID, batchNo, file.ExternalBatchID, file.SourceType, file.ObjectKey, file.FileName, file.ParseStatus); err != nil {
+				return err
+			}
+			continue
+		}
+		if file.FileURL == "" {
+			continue
+		}
+		if file.FileName == "" {
+			file.FileName = path.Base(file.FileURL)
+		}
+		if _, err := tx.Exec(ctx, `
+insert into cdp_task_result_files (
+  task_id,batch_no,external_batch_id,source_type,file_url,file_name,parse_status
+) values ($1,$2,$3,$4,$5,$6,$7)
+on conflict (batch_no, file_url) where file_url is not null do update set
+  task_id=excluded.task_id,
+  external_batch_id=excluded.external_batch_id,
+  source_type=excluded.source_type,
+  file_name=excluded.file_name,
+  parse_status=case
+    when cdp_task_result_files.parse_status='SUCCESS' then cdp_task_result_files.parse_status
+    else excluded.parse_status
+  end,
+  updated_at=now()
+`, taskID, batchNo, file.ExternalBatchID, file.SourceType, file.FileURL, file.FileName, file.ParseStatus); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (r *TaskRepo) MarkResultFileFailed(ctx context.Context, taskID int64, file biz.ResultFileInput, errMessage string) error {
 	task, err := r.GetTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
+	batchNo := taskBatchNoForProvider(task)
 	if file.ExternalBatchID == "" {
 		file.ExternalBatchID = task.ProviderExternalBatchID
 	}
@@ -698,7 +1630,7 @@ on conflict (batch_no, object_key) where object_key is not null do update set
   parse_status='FAILED',
   last_error=excluded.last_error,
   updated_at=now()
-`, taskID, task.BatchNo, file.ExternalBatchID, file.SourceType, file.ObjectKey, file.FileName, errMessage)
+`, taskID, batchNo, file.ExternalBatchID, file.SourceType, file.ObjectKey, file.FileName, errMessage)
 		return err
 	}
 	if file.FileURL != "" {
@@ -710,7 +1642,7 @@ on conflict (batch_no, file_url) where file_url is not null do update set
   parse_status='FAILED',
   last_error=excluded.last_error,
   updated_at=now()
-`, taskID, task.BatchNo, file.ExternalBatchID, file.SourceType, file.FileURL, file.FileName, errMessage)
+`, taskID, batchNo, file.ExternalBatchID, file.SourceType, file.FileURL, file.FileName, errMessage)
 		return err
 	}
 	return nil
@@ -727,6 +1659,7 @@ func (r *TaskRepo) MarkResultImported(ctx context.Context, taskID int64, file bi
 	if err != nil {
 		return err
 	}
+	batchNo := taskBatchNoForProvider(task)
 	if file.ExternalBatchID == "" {
 		file.ExternalBatchID = task.ProviderExternalBatchID
 	}
@@ -746,7 +1679,7 @@ on conflict (batch_no, object_key) where object_key is not null do update set
   parsed_at=now(),
   updated_at=now()
 returning id
-`, taskID, task.BatchNo, file.ExternalBatchID, file.SourceType, file.ObjectKey, file.FileName, file.Checksum,
+`, taskID, batchNo, file.ExternalBatchID, file.SourceType, file.ObjectKey, file.FileName, file.Checksum,
 			result.RowCount, result.ValidRowCount, result.InvalidRowCount).Scan(&resultFileID)
 	} else {
 		err = tx.QueryRow(ctx, `
@@ -763,7 +1696,7 @@ on conflict (batch_no, file_url) where file_url is not null do update set
   parsed_at=now(),
   updated_at=now()
 returning id
-`, taskID, task.BatchNo, file.ExternalBatchID, file.SourceType, file.FileURL, file.FileName, file.Checksum,
+`, taskID, batchNo, file.ExternalBatchID, file.SourceType, file.FileURL, file.FileName, file.Checksum,
 			result.RowCount, result.ValidRowCount, result.InvalidRowCount).Scan(&resultFileID)
 	}
 	if err != nil {
@@ -800,7 +1733,7 @@ on conflict (result_file_id, sheet_name, row_index) do update set
 	  row_hash=excluded.row_hash,
 	  parse_error=excluded.parse_error,
 	  updated_at=now()
-	`, taskID, task.BatchNo, file.ExternalBatchID, resultFileID, row.SheetName, row.RowIndex, nullableString(row.ItemID), row.Seq,
+	`, taskID, batchNo, file.ExternalBatchID, resultFileID, row.SheetName, row.RowIndex, nullableString(row.ItemID), row.Seq,
 			row.RowData, row.RowHash, nullableString(row.ParseError))
 		if err != nil {
 			return err
@@ -858,7 +1791,7 @@ on conflict (task_item_id, seq) do update set
 	  reference_count=excluded.reference_count,
 	  row_hash=excluded.row_hash,
 	  updated_at=now()
-	`, taskID, taskItemID, task.BatchNo, itemResult.ItemID, resultSeq(itemResult.Seq), nullableString(itemResult.PlatformCode),
+	`, taskID, taskItemID, batchNo, itemResult.ItemID, resultSeq(itemResult.Seq), nullableString(itemResult.PlatformCode),
 			nullableString(itemResult.Question), nullableString(itemResult.AnswerText), nullableString(itemResult.ThinkingProcess),
 			nullableTime(itemResult.GeneratedAt), nullableString(itemResult.GeneratedAtText), itemResult.RecommendedQuestions,
 			nullableString(itemResult.DeviceID), nullableString(itemResult.RecordingURL), itemResult.ReferencesJSON,
@@ -937,10 +1870,11 @@ with readiness as (
   select
     t.id,
     t.status,
-    nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int as provider_total_count,
-    nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int as provider_success_count,
-    nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int as provider_failed_count,
-    count(ti.id)::int as item_count,
+	    nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int as provider_total_count,
+	    nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int as provider_success_count,
+	    nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int as provider_failed_count,
+	    coalesce(t.provider_response, '{}'::jsonb) ? 'providerCallback' as has_provider_callback,
+	    count(ti.id)::int as item_count,
     count(ti.id) filter (where ti.result_status='IMPORTED')::int as imported_item_count,
     count(ti.id) filter (
       where exists (
@@ -958,10 +1892,11 @@ with readiness as (
         where tir.task_item_id=ti.id and tir.parse_status <> 'SUCCESS'
       )
     )::int as failed_count
-  from cdp_tasks t
-  left join cdp_task_items ti on ti.task_id=t.id
-  where t.id=$1
-  group by t.id
+	  from cdp_tasks t
+	  left join cdp_task_items ti on ti.task_id=t.id
+	  where t.id=$1
+	    and t.deleted_at is null
+	  group by t.id
 ),
 decision as (
   select
@@ -970,9 +1905,9 @@ decision as (
     success_count,
     failed_count,
     (
-      $2
-      and status=$3
-      and item_count > 0
+	      $2
+		      and (status=$3 or (status=$6 and has_provider_callback))
+	      and item_count > 0
       and imported_item_count = item_count
       and success_count + failed_count = item_count
       and coalesce(provider_total_count, item_count) = item_count
@@ -993,7 +1928,7 @@ set status=case
 	    updated_at=now()
 from decision
 where t.id=decision.id
-	`, taskID, notifyCallback, biz.TaskStatusProviderDone, biz.TaskStatusCallbackPending, biz.TaskStatusDone, biz.TaskStatusResultImported)
+		`, taskID, notifyCallback, biz.TaskStatusProviderDone, biz.TaskStatusCallbackPending, biz.TaskStatusDone, biz.TaskStatusResultImported)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1003,13 +1938,13 @@ where t.id=decision.id
 	}
 	var callbackReady bool
 	if err := r.db.QueryRow(ctx, `
-with readiness as (
-  select
-    t.status,
-    nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int as provider_total_count,
-    nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int as provider_success_count,
-    nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int as provider_failed_count,
-    count(ti.id)::int as item_count,
+	with readiness as (
+	  select
+	    t.status,
+	    nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int as provider_total_count,
+	    nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int as provider_success_count,
+	    nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int as provider_failed_count,
+		    count(ti.id)::int as item_count,
     count(ti.id) filter (where ti.result_status='IMPORTED')::int as imported_item_count,
     count(ti.id) filter (
       where exists (
@@ -1027,21 +1962,22 @@ with readiness as (
         where tir.task_item_id=ti.id and tir.parse_status <> 'SUCCESS'
       )
     )::int as failed_count
-  from cdp_tasks t
-  left join cdp_task_items ti on ti.task_id=t.id
-  where t.id=$1
-  group by t.id
+	  from cdp_tasks t
+	  left join cdp_task_items ti on ti.task_id=t.id
+	  where t.id=$1
+	    and t.deleted_at is null
+	  group by t.id
 )
 select
-  $2
-  and status=$3
-  and item_count > 0
+	  $2
+	  and status=$3
+	  and item_count > 0
   and imported_item_count = item_count
   and success_count + failed_count = item_count
   and coalesce(provider_total_count, item_count) = item_count
   and coalesce(provider_success_count, success_count) + coalesce(provider_failed_count, failed_count) = coalesce(provider_total_count, item_count)
 from readiness
-	`, taskID, notifyCallback, biz.TaskStatusCallbackPending).Scan(&callbackReady); err != nil {
+		`, taskID, notifyCallback, biz.TaskStatusCallbackPending).Scan(&callbackReady); err != nil {
 		return nil, false, err
 	}
 	return task, callbackReady, nil
@@ -1131,9 +2067,10 @@ type taskScanner interface {
 }
 
 func taskSelectSQL() string {
-	return `select id,coalesce(job_id,''),coalesce(platform_user_id,0),coalesce(platform_code,''),batch_no,provider_code,
+	return `select id,coalesce(job_id,''),coalesce(platform_user_id,0),coalesce(platform_code,''),batch_no,coalesce(task_name,''),provider_code,
 coalesce(gateway_code,''),coalesce(source,''),coalesce(external_batch_id,''),coalesce(provider_external_batch_id,''),
-coalesce(dispatch_profile_id,0),coalesce(dispatch_profile_code,''),coalesce(dispatch_strategy,''),biz_date,status,
+coalesce(reassigned_from_task_id,0),coalesce(callback_batch_no,''),coalesce(callback_external_batch_id,''),
+coalesce(dispatch_profile_id,0),coalesce(dispatch_profile_code,''),coalesce(dispatch_strategy,''),biz_date,coalesce(quota_date,biz_date),status,
 coalesce(callback_url,''),coalesce(provider_callback_url,''),raw_request,coalesce(provider_request,'{}'::jsonb),
 coalesce(provider_response,'{}'::jsonb),coalesce(result_payload,'{}'::jsonb),coalesce(result_object_key,''),
 coalesce(result_file_name,''),result_row_count,total_count,success_count,failed_count,coalesce(last_error,''),created_at,updated_at from cdp_tasks`
@@ -1141,10 +2078,11 @@ coalesce(result_file_name,''),result_row_count,total_count,success_count,failed_
 
 func (r *TaskRepo) scanTask(scanner taskScanner) (*biz.Task, error) {
 	var task biz.Task
-	if err := scanner.Scan(&task.ID, &task.JobID, &task.PlatformUserID, &task.PlatformCode, &task.BatchNo, &task.ProviderCode,
-		&task.GatewayCode, &task.Source, &task.ExternalBatchID, &task.ProviderExternalBatchID,
+	if err := scanner.Scan(&task.ID, &task.JobID, &task.PlatformUserID, &task.PlatformCode, &task.BatchNo, &task.TaskName,
+		&task.ProviderCode, &task.GatewayCode, &task.Source, &task.ExternalBatchID, &task.ProviderExternalBatchID,
+		&task.ReassignedFromTaskID, &task.CallbackBatchNo, &task.CallbackExternalBatchID,
 		&task.DispatchProfileID, &task.DispatchProfileCode, &task.DispatchStrategy, &task.BizDate,
-		&task.Status, &task.CallbackURL, &task.ProviderCallbackURL, &task.RawRequest, &task.ProviderRequest, &task.ProviderResponse,
+		&task.QuotaDate, &task.Status, &task.CallbackURL, &task.ProviderCallbackURL, &task.RawRequest, &task.ProviderRequest, &task.ProviderResponse,
 		&task.ResultPayload, &task.ResultObjectKey, &task.ResultFileName, &task.ResultRowCount, &task.TotalCount, &task.SuccessCount,
 		&task.FailedCount, &task.LastError, &task.CreatedAt, &task.UpdatedAt); err != nil {
 		return nil, err
@@ -1168,6 +2106,22 @@ func nullableTime(value time.Time) any {
 
 func taskItemExpectedCount(items []biz.TaskItem) int {
 	return len(items)
+}
+
+func dispatchQuestionCount(items []biz.TaskItem) int {
+	seen := map[string]bool{}
+	count := 0
+	for _, item := range items {
+		key := strings.TrimSpace(item.ItemID)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		count++
+	}
+	return count
 }
 
 func resultSeq(seq int) int {

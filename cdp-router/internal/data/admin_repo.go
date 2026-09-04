@@ -18,6 +18,32 @@ import (
 
 const adminMetricDateSQL = "to_char(t.created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD')"
 const adminTaskExecutionEndedAtSQL = "t.provider_finished_at"
+const adminTaskSubmitFailedSQL = `exists (
+  select 1
+  from cdp_task_events submit_failed_event
+  where submit_failed_event.task_id=t.id
+    and submit_failed_event.event_type='PROVIDER_SUBMIT_FAILED'
+)`
+const adminTaskDispatchLabelsSQL = `coalesce((
+  select array_agg(distinct dispatch_label.label order by dispatch_label.label)
+  from cdp_task_events dispatch_event
+  cross join lateral jsonb_array_elements_text(
+    case
+      when jsonb_typeof(dispatch_event.payload->'labels') = 'array' then dispatch_event.payload->'labels'
+      else '[]'::jsonb
+    end
+  ) as dispatch_label(label)
+  where dispatch_event.task_id=t.id
+    and dispatch_event.event_type='TASK_DISPATCHED'
+), array[]::text[])`
+const adminTaskReassignedToTaskIDSQL = `coalesce((
+  select child.id
+  from cdp_tasks child
+  where child.reassigned_from_task_id=t.id
+    and child.deleted_at is null
+  order by child.created_at desc, child.id desc
+  limit 1
+), 0)`
 
 type AdminRepo struct {
 	db *pgxpool.Pool
@@ -43,26 +69,25 @@ func (r *AdminRepo) ListTasks(ctx context.Context, filter biz.AdminTaskFilter) (
 select
   t.id,
   t.batch_no,
+  coalesce(t.task_name,''),
   coalesce(t.source,''),
   coalesce(t.platform_code,''),
   coalesce(t.external_batch_id,''),
   t.provider_code,
   t.status,
-  coalesce(item_stats.question_count,0),
-  least(t.success_count + t.failed_count, coalesce(item_stats.question_count,0)),
+  t.total_count,
+  least(t.success_count + t.failed_count, t.total_count),
   t.success_count,
-	  t.failed_count,
-	  t.created_at,
-	  t.updated_at,
-	  `+adminTaskExecutionEndedAtSQL+`
-	from cdp_tasks t
-left join (
-  select task_id,
-    count(*) as question_count
-  from cdp_task_items
-  group by task_id
-) item_stats on item_stats.task_id=t.id
-	`+where+`
+  t.failed_count,
+  t.created_at,
+  t.updated_at,
+  `+adminTaskExecutionEndedAtSQL+`,
+  `+adminTaskSubmitFailedSQL+`,
+  `+adminTaskDispatchLabelsSQL+`,
+  coalesce(t.reassigned_from_task_id,0),
+  `+adminTaskReassignedToTaskIDSQL+`
+from cdp_tasks t
+`+where+`
 order by t.created_at desc
 limit $`+strconv.Itoa(len(args)+1)+` offset $`+strconv.Itoa(len(args)+2), queryArgs...)
 	if err != nil {
@@ -85,22 +110,24 @@ limit $`+strconv.Itoa(len(args)+1)+` offset $`+strconv.Itoa(len(args)+2), queryA
 	return out, rows.Err()
 }
 
-func (r *AdminRepo) GetTaskDetail(ctx context.Context, id int64, itemFilter biz.AdminTaskItemFilter) (biz.AdminTaskDetail, error) {
-	normalizeTaskItemFilter(&itemFilter)
+func (r *AdminRepo) GetTaskDetail(ctx context.Context, id int64, filter biz.AdminTaskDetailFilter) (biz.AdminTaskDetail, error) {
+	normalizeTaskItemFilter(&filter.Items)
+	normalizePaginationFilter(&filter.Files)
+	normalizePaginationFilter(&filter.Events)
 	summary, err := r.getTaskSummary(ctx, id)
 	if err != nil {
 		return biz.AdminTaskDetail{}, err
 	}
 
-	items, itemTotal, err := r.listTaskItems(ctx, id, itemFilter)
+	items, itemTotal, err := r.listTaskItems(ctx, id, filter.Items)
 	if err != nil {
 		return biz.AdminTaskDetail{}, err
 	}
-	files, err := r.listResultFiles(ctx, id)
+	files, fileTotal, err := r.listResultFiles(ctx, id, filter.Files)
 	if err != nil {
 		return biz.AdminTaskDetail{}, err
 	}
-	events, err := r.listTaskEvents(ctx, id)
+	events, eventTotal, err := r.listTaskEvents(ctx, id, filter.Events)
 	if err != nil {
 		return biz.AdminTaskDetail{}, err
 	}
@@ -109,14 +136,20 @@ func (r *AdminRepo) GetTaskDetail(ctx context.Context, id int64, itemFilter biz.
 		return biz.AdminTaskDetail{}, err
 	}
 	return biz.AdminTaskDetail{
-		Task:      summary,
-		Items:     items,
-		ItemTotal: itemTotal,
-		ItemPage:  itemFilter.Page,
-		ItemSize:  itemFilter.PageSize,
-		Files:     files,
-		Events:    events,
-		Callbacks: callbacks,
+		Task:       summary,
+		Items:      items,
+		ItemTotal:  itemTotal,
+		ItemPage:   filter.Items.Page,
+		ItemSize:   filter.Items.PageSize,
+		Files:      files,
+		FileTotal:  fileTotal,
+		FilePage:   filter.Files.Page,
+		FileSize:   filter.Files.PageSize,
+		Events:     events,
+		EventTotal: eventTotal,
+		EventPage:  filter.Events.Page,
+		EventSize:  filter.Events.PageSize,
+		Callbacks:  callbacks,
 	}, nil
 }
 
@@ -132,31 +165,93 @@ func (r *AdminRepo) ExportTaskItems(ctx context.Context, id int64) (biz.AdminTas
 	return biz.AdminTaskItemsExport{Task: summary, Items: items}, nil
 }
 
-func (r *AdminRepo) getTaskSummary(ctx context.Context, id int64) (biz.AdminTaskSummary, error) {
-	summary, err := scanAdminTaskSummary(r.db.QueryRow(ctx, `
+func (r *AdminRepo) SoftDeleteSubmitFailedTask(ctx context.Context, id int64, deletedBy string) (biz.AdminTaskSummary, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return biz.AdminTaskSummary{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	summary, err := scanAdminTaskSummary(tx.QueryRow(ctx, `
+with locked_task as (
+  select *
+  from cdp_tasks
+  where id=$1
+    and deleted_at is null
+  for update
+)
 select
   t.id,
   t.batch_no,
+  coalesce(t.task_name,''),
   coalesce(t.source,''),
   coalesce(t.platform_code,''),
   coalesce(t.external_batch_id,''),
   t.provider_code,
   t.status,
-  coalesce(item_stats.question_count,0),
-  least(t.success_count + t.failed_count, coalesce(item_stats.question_count,0)),
+  t.total_count,
+  least(t.success_count + t.failed_count, t.total_count),
   t.success_count,
-	  t.failed_count,
-	  t.created_at,
-	  t.updated_at,
-	  `+adminTaskExecutionEndedAtSQL+`
-	from cdp_tasks t
-left join (
-  select task_id,
-    count(*) as question_count
-  from cdp_task_items
-  group by task_id
-) item_stats on item_stats.task_id=t.id
+  t.failed_count,
+  t.created_at,
+  t.updated_at,
+  `+adminTaskExecutionEndedAtSQL+`,
+  `+adminTaskSubmitFailedSQL+`,
+  `+adminTaskDispatchLabelsSQL+`,
+  coalesce(t.reassigned_from_task_id,0),
+  `+adminTaskReassignedToTaskIDSQL+`
+from locked_task t
+`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return biz.AdminTaskSummary{}, biz.ErrTaskNotFound
+	}
+	if err != nil {
+		return biz.AdminTaskSummary{}, err
+	}
+	if summary.Status != biz.TaskStatusFailed || !summary.SubmitFailed {
+		return biz.AdminTaskSummary{}, fmt.Errorf("%w: only submit failed tasks can be deleted", biz.ErrInvalidTaskRequest)
+	}
+
+	if _, err = tx.Exec(ctx, `
+update cdp_tasks
+set deleted_at=now(),
+  deleted_by=$2,
+  updated_at=now()
+where id=$1
+`, id, strings.TrimSpace(deletedBy)); err != nil {
+		return biz.AdminTaskSummary{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return biz.AdminTaskSummary{}, err
+	}
+	return summary, nil
+}
+
+func (r *AdminRepo) getTaskSummary(ctx context.Context, id int64) (biz.AdminTaskSummary, error) {
+	summary, err := scanAdminTaskSummary(r.db.QueryRow(ctx, `
+select
+  t.id,
+  t.batch_no,
+  coalesce(t.task_name,''),
+  coalesce(t.source,''),
+  coalesce(t.platform_code,''),
+  coalesce(t.external_batch_id,''),
+  t.provider_code,
+  t.status,
+  t.total_count,
+  least(t.success_count + t.failed_count, t.total_count),
+  t.success_count,
+  t.failed_count,
+  t.created_at,
+  t.updated_at,
+  `+adminTaskExecutionEndedAtSQL+`,
+  `+adminTaskSubmitFailedSQL+`,
+  `+adminTaskDispatchLabelsSQL+`,
+  coalesce(t.reassigned_from_task_id,0),
+  `+adminTaskReassignedToTaskIDSQL+`
+from cdp_tasks t
 where t.id=$1
+  and t.deleted_at is null
 	`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return biz.AdminTaskSummary{}, biz.ErrTaskNotFound
@@ -265,6 +360,48 @@ func (r *AdminRepo) GetPlatformUserMetrics(ctx context.Context, id int64, filter
 	return metrics, nil
 }
 
+func (r *AdminRepo) ExportPlatformUserReconciliation(ctx context.Context, id int64, filter biz.AdminPlatformUserReconciliationFilter) (biz.AdminPlatformUserReconciliationExport, error) {
+	user, err := r.GetPlatformUser(ctx, id)
+	if err != nil {
+		return biz.AdminPlatformUserReconciliationExport{}, err
+	}
+	where, args := adminPlatformUserReconciliationWhere(id, user.PlatformCode, filter)
+	rows, err := r.db.Query(ctx, `
+select
+  `+adminMetricDateSQL+` as metric_date,
+  coalesce(t.task_name, ''),
+  t.batch_no,
+  t.provider_code,
+  t.total_count
+from cdp_tasks t
+`+where+`
+order by t.created_at asc, t.id asc
+`, args...)
+	if err != nil {
+		return biz.AdminPlatformUserReconciliationExport{}, err
+	}
+	defer rows.Close()
+	out := biz.AdminPlatformUserReconciliationExport{
+		User:        user,
+		CreatedFrom: filter.CreatedFrom,
+		CreatedTo:   filter.CreatedTo,
+	}
+	for rows.Next() {
+		var item biz.AdminPlatformUserReconciliationRow
+		if err := rows.Scan(
+			&item.MetricDate,
+			&item.TaskName,
+			&item.BatchNo,
+			&item.ProviderCode,
+			&item.QuestionCount,
+		); err != nil {
+			return biz.AdminPlatformUserReconciliationExport{}, err
+		}
+		out.Rows = append(out.Rows, item)
+	}
+	return out, rows.Err()
+}
+
 func (r *AdminRepo) GetProviderMetrics(ctx context.Context, providerCode string, filter biz.AdminProviderMetricsFilter) (biz.AdminProviderMetrics, error) {
 	metrics := biz.AdminProviderMetrics{
 		ProviderCode: providerCode,
@@ -306,6 +443,48 @@ left join lateral (
 	}
 	metrics.Daily = daily
 	return metrics, nil
+}
+
+func (r *AdminRepo) ListProviderQuotaUsage(ctx context.Context, providerCodes []string) (map[string]biz.AdminProviderQuotaUsage, error) {
+	codes := cleanProviderCodes(providerCodes)
+	usage := make(map[string]biz.AdminProviderQuotaUsage, len(codes))
+	for _, code := range codes {
+		usage[code] = biz.AdminProviderQuotaUsage{ProviderCode: code}
+	}
+	if len(codes) == 0 {
+		return usage, nil
+	}
+	rows, err := r.db.Query(ctx, `
+select provider_code, coalesce(sum(total_count), 0)::int
+from cdp_tasks
+where provider_code = any($1::text[])
+  and quota_date = (now() at time zone 'Asia/Shanghai')::date
+  and deleted_at is null
+  and (
+    status = any($2::text[])
+    or (status='FAILED' and provider_external_batch_id is not null)
+  )
+group by provider_code
+`, codes, []string{
+		string(biz.TaskStatusCreated),
+		string(biz.TaskStatusSubmitted),
+		string(biz.TaskStatusProviderDone),
+		string(biz.TaskStatusResultImported),
+		string(biz.TaskStatusCallbackPending),
+		string(biz.TaskStatusDone),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item biz.AdminProviderQuotaUsage
+		if err := rows.Scan(&item.ProviderCode, &item.Used); err != nil {
+			return nil, err
+		}
+		usage[item.ProviderCode] = item
+	}
+	return usage, rows.Err()
 }
 
 func (r *AdminRepo) CreatePlatformUser(ctx context.Context, input biz.AdminPlatformUserInput) (biz.PlatformUser, error) {
@@ -380,7 +559,7 @@ func (r *AdminRepo) upsertDispatchProfile(ctx context.Context, tx pgx.Tx, platfo
 	if input.Strategy == "" {
 		input.Strategy = biz.DispatchStrategyRoundRobin
 	}
-	if input.Strategy != biz.DispatchStrategyRoundRobin {
+	if input.Strategy != biz.DispatchStrategyRoundRobin && input.Strategy != biz.DispatchStrategyRuleBased {
 		return fmt.Errorf("%w: unsupported dispatch strategy", biz.ErrInvalidTaskRequest)
 	}
 	code := strings.TrimSpace(input.Code)
@@ -391,7 +570,7 @@ func (r *AdminRepo) upsertDispatchProfile(ctx context.Context, tx pgx.Tx, platfo
 	if name == "" {
 		name = platformCode + " 默认调度"
 	}
-	config, err := dispatchConfigJSON(providerCodes)
+	config, err := dispatchConfigJSON(providerCodes, input.FallbackSelectionPolicy, input.Rules)
 	if err != nil {
 		return err
 	}
@@ -623,16 +802,22 @@ order by
 	return items, rows.Err()
 }
 
-func (r *AdminRepo) listResultFiles(ctx context.Context, taskID int64) ([]biz.AdminResultFile, error) {
+func (r *AdminRepo) listResultFiles(ctx context.Context, taskID int64, filter biz.AdminPaginationFilter) ([]biz.AdminResultFile, int, error) {
+	var total int
+	if err := r.db.QueryRow(ctx, `select count(*) from cdp_task_result_files where task_id=$1`, taskID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
 	rows, err := r.db.Query(ctx, `
 select id, source_type, coalesce(object_key,''), coalesce(file_url,''), coalesce(file_name,''),
   parse_status, row_count, valid_row_count, invalid_row_count, created_at
 from cdp_task_result_files
 where task_id=$1
-order by created_at desc
-`, taskID)
+order by created_at desc, id desc
+limit $2 offset $3
+`, taskID, filter.PageSize, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var files []biz.AdminResultFile
@@ -640,34 +825,39 @@ order by created_at desc
 		var file biz.AdminResultFile
 		if err := rows.Scan(&file.ID, &file.SourceType, &file.ObjectKey, &file.FileURL, &file.FileName, &file.ParseStatus,
 			&file.RowCount, &file.ValidRowCount, &file.InvalidRowCount, &file.CreatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		files = append(files, file)
 	}
-	return files, rows.Err()
+	return files, total, rows.Err()
 }
 
-func (r *AdminRepo) listTaskEvents(ctx context.Context, taskID int64) ([]biz.AdminTaskEvent, error) {
+func (r *AdminRepo) listTaskEvents(ctx context.Context, taskID int64, filter biz.AdminPaginationFilter) ([]biz.AdminTaskEvent, int, error) {
+	var total int
+	if err := r.db.QueryRow(ctx, `select count(*) from cdp_task_events where task_id=$1`, taskID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
 	rows, err := r.db.Query(ctx, `
 select id, event_type, coalesce(payload,'{}'::jsonb), created_at
 from cdp_task_events
 where task_id=$1
-order by created_at desc
-limit 200
-`, taskID)
+order by created_at desc, id desc
+limit $2 offset $3
+`, taskID, filter.PageSize, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var events []biz.AdminTaskEvent
 	for rows.Next() {
 		var event biz.AdminTaskEvent
 		if err := rows.Scan(&event.ID, &event.EventType, &event.Payload, &event.CreatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		events = append(events, event)
 	}
-	return events, rows.Err()
+	return events, total, rows.Err()
 }
 
 func (r *AdminRepo) listTaskCallbacks(ctx context.Context, taskID int64) ([]biz.AdminTaskCallback, error) {
@@ -906,26 +1096,25 @@ func (r *AdminRepo) listPlatformRecentTasks(ctx context.Context, where string, a
 select
   t.id,
   t.batch_no,
+  coalesce(t.task_name,''),
   coalesce(t.source,''),
   coalesce(t.platform_code,''),
   coalesce(t.external_batch_id,''),
   t.provider_code,
   t.status,
-  coalesce(item_stats.question_count,0),
-  least(t.success_count + t.failed_count, coalesce(item_stats.question_count,0)),
+  t.total_count,
+  least(t.success_count + t.failed_count, t.total_count),
   t.success_count,
-	  t.failed_count,
-	  t.created_at,
-	  t.updated_at,
-	  `+adminTaskExecutionEndedAtSQL+`
-	from cdp_tasks t
-left join (
-  select task_id,
-    count(*) as question_count
-  from cdp_task_items
-  group by task_id
-) item_stats on item_stats.task_id=t.id
-	`+where+`
+  t.failed_count,
+  t.created_at,
+  t.updated_at,
+  `+adminTaskExecutionEndedAtSQL+`,
+  `+adminTaskSubmitFailedSQL+`,
+  `+adminTaskDispatchLabelsSQL+`,
+  coalesce(t.reassigned_from_task_id,0),
+  `+adminTaskReassignedToTaskIDSQL+`
+from cdp_tasks t
+`+where+`
 order by t.created_at desc
 limit $`+strconv.Itoa(len(args)+1), queryArgs...)
 	if err != nil {
@@ -1041,6 +1230,7 @@ func scanAdminTaskSummary(scanner interface{ Scan(dest ...any) error }) (biz.Adm
 	if err := scanner.Scan(
 		&summary.TaskID,
 		&summary.BatchNo,
+		&summary.TaskName,
 		&summary.Source,
 		&summary.PlatformCode,
 		&summary.ExternalBatchID,
@@ -1053,13 +1243,16 @@ func scanAdminTaskSummary(scanner interface{ Scan(dest ...any) error }) (biz.Adm
 		&summary.CreatedAt,
 		&summary.UpdatedAt,
 		&executionEndedAt,
+		&summary.SubmitFailed,
+		&summary.DispatchLabels,
+		&summary.ReassignedFromTaskID,
+		&summary.ReassignedToTaskID,
 	); err != nil {
 		return biz.AdminTaskSummary{}, err
 	}
 	if executionEndedAt.Valid {
 		summary.ExecutionEndedAt = executionEndedAt.Time
 	}
-	summary.TaskName = summary.BatchNo
 	if summary.QuestionCount > 0 {
 		summary.Progress = float64(summary.SuccessCount+summary.FailedCount) / float64(summary.QuestionCount)
 	}
@@ -1084,6 +1277,8 @@ func scanPlatformUser(scanner interface{ Scan(dest ...any) error }) (biz.Platfor
 		user.DispatchProfile.UpdatedAt = dispatchUpdatedAt.Time
 	}
 	user.DispatchProfile.ProviderCodes = dispatchProviderCodes(user.DispatchProfile.Config)
+	user.DispatchProfile.FallbackSelectionPolicy = dispatchFallbackSelectionPolicy(user.DispatchProfile.Config, user.DispatchProfile.Strategy)
+	user.DispatchProfile.Rules = dispatchRules(user.DispatchProfile.Config)
 	return user, nil
 }
 
@@ -1099,6 +1294,8 @@ func normalizeTaskFilter(filter *biz.AdminTaskFilter) {
 	}
 	filter.ResultStatus = strings.TrimSpace(strings.ToUpper(filter.ResultStatus))
 	filter.PlatformCode = strings.TrimSpace(filter.PlatformCode)
+	filter.TaskName = strings.TrimSpace(filter.TaskName)
+	filter.BatchNo = strings.TrimSpace(filter.BatchNo)
 }
 
 func normalizePlatformUserFilter(filter *biz.AdminPlatformUserFilter) {
@@ -1127,6 +1324,18 @@ func normalizeTaskItemFilter(filter *biz.AdminTaskItemFilter) {
 	}
 }
 
+func normalizePaginationFilter(filter *biz.AdminPaginationFilter) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+}
+
 func normalizePlatformUserInput(input *biz.AdminPlatformUserInput) {
 	input.PlatformCode = strings.TrimSpace(input.PlatformCode)
 	input.Name = strings.TrimSpace(input.Name)
@@ -1136,8 +1345,20 @@ func normalizePlatformUserInput(input *biz.AdminPlatformUserInput) {
 	input.DispatchProfile.Code = strings.TrimSpace(input.DispatchProfile.Code)
 	input.DispatchProfile.Name = strings.TrimSpace(input.DispatchProfile.Name)
 	input.DispatchProfile.Strategy = biz.DispatchStrategy(strings.TrimSpace(strings.ToUpper(string(input.DispatchProfile.Strategy))))
+	input.DispatchProfile.FallbackSelectionPolicy = biz.DispatchFallbackSelectionPolicy(strings.TrimSpace(strings.ToUpper(string(input.DispatchProfile.FallbackSelectionPolicy))))
 	for i := range input.DispatchProfile.ProviderCodes {
 		input.DispatchProfile.ProviderCodes[i] = strings.TrimSpace(input.DispatchProfile.ProviderCodes[i])
+	}
+	for i := range input.DispatchProfile.Rules {
+		input.DispatchProfile.Rules[i].Code = strings.TrimSpace(input.DispatchProfile.Rules[i].Code)
+		input.DispatchProfile.Rules[i].Name = strings.TrimSpace(input.DispatchProfile.Rules[i].Name)
+		input.DispatchProfile.Rules[i].TaskNameRegex = strings.TrimSpace(input.DispatchProfile.Rules[i].TaskNameRegex)
+		for j := range input.DispatchProfile.Rules[i].Labels {
+			input.DispatchProfile.Rules[i].Labels[j] = strings.TrimSpace(input.DispatchProfile.Rules[i].Labels[j])
+		}
+		for j := range input.DispatchProfile.Rules[i].ProviderCodes {
+			input.DispatchProfile.Rules[i].ProviderCodes[j] = strings.TrimSpace(input.DispatchProfile.Rules[i].ProviderCodes[j])
+		}
 	}
 	if input.Status == "" {
 		input.Status = "ACTIVE"
@@ -1148,10 +1369,13 @@ func normalizePlatformUserInput(input *biz.AdminPlatformUserInput) {
 	if input.DispatchProfile.Strategy == "" {
 		input.DispatchProfile.Strategy = biz.DispatchStrategyRoundRobin
 	}
+	if input.DispatchProfile.FallbackSelectionPolicy == "" {
+		input.DispatchProfile.FallbackSelectionPolicy = defaultDispatchFallbackSelectionPolicy(input.DispatchProfile.Strategy)
+	}
 }
 
 func adminTaskWhere(filter biz.AdminTaskFilter) (string, []any) {
-	clauses := []string{" where 1=1"}
+	clauses := []string{" where t.deleted_at is null"}
 	var args []any
 	add := func(clause string, value any) {
 		args = append(args, value)
@@ -1159,6 +1383,9 @@ func adminTaskWhere(filter biz.AdminTaskFilter) (string, []any) {
 	}
 	if filter.BatchNo != "" {
 		add(" and t.batch_no ilike '%%' || $%d || '%%'", filter.BatchNo)
+	}
+	if filter.TaskName != "" {
+		add(" and t.task_name ilike '%%' || $%d || '%%'", filter.TaskName)
 	}
 	if filter.Source != "" {
 		add(" and t.source = $%d", filter.Source)
@@ -1203,7 +1430,30 @@ func adminPlatformUserWhere(filter biz.AdminPlatformUserFilter) (string, []any) 
 }
 
 func adminPlatformUserMetricWhere(platformUserID int64, platformCode string, filter biz.AdminPlatformUserMetricsFilter) (string, []any) {
-	clauses := []string{" where (t.platform_user_id=$1 or t.platform_code=$2)"}
+	clauses := []string{" where (t.platform_user_id=$1 or t.platform_code=$2) and t.deleted_at is null"}
+	args := []any{platformUserID, platformCode}
+	add := func(clause string, value any) {
+		args = append(args, value)
+		clauses = append(clauses, fmt.Sprintf(clause, len(args)))
+	}
+	if !filter.CreatedFrom.IsZero() {
+		add(" and t.created_at >= $%d", filter.CreatedFrom)
+	}
+	if !filter.CreatedTo.IsZero() {
+		add(" and t.created_at <= $%d", filter.CreatedTo)
+	}
+	return strings.Join(clauses, ""), args
+}
+
+func adminPlatformUserReconciliationWhere(platformUserID int64, platformCode string, filter biz.AdminPlatformUserReconciliationFilter) (string, []any) {
+	clauses := []string{` where (t.platform_user_id=$1 or t.platform_code=$2)
+  and t.deleted_at is null
+  and exists (
+    select 1
+    from cdp_task_callbacks cb
+    where cb.task_id=t.id
+      and cb.status='DONE'
+  )`}
 	args := []any{platformUserID, platformCode}
 	add := func(clause string, value any) {
 		args = append(args, value)
@@ -1219,7 +1469,7 @@ func adminPlatformUserMetricWhere(platformUserID int64, platformCode string, fil
 }
 
 func adminProviderMetricWhere(providerCode string, filter biz.AdminProviderMetricsFilter) (string, []any) {
-	clauses := []string{" where t.provider_code=$1"}
+	clauses := []string{" where t.provider_code=$1 and t.deleted_at is null"}
 	args := []any{providerCode}
 	add := func(clause string, value any) {
 		args = append(args, value)
@@ -1273,12 +1523,25 @@ func cleanProviderCodes(values []string) []string {
 	return out
 }
 
-func dispatchConfigJSON(providerCodes []string) (json.RawMessage, error) {
+func dispatchConfigJSON(providerCodes []string, fallbackSelectionPolicy biz.DispatchFallbackSelectionPolicy, rules []biz.DispatchRuleInput) (json.RawMessage, error) {
 	providers := make([]map[string]string, 0, len(providerCodes))
 	for _, code := range cleanProviderCodes(providerCodes) {
 		providers = append(providers, map[string]string{"code": code})
 	}
-	body, err := json.Marshal(map[string]any{"providers": providers})
+	policy := dispatchFallbackSelectionPolicyValue(fallbackSelectionPolicy)
+	cleanRules := make([]map[string]any, 0, len(rules))
+	for _, rule := range cleanDispatchRuleInputs(rules) {
+		cleanRules = append(cleanRules, map[string]any{
+			"code":          rule.Code,
+			"name":          rule.Name,
+			"sortOrder":     rule.SortOrder,
+			"taskNameRegex": rule.TaskNameRegex,
+			"labels":        rule.Labels,
+			"providerCodes": rule.ProviderCodes,
+			"enabled":       rule.Enabled,
+		})
+	}
+	body, err := json.Marshal(map[string]any{"providers": providers, "fallbackSelectionPolicy": policy, "rules": cleanRules})
 	return json.RawMessage(body), err
 }
 
@@ -1296,4 +1559,116 @@ func dispatchProviderCodes(config json.RawMessage) []string {
 		out = append(out, provider.Code)
 	}
 	return cleanProviderCodes(out)
+}
+
+func dispatchFallbackSelectionPolicy(config json.RawMessage, strategy biz.DispatchStrategy) biz.DispatchFallbackSelectionPolicy {
+	var parsed struct {
+		FallbackSelectionPolicy string `json:"fallbackSelectionPolicy"`
+	}
+	if len(config) == 0 || json.Unmarshal(config, &parsed) != nil {
+		return defaultDispatchFallbackSelectionPolicy(strategy)
+	}
+	if strings.TrimSpace(parsed.FallbackSelectionPolicy) == "" {
+		return defaultDispatchFallbackSelectionPolicy(strategy)
+	}
+	return dispatchFallbackSelectionPolicyValue(biz.DispatchFallbackSelectionPolicy(parsed.FallbackSelectionPolicy))
+}
+
+func defaultDispatchFallbackSelectionPolicy(strategy biz.DispatchStrategy) biz.DispatchFallbackSelectionPolicy {
+	if strategy == biz.DispatchStrategyRoundRobin {
+		return biz.DispatchFallbackSelectionPolicyRoundRobin
+	}
+	return biz.DispatchFallbackSelectionPolicyLowestUsageRate
+}
+
+func dispatchFallbackSelectionPolicyValue(policy biz.DispatchFallbackSelectionPolicy) biz.DispatchFallbackSelectionPolicy {
+	switch biz.DispatchFallbackSelectionPolicy(strings.TrimSpace(strings.ToUpper(string(policy)))) {
+	case biz.DispatchFallbackSelectionPolicyRoundRobin:
+		return biz.DispatchFallbackSelectionPolicyRoundRobin
+	case biz.DispatchFallbackSelectionPolicyLowestUsageRate:
+		return biz.DispatchFallbackSelectionPolicyLowestUsageRate
+	default:
+		return biz.DispatchFallbackSelectionPolicyLowestUsageRate
+	}
+}
+
+func dispatchRules(config json.RawMessage) []biz.DispatchRule {
+	var parsed struct {
+		Rules []struct {
+			Code          string   `json:"code"`
+			Name          string   `json:"name"`
+			SortOrder     int      `json:"sortOrder"`
+			TaskNameRegex string   `json:"taskNameRegex"`
+			Labels        []string `json:"labels"`
+			ProviderCodes []string `json:"providerCodes"`
+			Enabled       *bool    `json:"enabled"`
+		} `json:"rules"`
+	}
+	if len(config) == 0 || json.Unmarshal(config, &parsed) != nil {
+		return nil
+	}
+	out := make([]biz.DispatchRule, 0, len(parsed.Rules))
+	for _, rule := range parsed.Rules {
+		enabled := true
+		if rule.Enabled != nil {
+			enabled = *rule.Enabled
+		}
+		out = append(out, biz.DispatchRule{
+			Code:          strings.TrimSpace(rule.Code),
+			Name:          strings.TrimSpace(rule.Name),
+			SortOrder:     rule.SortOrder,
+			TaskNameRegex: strings.TrimSpace(rule.TaskNameRegex),
+			Labels:        cleanStringValues(rule.Labels),
+			ProviderCodes: cleanProviderCodes(rule.ProviderCodes),
+			Enabled:       enabled,
+		})
+	}
+	return out
+}
+
+func cleanDispatchRuleInputs(rules []biz.DispatchRuleInput) []biz.DispatchRuleInput {
+	out := make([]biz.DispatchRuleInput, 0, len(rules))
+	usedCodes := map[string]bool{}
+	for _, rule := range rules {
+		code := strings.TrimSpace(rule.Code)
+		if code != "" {
+			usedCodes[code] = true
+		}
+	}
+	for _, rule := range rules {
+		rule.Code = strings.TrimSpace(rule.Code)
+		rule.Name = strings.TrimSpace(rule.Name)
+		rule.TaskNameRegex = strings.TrimSpace(rule.TaskNameRegex)
+		rule.Labels = cleanStringValues(rule.Labels)
+		rule.ProviderCodes = cleanProviderCodes(rule.ProviderCodes)
+		if rule.Code == "" && rule.TaskNameRegex == "" && len(rule.ProviderCodes) == 0 {
+			continue
+		}
+		if rule.Code == "" {
+			for n := len(out) + 1; ; n++ {
+				code := fmt.Sprintf("rule_%d", n)
+				if !usedCodes[code] {
+					rule.Code = code
+					usedCodes[code] = true
+					break
+				}
+			}
+		}
+		out = append(out, rule)
+	}
+	return out
+}
+
+func cleanStringValues(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		item := strings.TrimSpace(value)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
 }

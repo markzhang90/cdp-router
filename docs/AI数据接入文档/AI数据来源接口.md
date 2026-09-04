@@ -141,7 +141,7 @@ Content-Type: application/json
 X-Provider-Token: vendor-provider-token
 ```
 
-上传地址固定有效 3600 秒。
+上传地址固定有效 86400 秒（24 小时）。
 
 ### 3.1 路径参数
 
