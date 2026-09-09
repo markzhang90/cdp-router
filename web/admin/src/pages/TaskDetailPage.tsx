@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Descriptions, Empty, Modal, Progress, Space, Table, Tabs, Tag, Typography, message } from "antd";
+import { Alert, Button, Descriptions, Empty, Modal, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ArrowLeft, Download, ExternalLink, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, ExternalLink, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import { checkTaskResult, deleteTask, exportTaskItemsXlsx, getTaskDetail, retryTaskCallback } from "../api/client";
+import { checkTaskResult, deleteTask, exportTaskItemsXlsx, forceImportCallback, getTaskDetail, retryTaskCallback } from "../api/client";
 import { JsonBlock } from "../components/JsonBlock";
 import { PageHeader } from "../components/PageHeader";
 import { ResultStatusTag, TaskStatusTag } from "../components/StatusTag";
+import { TaskProgressBar } from "../components/TaskProgressBar";
+import { TaskResultStats } from "../components/TaskResultStats";
 import type { ResultFile, TaskCallback, TaskDetailData, TaskDetailQuery, TaskEvent, TaskItem, TaskSummary } from "../types/admin";
-import { compactText, formatFullDateTime, positiveID, precisePercent, taskProgress } from "../utils/format";
+import { compactText, formatFullDateTime, positiveID } from "../utils/format";
 
 export function TaskDetailPage() {
   const navigate = useNavigate();
@@ -19,6 +21,7 @@ export function TaskDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [retryingCallback, setRetryingCallback] = useState(false);
+  const [forcingImportCallback, setForcingImportCallback] = useState(false);
   const [detail, setDetail] = useState<TaskDetailData | null>(null);
   const [sourceTask, setSourceTask] = useState<TaskSummary | null>(null);
   const [targetTask, setTargetTask] = useState<TaskSummary | null>(null);
@@ -150,6 +153,50 @@ export function TaskDetailPage() {
     } finally {
       setRetryingCallback(false);
     }
+  };
+
+  const handleForceImportCallback = () => {
+    Modal.confirm({
+      title: "强制提交当前结果？",
+      content: (
+        <Space direction="vertical" size={10}>
+          <Alert
+            type="error"
+            showIcon
+            message="此操作会重新导入供应商当前文件，然后不管供应商是否已全部结束，直接按当前进度向上游提交结果。"
+          />
+          <Typography.Text>
+            回调只包含当前 parse_status=SUCCESS 的结果；未完成、失败或空答案 item 不会返回给上游。
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            任务状态和正常 callback 终态标记不会被修改，后续供应商文件导入仍可继续补齐结果。
+          </Typography.Text>
+        </Space>
+      ),
+      okText: "强制提交",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setForcingImportCallback(true);
+        try {
+          const data = await forceImportCallback(taskId);
+          if (data.rejected) {
+            message.warning("无有效成功结果，已拒绝回调");
+          } else if (data.delivered) {
+            message.success(
+              `强制回调已发送：成功 ${data.successCount}，未完成 ${data.unfinishedCount}${data.partial ? "（部分结果）" : ""}`
+            );
+          } else {
+            message.error("强制回调失败，请查看回调记录");
+          }
+          await load();
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : "强制回调失败");
+        } finally {
+          setForcingImportCallback(false);
+        }
+      }
+    });
   };
 
   const handleExportItems = async () => {
@@ -369,6 +416,15 @@ export function TaskDetailPage() {
             <Button icon={<Send size={16} />} loading={retryingCallback} onClick={handleRetryCallback}>
               重新回调
             </Button>
+            <Button
+              danger
+              type="primary"
+              icon={<AlertTriangle size={16} />}
+              loading={forcingImportCallback}
+              onClick={handleForceImportCallback}
+            >
+              强制导入回调
+            </Button>
             {task?.submitFailed ? (
               <Button danger icon={<Trash2 size={16} />} loading={deleting} onClick={handleDeleteSubmitFailedTask}>
                 删除
@@ -408,7 +464,26 @@ export function TaskDetailPage() {
           <Descriptions.Item label="供应商">{task?.providerCode ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="问答">{task ? `${task.completedCount}/${task.questionCount}` : "-"}</Descriptions.Item>
           <Descriptions.Item label="进度">
-            <Progress percent={task ? precisePercent(taskProgress(task)) : 0} size="small" />
+            {task ? (
+              <TaskProgressBar
+                successCount={task.successCount}
+                failedCount={task.failedCount}
+                totalCount={task.questionCount}
+              />
+            ) : (
+              "-"
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="导入结果">
+            {task ? (
+              <TaskResultStats
+                successCount={task.resultSuccessCount}
+                failedCount={task.resultFailedCount}
+                missingCount={task.resultMissingCount}
+              />
+            ) : (
+              "-"
+            )}
           </Descriptions.Item>
           <Descriptions.Item label="执行耗时">{compactText(task?.executionDurationText ?? "")}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{formatFullDateTime(task?.createdAt ?? "")}</Descriptions.Item>

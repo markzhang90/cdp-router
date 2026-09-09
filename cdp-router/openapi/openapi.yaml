@@ -359,6 +359,10 @@ paths:
                   in: query
                   schema:
                     type: string
+                - name: providerCode
+                  in: query
+                  schema:
+                    type: string
             responses:
                 "200":
                     description: OK
@@ -497,6 +501,36 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/CheckTaskResultResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/tasks/{id}/force-import-callback:
+        post:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_ForceImportCallback
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ForceImportCallbackRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ForceImportCallbackResponse'
                 default:
                     description: Default error response
                     content:
@@ -926,6 +960,15 @@ components:
                     type: string
                 reassignedToTaskId:
                     type: string
+                resultSuccessCount:
+                    type: integer
+                    format: int32
+                resultFailedCount:
+                    type: integer
+                    format: int32
+                resultMissingCount:
+                    type: integer
+                    format: int32
         AdminUser:
             type: object
             properties:
@@ -1263,6 +1306,65 @@ components:
                     type: string
                 parseError:
                     type: string
+        ForceImportCallbackData:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                batchNo:
+                    type: string
+                taskStatus:
+                    type: string
+                delivered:
+                    type: boolean
+                rejected:
+                    type: boolean
+                fileCount:
+                    type: integer
+                    format: int32
+                importedFileCount:
+                    type: integer
+                    format: int32
+                rowCount:
+                    type: integer
+                    format: int32
+                taskItemCount:
+                    type: integer
+                    format: int32
+                successCount:
+                    type: integer
+                    format: int32
+                failedCount:
+                    type: integer
+                    format: int32
+                callbackMode:
+                    type: string
+                partial:
+                    type: boolean
+                taskStatusUnchanged:
+                    type: boolean
+                reason:
+                    type: string
+                unfinishedCount:
+                    type: integer
+                    format: int32
+        ForceImportCallbackRequest:
+            type: object
+            properties:
+                id:
+                    type: string
+                reason:
+                    type: string
+        ForceImportCallbackResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ForceImportCallbackData'
         GetDispatchOptionsResponse:
             type: object
             properties:

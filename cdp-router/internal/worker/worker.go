@@ -13,7 +13,6 @@ type Worker struct {
 	tasks             *biz.TaskUsecase
 	interval          time.Duration
 	submittedInterval time.Duration
-	submittedMaxAge   time.Duration
 	limit             int
 }
 
@@ -22,7 +21,6 @@ func New(tasks *biz.TaskUsecase) *Worker {
 		tasks:             tasks,
 		interval:          5 * time.Second,
 		submittedInterval: 10 * time.Minute,
-		submittedMaxAge:   24 * time.Hour,
 		limit:             20,
 	}
 }
@@ -51,9 +49,6 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) processSubmittedTasks(ctx context.Context) {
-	if _, err := w.tasks.FailTimedOutSubmitted(ctx, w.submittedMaxAge, w.limit); err != nil {
-		slog.Error("fail timed out submitted tasks failed", "trace_id", trace.RequestID(ctx), "error", err)
-	}
 	if _, err := w.tasks.RefreshSubmittedProgress(ctx, w.submittedInterval, w.limit); err != nil {
 		slog.Error("refresh submitted task progress failed", "trace_id", trace.RequestID(ctx), "error", err)
 	}

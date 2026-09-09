@@ -24,6 +24,10 @@ func (c *HTTPClient) Code() string {
 	return "DEFAULT_HTTP"
 }
 
+func (c *HTTPClient) ResolveMode(_ *biz.Task) string {
+	return "DEFAULT_HTTP"
+}
+
 func (c *HTTPClient) Deliver(ctx context.Context, task *biz.Task, payload biz.CallbackDelivery) (biz.CallbackResult, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {

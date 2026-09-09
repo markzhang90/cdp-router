@@ -60,6 +60,13 @@ service AdminAPI {
     };
   }
 
+  rpc ForceImportCallback(ForceImportCallbackRequest) returns (ForceImportCallbackResponse) {
+    option (google.api.http) = {
+      post: "/api/admin/v1/tasks/{id}/force-import-callback"
+      body: "*"
+    };
+  }
+
   rpc ReassignTask(ReassignTaskRequest) returns (ReassignTaskResponse) {
     option (google.api.http) = {
       post: "/api/admin/v1/tasks/reassign"
@@ -189,6 +196,7 @@ message ListTasksRequest {
   int32 page_size = 7 [json_name = "pageSize"];
   string platform_code = 8 [json_name = "platformCode"];
   string task_name = 9 [json_name = "taskName"];
+  string provider_code = 10 [json_name = "providerCode"];
 }
 
 message ListTasksResponse {
@@ -226,6 +234,9 @@ message AdminTaskSummary {
   repeated string dispatch_labels = 19 [json_name = "dispatchLabels"];
   int64 reassigned_from_task_id = 20 [json_name = "reassignedFromTaskId"];
   int64 reassigned_to_task_id = 21 [json_name = "reassignedToTaskId"];
+  int32 result_success_count = 22 [json_name = "resultSuccessCount"];
+  int32 result_failed_count = 23 [json_name = "resultFailedCount"];
+  int32 result_missing_count = 24 [json_name = "resultMissingCount"];
 }
 
 message GetTaskDetailRequest {
@@ -378,6 +389,36 @@ message RetryTaskCallbackData {
   int32 failed_count = 10 [json_name = "failedCount"];
   int32 imported_count = 11 [json_name = "importedCount"];
   int32 task_item_count = 12 [json_name = "taskItemCount"];
+}
+
+message ForceImportCallbackRequest {
+  int64 id = 1;
+  string reason = 2;
+}
+
+message ForceImportCallbackResponse {
+  int32 status = 1;
+  string message = 2;
+  ForceImportCallbackData data = 3;
+}
+
+message ForceImportCallbackData {
+  int64 task_id = 1 [json_name = "taskId"];
+  string batch_no = 2 [json_name = "batchNo"];
+  string task_status = 3 [json_name = "taskStatus"];
+  bool delivered = 4;
+  bool rejected = 5;
+  int32 file_count = 6 [json_name = "fileCount"];
+  int32 imported_file_count = 7 [json_name = "importedFileCount"];
+  int32 row_count = 8 [json_name = "rowCount"];
+  int32 task_item_count = 9 [json_name = "taskItemCount"];
+  int32 success_count = 10 [json_name = "successCount"];
+  int32 failed_count = 11 [json_name = "failedCount"];
+  string callback_mode = 12 [json_name = "callbackMode"];
+  bool partial = 13;
+  bool task_status_unchanged = 14 [json_name = "taskStatusUnchanged"];
+  string reason = 15;
+  int32 unfinished_count = 16 [json_name = "unfinishedCount"];
 }
 
 message ReassignTaskRequest {

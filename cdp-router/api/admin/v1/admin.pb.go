@@ -553,6 +553,7 @@ type ListTasksRequest struct {
 	PageSize      int32                  `protobuf:"varint,7,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	PlatformCode  string                 `protobuf:"bytes,8,opt,name=platform_code,json=platformCode,proto3" json:"platform_code,omitempty"`
 	TaskName      string                 `protobuf:"bytes,9,opt,name=task_name,json=taskName,proto3" json:"task_name,omitempty"`
+	ProviderCode  string                 `protobuf:"bytes,10,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -646,6 +647,13 @@ func (x *ListTasksRequest) GetPlatformCode() string {
 func (x *ListTasksRequest) GetTaskName() string {
 	if x != nil {
 		return x.TaskName
+	}
+	return ""
+}
+
+func (x *ListTasksRequest) GetProviderCode() string {
+	if x != nil {
+		return x.ProviderCode
 	}
 	return ""
 }
@@ -801,6 +809,9 @@ type AdminTaskSummary struct {
 	DispatchLabels           []string               `protobuf:"bytes,19,rep,name=dispatch_labels,json=dispatchLabels,proto3" json:"dispatch_labels,omitempty"`
 	ReassignedFromTaskId     int64                  `protobuf:"varint,20,opt,name=reassigned_from_task_id,json=reassignedFromTaskId,proto3" json:"reassigned_from_task_id,omitempty"`
 	ReassignedToTaskId       int64                  `protobuf:"varint,21,opt,name=reassigned_to_task_id,json=reassignedToTaskId,proto3" json:"reassigned_to_task_id,omitempty"`
+	ResultSuccessCount       int32                  `protobuf:"varint,22,opt,name=result_success_count,json=resultSuccessCount,proto3" json:"result_success_count,omitempty"`
+	ResultFailedCount        int32                  `protobuf:"varint,23,opt,name=result_failed_count,json=resultFailedCount,proto3" json:"result_failed_count,omitempty"`
+	ResultMissingCount       int32                  `protobuf:"varint,24,opt,name=result_missing_count,json=resultMissingCount,proto3" json:"result_missing_count,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -978,6 +989,27 @@ func (x *AdminTaskSummary) GetReassignedFromTaskId() int64 {
 func (x *AdminTaskSummary) GetReassignedToTaskId() int64 {
 	if x != nil {
 		return x.ReassignedToTaskId
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetResultSuccessCount() int32 {
+	if x != nil {
+		return x.ResultSuccessCount
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetResultFailedCount() int32 {
+	if x != nil {
+		return x.ResultFailedCount
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetResultMissingCount() int32 {
+	if x != nil {
+		return x.ResultMissingCount
 	}
 	return 0
 }
@@ -2390,6 +2422,282 @@ func (x *RetryTaskCallbackData) GetTaskItemCount() int32 {
 	return 0
 }
 
+type ForceImportCallbackRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForceImportCallbackRequest) Reset() {
+	*x = ForceImportCallbackRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForceImportCallbackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForceImportCallbackRequest) ProtoMessage() {}
+
+func (x *ForceImportCallbackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForceImportCallbackRequest.ProtoReflect.Descriptor instead.
+func (*ForceImportCallbackRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ForceImportCallbackRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type ForceImportCallbackResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Status        int32                    `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	Message       string                   `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Data          *ForceImportCallbackData `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForceImportCallbackResponse) Reset() {
+	*x = ForceImportCallbackResponse{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForceImportCallbackResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForceImportCallbackResponse) ProtoMessage() {}
+
+func (x *ForceImportCallbackResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForceImportCallbackResponse.ProtoReflect.Descriptor instead.
+func (*ForceImportCallbackResponse) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ForceImportCallbackResponse) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ForceImportCallbackResponse) GetData() *ForceImportCallbackData {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ForceImportCallbackData struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	TaskId              int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	BatchNo             string                 `protobuf:"bytes,2,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
+	TaskStatus          string                 `protobuf:"bytes,3,opt,name=task_status,json=taskStatus,proto3" json:"task_status,omitempty"`
+	Delivered           bool                   `protobuf:"varint,4,opt,name=delivered,proto3" json:"delivered,omitempty"`
+	Rejected            bool                   `protobuf:"varint,5,opt,name=rejected,proto3" json:"rejected,omitempty"`
+	FileCount           int32                  `protobuf:"varint,6,opt,name=file_count,json=fileCount,proto3" json:"file_count,omitempty"`
+	ImportedFileCount   int32                  `protobuf:"varint,7,opt,name=imported_file_count,json=importedFileCount,proto3" json:"imported_file_count,omitempty"`
+	RowCount            int32                  `protobuf:"varint,8,opt,name=row_count,json=rowCount,proto3" json:"row_count,omitempty"`
+	TaskItemCount       int32                  `protobuf:"varint,9,opt,name=task_item_count,json=taskItemCount,proto3" json:"task_item_count,omitempty"`
+	SuccessCount        int32                  `protobuf:"varint,10,opt,name=success_count,json=successCount,proto3" json:"success_count,omitempty"`
+	FailedCount         int32                  `protobuf:"varint,11,opt,name=failed_count,json=failedCount,proto3" json:"failed_count,omitempty"`
+	CallbackMode        string                 `protobuf:"bytes,12,opt,name=callback_mode,json=callbackMode,proto3" json:"callback_mode,omitempty"`
+	Partial             bool                   `protobuf:"varint,13,opt,name=partial,proto3" json:"partial,omitempty"`
+	TaskStatusUnchanged bool                   `protobuf:"varint,14,opt,name=task_status_unchanged,json=taskStatusUnchanged,proto3" json:"task_status_unchanged,omitempty"`
+	Reason              string                 `protobuf:"bytes,15,opt,name=reason,proto3" json:"reason,omitempty"`
+	UnfinishedCount     int32                  `protobuf:"varint,16,opt,name=unfinished_count,json=unfinishedCount,proto3" json:"unfinished_count,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ForceImportCallbackData) Reset() {
+	*x = ForceImportCallbackData{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForceImportCallbackData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForceImportCallbackData) ProtoMessage() {}
+
+func (x *ForceImportCallbackData) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForceImportCallbackData.ProtoReflect.Descriptor instead.
+func (*ForceImportCallbackData) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ForceImportCallbackData) GetTaskId() int64 {
+	if x != nil {
+		return x.TaskId
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackData) GetBatchNo() string {
+	if x != nil {
+		return x.BatchNo
+	}
+	return ""
+}
+
+func (x *ForceImportCallbackData) GetTaskStatus() string {
+	if x != nil {
+		return x.TaskStatus
+	}
+	return ""
+}
+
+func (x *ForceImportCallbackData) GetDelivered() bool {
+	if x != nil {
+		return x.Delivered
+	}
+	return false
+}
+
+func (x *ForceImportCallbackData) GetRejected() bool {
+	if x != nil {
+		return x.Rejected
+	}
+	return false
+}
+
+func (x *ForceImportCallbackData) GetFileCount() int32 {
+	if x != nil {
+		return x.FileCount
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackData) GetImportedFileCount() int32 {
+	if x != nil {
+		return x.ImportedFileCount
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackData) GetRowCount() int32 {
+	if x != nil {
+		return x.RowCount
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackData) GetTaskItemCount() int32 {
+	if x != nil {
+		return x.TaskItemCount
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackData) GetSuccessCount() int32 {
+	if x != nil {
+		return x.SuccessCount
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackData) GetFailedCount() int32 {
+	if x != nil {
+		return x.FailedCount
+	}
+	return 0
+}
+
+func (x *ForceImportCallbackData) GetCallbackMode() string {
+	if x != nil {
+		return x.CallbackMode
+	}
+	return ""
+}
+
+func (x *ForceImportCallbackData) GetPartial() bool {
+	if x != nil {
+		return x.Partial
+	}
+	return false
+}
+
+func (x *ForceImportCallbackData) GetTaskStatusUnchanged() bool {
+	if x != nil {
+		return x.TaskStatusUnchanged
+	}
+	return false
+}
+
+func (x *ForceImportCallbackData) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *ForceImportCallbackData) GetUnfinishedCount() int32 {
+	if x != nil {
+		return x.UnfinishedCount
+	}
+	return 0
+}
+
 type ReassignTaskRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	BatchNo       string                 `protobuf:"bytes,1,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
@@ -2401,7 +2709,7 @@ type ReassignTaskRequest struct {
 
 func (x *ReassignTaskRequest) Reset() {
 	*x = ReassignTaskRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[30]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2413,7 +2721,7 @@ func (x *ReassignTaskRequest) String() string {
 func (*ReassignTaskRequest) ProtoMessage() {}
 
 func (x *ReassignTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[30]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2426,7 +2734,7 @@ func (x *ReassignTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReassignTaskRequest.ProtoReflect.Descriptor instead.
 func (*ReassignTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{30}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ReassignTaskRequest) GetBatchNo() string {
@@ -2461,7 +2769,7 @@ type ReassignTaskResponse struct {
 
 func (x *ReassignTaskResponse) Reset() {
 	*x = ReassignTaskResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[31]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2473,7 +2781,7 @@ func (x *ReassignTaskResponse) String() string {
 func (*ReassignTaskResponse) ProtoMessage() {}
 
 func (x *ReassignTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[31]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2486,7 +2794,7 @@ func (x *ReassignTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReassignTaskResponse.ProtoReflect.Descriptor instead.
 func (*ReassignTaskResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{31}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ReassignTaskResponse) GetStatus() int32 {
@@ -2525,7 +2833,7 @@ type ReassignTaskData struct {
 
 func (x *ReassignTaskData) Reset() {
 	*x = ReassignTaskData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[32]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2537,7 +2845,7 @@ func (x *ReassignTaskData) String() string {
 func (*ReassignTaskData) ProtoMessage() {}
 
 func (x *ReassignTaskData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[32]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2550,7 +2858,7 @@ func (x *ReassignTaskData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReassignTaskData.ProtoReflect.Descriptor instead.
 func (*ReassignTaskData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{32}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ReassignTaskData) GetSourceTaskId() int64 {
@@ -2611,7 +2919,7 @@ type DeleteTaskRequest struct {
 
 func (x *DeleteTaskRequest) Reset() {
 	*x = DeleteTaskRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[33]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2623,7 +2931,7 @@ func (x *DeleteTaskRequest) String() string {
 func (*DeleteTaskRequest) ProtoMessage() {}
 
 func (x *DeleteTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[33]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2636,7 +2944,7 @@ func (x *DeleteTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTaskRequest.ProtoReflect.Descriptor instead.
 func (*DeleteTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{33}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *DeleteTaskRequest) GetId() int64 {
@@ -2657,7 +2965,7 @@ type DeleteTaskResponse struct {
 
 func (x *DeleteTaskResponse) Reset() {
 	*x = DeleteTaskResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[34]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2669,7 +2977,7 @@ func (x *DeleteTaskResponse) String() string {
 func (*DeleteTaskResponse) ProtoMessage() {}
 
 func (x *DeleteTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[34]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2682,7 +2990,7 @@ func (x *DeleteTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTaskResponse.ProtoReflect.Descriptor instead.
 func (*DeleteTaskResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{34}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *DeleteTaskResponse) GetStatus() int32 {
@@ -2714,7 +3022,7 @@ type ListProvidersRequest struct {
 
 func (x *ListProvidersRequest) Reset() {
 	*x = ListProvidersRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[35]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2726,7 +3034,7 @@ func (x *ListProvidersRequest) String() string {
 func (*ListProvidersRequest) ProtoMessage() {}
 
 func (x *ListProvidersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[35]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2739,7 +3047,7 @@ func (x *ListProvidersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProvidersRequest.ProtoReflect.Descriptor instead.
 func (*ListProvidersRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{35}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{38}
 }
 
 type ListProvidersResponse struct {
@@ -2753,7 +3061,7 @@ type ListProvidersResponse struct {
 
 func (x *ListProvidersResponse) Reset() {
 	*x = ListProvidersResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[36]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2765,7 +3073,7 @@ func (x *ListProvidersResponse) String() string {
 func (*ListProvidersResponse) ProtoMessage() {}
 
 func (x *ListProvidersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[36]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2778,7 +3086,7 @@ func (x *ListProvidersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProvidersResponse.ProtoReflect.Descriptor instead.
 func (*ListProvidersResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{36}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListProvidersResponse) GetStatus() int32 {
@@ -2811,7 +3119,7 @@ type ProviderListData struct {
 
 func (x *ProviderListData) Reset() {
 	*x = ProviderListData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[37]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2823,7 +3131,7 @@ func (x *ProviderListData) String() string {
 func (*ProviderListData) ProtoMessage() {}
 
 func (x *ProviderListData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[37]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2836,7 +3144,7 @@ func (x *ProviderListData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderListData.ProtoReflect.Descriptor instead.
 func (*ProviderListData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{37}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ProviderListData) GetProviders() []*Provider {
@@ -2871,7 +3179,7 @@ type Provider struct {
 
 func (x *Provider) Reset() {
 	*x = Provider{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[38]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2883,7 +3191,7 @@ func (x *Provider) String() string {
 func (*Provider) ProtoMessage() {}
 
 func (x *Provider) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[38]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2896,7 +3204,7 @@ func (x *Provider) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Provider.ProtoReflect.Descriptor instead.
 func (*Provider) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{38}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *Provider) GetProviderCode() string {
@@ -3026,7 +3334,7 @@ type GetDispatchOptionsRequest struct {
 
 func (x *GetDispatchOptionsRequest) Reset() {
 	*x = GetDispatchOptionsRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[39]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3038,7 +3346,7 @@ func (x *GetDispatchOptionsRequest) String() string {
 func (*GetDispatchOptionsRequest) ProtoMessage() {}
 
 func (x *GetDispatchOptionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[39]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3051,7 +3359,7 @@ func (x *GetDispatchOptionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDispatchOptionsRequest.ProtoReflect.Descriptor instead.
 func (*GetDispatchOptionsRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{39}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{42}
 }
 
 type GetDispatchOptionsResponse struct {
@@ -3065,7 +3373,7 @@ type GetDispatchOptionsResponse struct {
 
 func (x *GetDispatchOptionsResponse) Reset() {
 	*x = GetDispatchOptionsResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[40]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3077,7 +3385,7 @@ func (x *GetDispatchOptionsResponse) String() string {
 func (*GetDispatchOptionsResponse) ProtoMessage() {}
 
 func (x *GetDispatchOptionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[40]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3090,7 +3398,7 @@ func (x *GetDispatchOptionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDispatchOptionsResponse.ProtoReflect.Descriptor instead.
 func (*GetDispatchOptionsResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{40}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *GetDispatchOptionsResponse) GetStatus() int32 {
@@ -3124,7 +3432,7 @@ type DispatchOptionsData struct {
 
 func (x *DispatchOptionsData) Reset() {
 	*x = DispatchOptionsData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[41]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3136,7 +3444,7 @@ func (x *DispatchOptionsData) String() string {
 func (*DispatchOptionsData) ProtoMessage() {}
 
 func (x *DispatchOptionsData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[41]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3149,7 +3457,7 @@ func (x *DispatchOptionsData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchOptionsData.ProtoReflect.Descriptor instead.
 func (*DispatchOptionsData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{41}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *DispatchOptionsData) GetStrategies() []*DispatchStrategyOption {
@@ -3176,7 +3484,7 @@ type DispatchStrategyOption struct {
 
 func (x *DispatchStrategyOption) Reset() {
 	*x = DispatchStrategyOption{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[42]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3188,7 +3496,7 @@ func (x *DispatchStrategyOption) String() string {
 func (*DispatchStrategyOption) ProtoMessage() {}
 
 func (x *DispatchStrategyOption) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[42]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3201,7 +3509,7 @@ func (x *DispatchStrategyOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchStrategyOption.ProtoReflect.Descriptor instead.
 func (*DispatchStrategyOption) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{42}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *DispatchStrategyOption) GetCode() string {
@@ -3229,7 +3537,7 @@ type GetProviderMetricsRequest struct {
 
 func (x *GetProviderMetricsRequest) Reset() {
 	*x = GetProviderMetricsRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[43]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3241,7 +3549,7 @@ func (x *GetProviderMetricsRequest) String() string {
 func (*GetProviderMetricsRequest) ProtoMessage() {}
 
 func (x *GetProviderMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[43]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3254,7 +3562,7 @@ func (x *GetProviderMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderMetricsRequest.ProtoReflect.Descriptor instead.
 func (*GetProviderMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{43}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *GetProviderMetricsRequest) GetProviderCode() string {
@@ -3289,7 +3597,7 @@ type GetProviderMetricsResponse struct {
 
 func (x *GetProviderMetricsResponse) Reset() {
 	*x = GetProviderMetricsResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[44]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3301,7 +3609,7 @@ func (x *GetProviderMetricsResponse) String() string {
 func (*GetProviderMetricsResponse) ProtoMessage() {}
 
 func (x *GetProviderMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[44]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3314,7 +3622,7 @@ func (x *GetProviderMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderMetricsResponse.ProtoReflect.Descriptor instead.
 func (*GetProviderMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{44}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *GetProviderMetricsResponse) GetStatus() int32 {
@@ -3351,7 +3659,7 @@ type ProviderMetricsData struct {
 
 func (x *ProviderMetricsData) Reset() {
 	*x = ProviderMetricsData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[45]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3363,7 +3671,7 @@ func (x *ProviderMetricsData) String() string {
 func (*ProviderMetricsData) ProtoMessage() {}
 
 func (x *ProviderMetricsData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[45]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3376,7 +3684,7 @@ func (x *ProviderMetricsData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderMetricsData.ProtoReflect.Descriptor instead.
 func (*ProviderMetricsData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{45}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ProviderMetricsData) GetProvider() *Provider {
@@ -3427,7 +3735,7 @@ type ProviderMetricsSummary struct {
 
 func (x *ProviderMetricsSummary) Reset() {
 	*x = ProviderMetricsSummary{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[46]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3439,7 +3747,7 @@ func (x *ProviderMetricsSummary) String() string {
 func (*ProviderMetricsSummary) ProtoMessage() {}
 
 func (x *ProviderMetricsSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[46]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3452,7 +3760,7 @@ func (x *ProviderMetricsSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderMetricsSummary.ProtoReflect.Descriptor instead.
 func (*ProviderMetricsSummary) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{46}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ProviderMetricsSummary) GetTaskCount() int32 {
@@ -3508,7 +3816,7 @@ type PlatformUser struct {
 
 func (x *PlatformUser) Reset() {
 	*x = PlatformUser{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[47]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3520,7 +3828,7 @@ func (x *PlatformUser) String() string {
 func (*PlatformUser) ProtoMessage() {}
 
 func (x *PlatformUser) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[47]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3533,7 +3841,7 @@ func (x *PlatformUser) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformUser.ProtoReflect.Descriptor instead.
 func (*PlatformUser) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{47}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *PlatformUser) GetId() int64 {
@@ -3624,7 +3932,7 @@ type DispatchProfile struct {
 
 func (x *DispatchProfile) Reset() {
 	*x = DispatchProfile{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[48]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3636,7 +3944,7 @@ func (x *DispatchProfile) String() string {
 func (*DispatchProfile) ProtoMessage() {}
 
 func (x *DispatchProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[48]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3649,7 +3957,7 @@ func (x *DispatchProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchProfile.ProtoReflect.Descriptor instead.
 func (*DispatchProfile) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{48}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *DispatchProfile) GetId() int64 {
@@ -3737,7 +4045,7 @@ type DispatchProfileInput struct {
 
 func (x *DispatchProfileInput) Reset() {
 	*x = DispatchProfileInput{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[49]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3749,7 +4057,7 @@ func (x *DispatchProfileInput) String() string {
 func (*DispatchProfileInput) ProtoMessage() {}
 
 func (x *DispatchProfileInput) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[49]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3762,7 +4070,7 @@ func (x *DispatchProfileInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchProfileInput.ProtoReflect.Descriptor instead.
 func (*DispatchProfileInput) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{49}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *DispatchProfileInput) GetCode() string {
@@ -3829,7 +4137,7 @@ type DispatchRule struct {
 
 func (x *DispatchRule) Reset() {
 	*x = DispatchRule{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[50]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3841,7 +4149,7 @@ func (x *DispatchRule) String() string {
 func (*DispatchRule) ProtoMessage() {}
 
 func (x *DispatchRule) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[50]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3854,7 +4162,7 @@ func (x *DispatchRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchRule.ProtoReflect.Descriptor instead.
 func (*DispatchRule) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{50}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *DispatchRule) GetCode() string {
@@ -3921,7 +4229,7 @@ type DispatchRuleInput struct {
 
 func (x *DispatchRuleInput) Reset() {
 	*x = DispatchRuleInput{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[51]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3933,7 +4241,7 @@ func (x *DispatchRuleInput) String() string {
 func (*DispatchRuleInput) ProtoMessage() {}
 
 func (x *DispatchRuleInput) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[51]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3946,7 +4254,7 @@ func (x *DispatchRuleInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchRuleInput.ProtoReflect.Descriptor instead.
 func (*DispatchRuleInput) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{51}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *DispatchRuleInput) GetCode() string {
@@ -4010,7 +4318,7 @@ type ListPlatformUsersRequest struct {
 
 func (x *ListPlatformUsersRequest) Reset() {
 	*x = ListPlatformUsersRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[52]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4022,7 +4330,7 @@ func (x *ListPlatformUsersRequest) String() string {
 func (*ListPlatformUsersRequest) ProtoMessage() {}
 
 func (x *ListPlatformUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[52]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4035,7 +4343,7 @@ func (x *ListPlatformUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPlatformUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListPlatformUsersRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{52}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ListPlatformUsersRequest) GetKeyword() string {
@@ -4078,7 +4386,7 @@ type PlatformUserListData struct {
 
 func (x *PlatformUserListData) Reset() {
 	*x = PlatformUserListData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4090,7 +4398,7 @@ func (x *PlatformUserListData) String() string {
 func (*PlatformUserListData) ProtoMessage() {}
 
 func (x *PlatformUserListData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4103,7 +4411,7 @@ func (x *PlatformUserListData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformUserListData.ProtoReflect.Descriptor instead.
 func (*PlatformUserListData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{53}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *PlatformUserListData) GetUsers() []*PlatformUser {
@@ -4145,7 +4453,7 @@ type ListPlatformUsersResponse struct {
 
 func (x *ListPlatformUsersResponse) Reset() {
 	*x = ListPlatformUsersResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4157,7 +4465,7 @@ func (x *ListPlatformUsersResponse) String() string {
 func (*ListPlatformUsersResponse) ProtoMessage() {}
 
 func (x *ListPlatformUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4170,7 +4478,7 @@ func (x *ListPlatformUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPlatformUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListPlatformUsersResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{54}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ListPlatformUsersResponse) GetStatus() int32 {
@@ -4203,7 +4511,7 @@ type GetPlatformUserRequest struct {
 
 func (x *GetPlatformUserRequest) Reset() {
 	*x = GetPlatformUserRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4215,7 +4523,7 @@ func (x *GetPlatformUserRequest) String() string {
 func (*GetPlatformUserRequest) ProtoMessage() {}
 
 func (x *GetPlatformUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4228,7 +4536,7 @@ func (x *GetPlatformUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserRequest.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{55}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *GetPlatformUserRequest) GetId() int64 {
@@ -4249,7 +4557,7 @@ type GetPlatformUserResponse struct {
 
 func (x *GetPlatformUserResponse) Reset() {
 	*x = GetPlatformUserResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4261,7 +4569,7 @@ func (x *GetPlatformUserResponse) String() string {
 func (*GetPlatformUserResponse) ProtoMessage() {}
 
 func (x *GetPlatformUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4274,7 +4582,7 @@ func (x *GetPlatformUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserResponse.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{56}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *GetPlatformUserResponse) GetStatus() int32 {
@@ -4309,7 +4617,7 @@ type GetPlatformUserMetricsRequest struct {
 
 func (x *GetPlatformUserMetricsRequest) Reset() {
 	*x = GetPlatformUserMetricsRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4321,7 +4629,7 @@ func (x *GetPlatformUserMetricsRequest) String() string {
 func (*GetPlatformUserMetricsRequest) ProtoMessage() {}
 
 func (x *GetPlatformUserMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4334,7 +4642,7 @@ func (x *GetPlatformUserMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserMetricsRequest.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{57}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GetPlatformUserMetricsRequest) GetId() int64 {
@@ -4369,7 +4677,7 @@ type GetPlatformUserMetricsResponse struct {
 
 func (x *GetPlatformUserMetricsResponse) Reset() {
 	*x = GetPlatformUserMetricsResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4381,7 +4689,7 @@ func (x *GetPlatformUserMetricsResponse) String() string {
 func (*GetPlatformUserMetricsResponse) ProtoMessage() {}
 
 func (x *GetPlatformUserMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4394,7 +4702,7 @@ func (x *GetPlatformUserMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserMetricsResponse.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{58}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *GetPlatformUserMetricsResponse) GetStatus() int32 {
@@ -4429,7 +4737,7 @@ type ExportPlatformUserReconciliationRequest struct {
 
 func (x *ExportPlatformUserReconciliationRequest) Reset() {
 	*x = ExportPlatformUserReconciliationRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4441,7 +4749,7 @@ func (x *ExportPlatformUserReconciliationRequest) String() string {
 func (*ExportPlatformUserReconciliationRequest) ProtoMessage() {}
 
 func (x *ExportPlatformUserReconciliationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4454,7 +4762,7 @@ func (x *ExportPlatformUserReconciliationRequest) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use ExportPlatformUserReconciliationRequest.ProtoReflect.Descriptor instead.
 func (*ExportPlatformUserReconciliationRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{59}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *ExportPlatformUserReconciliationRequest) GetId() int64 {
@@ -4489,7 +4797,7 @@ type ExportPlatformUserReconciliationResponse struct {
 
 func (x *ExportPlatformUserReconciliationResponse) Reset() {
 	*x = ExportPlatformUserReconciliationResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4501,7 +4809,7 @@ func (x *ExportPlatformUserReconciliationResponse) String() string {
 func (*ExportPlatformUserReconciliationResponse) ProtoMessage() {}
 
 func (x *ExportPlatformUserReconciliationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4514,7 +4822,7 @@ func (x *ExportPlatformUserReconciliationResponse) ProtoReflect() protoreflect.M
 
 // Deprecated: Use ExportPlatformUserReconciliationResponse.ProtoReflect.Descriptor instead.
 func (*ExportPlatformUserReconciliationResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{60}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *ExportPlatformUserReconciliationResponse) GetStatus() int32 {
@@ -4557,7 +4865,7 @@ type PlatformUserMetricsData struct {
 
 func (x *PlatformUserMetricsData) Reset() {
 	*x = PlatformUserMetricsData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4569,7 +4877,7 @@ func (x *PlatformUserMetricsData) String() string {
 func (*PlatformUserMetricsData) ProtoMessage() {}
 
 func (x *PlatformUserMetricsData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4582,7 +4890,7 @@ func (x *PlatformUserMetricsData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformUserMetricsData.ProtoReflect.Descriptor instead.
 func (*PlatformUserMetricsData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{61}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *PlatformUserMetricsData) GetUser() *PlatformUser {
@@ -4679,7 +4987,7 @@ type PlatformTaskMetrics struct {
 
 func (x *PlatformTaskMetrics) Reset() {
 	*x = PlatformTaskMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4691,7 +4999,7 @@ func (x *PlatformTaskMetrics) String() string {
 func (*PlatformTaskMetrics) ProtoMessage() {}
 
 func (x *PlatformTaskMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4704,7 +5012,7 @@ func (x *PlatformTaskMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformTaskMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformTaskMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{62}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *PlatformTaskMetrics) GetSubmittedTaskCount() int32 {
@@ -4785,7 +5093,7 @@ type PlatformQuestionMetrics struct {
 
 func (x *PlatformQuestionMetrics) Reset() {
 	*x = PlatformQuestionMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4797,7 +5105,7 @@ func (x *PlatformQuestionMetrics) String() string {
 func (*PlatformQuestionMetrics) ProtoMessage() {}
 
 func (x *PlatformQuestionMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4810,7 +5118,7 @@ func (x *PlatformQuestionMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformQuestionMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformQuestionMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{63}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *PlatformQuestionMetrics) GetSubmittedQuestionCount() int32 {
@@ -4877,7 +5185,7 @@ type PlatformResultMetrics struct {
 
 func (x *PlatformResultMetrics) Reset() {
 	*x = PlatformResultMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4889,7 +5197,7 @@ func (x *PlatformResultMetrics) String() string {
 func (*PlatformResultMetrics) ProtoMessage() {}
 
 func (x *PlatformResultMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4902,7 +5210,7 @@ func (x *PlatformResultMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformResultMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformResultMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{64}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *PlatformResultMetrics) GetResultFileCount() int32 {
@@ -4966,7 +5274,7 @@ type PlatformCallbackMetrics struct {
 
 func (x *PlatformCallbackMetrics) Reset() {
 	*x = PlatformCallbackMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4978,7 +5286,7 @@ func (x *PlatformCallbackMetrics) String() string {
 func (*PlatformCallbackMetrics) ProtoMessage() {}
 
 func (x *PlatformCallbackMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4991,7 +5299,7 @@ func (x *PlatformCallbackMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformCallbackMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformCallbackMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{65}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *PlatformCallbackMetrics) GetCallbackCount() int32 {
@@ -5033,7 +5341,7 @@ type MetricBreakdown struct {
 
 func (x *MetricBreakdown) Reset() {
 	*x = MetricBreakdown{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5045,7 +5353,7 @@ func (x *MetricBreakdown) String() string {
 func (*MetricBreakdown) ProtoMessage() {}
 
 func (x *MetricBreakdown) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5058,7 +5366,7 @@ func (x *MetricBreakdown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricBreakdown.ProtoReflect.Descriptor instead.
 func (*MetricBreakdown) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{66}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *MetricBreakdown) GetLabel() string {
@@ -5096,7 +5404,7 @@ type ProviderDailyMetric struct {
 
 func (x *ProviderDailyMetric) Reset() {
 	*x = ProviderDailyMetric{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5108,7 +5416,7 @@ func (x *ProviderDailyMetric) String() string {
 func (*ProviderDailyMetric) ProtoMessage() {}
 
 func (x *ProviderDailyMetric) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5121,7 +5429,7 @@ func (x *ProviderDailyMetric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderDailyMetric.ProtoReflect.Descriptor instead.
 func (*ProviderDailyMetric) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{67}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ProviderDailyMetric) GetMetricDate() string {
@@ -5180,7 +5488,7 @@ type CreatePlatformUserRequest struct {
 
 func (x *CreatePlatformUserRequest) Reset() {
 	*x = CreatePlatformUserRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5192,7 +5500,7 @@ func (x *CreatePlatformUserRequest) String() string {
 func (*CreatePlatformUserRequest) ProtoMessage() {}
 
 func (x *CreatePlatformUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5205,7 +5513,7 @@ func (x *CreatePlatformUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePlatformUserRequest.ProtoReflect.Descriptor instead.
 func (*CreatePlatformUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{68}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *CreatePlatformUserRequest) GetPlatformCode() string {
@@ -5261,7 +5569,7 @@ type CreatePlatformUserResponse struct {
 
 func (x *CreatePlatformUserResponse) Reset() {
 	*x = CreatePlatformUserResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5273,7 +5581,7 @@ func (x *CreatePlatformUserResponse) String() string {
 func (*CreatePlatformUserResponse) ProtoMessage() {}
 
 func (x *CreatePlatformUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5286,7 +5594,7 @@ func (x *CreatePlatformUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePlatformUserResponse.ProtoReflect.Descriptor instead.
 func (*CreatePlatformUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{69}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *CreatePlatformUserResponse) GetStatus() int32 {
@@ -5325,7 +5633,7 @@ type UpdatePlatformUserRequest struct {
 
 func (x *UpdatePlatformUserRequest) Reset() {
 	*x = UpdatePlatformUserRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5337,7 +5645,7 @@ func (x *UpdatePlatformUserRequest) String() string {
 func (*UpdatePlatformUserRequest) ProtoMessage() {}
 
 func (x *UpdatePlatformUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5350,7 +5658,7 @@ func (x *UpdatePlatformUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlatformUserRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePlatformUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{70}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *UpdatePlatformUserRequest) GetId() int64 {
@@ -5413,7 +5721,7 @@ type UpdatePlatformUserResponse struct {
 
 func (x *UpdatePlatformUserResponse) Reset() {
 	*x = UpdatePlatformUserResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5425,7 +5733,7 @@ func (x *UpdatePlatformUserResponse) String() string {
 func (*UpdatePlatformUserResponse) ProtoMessage() {}
 
 func (x *UpdatePlatformUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5438,7 +5746,7 @@ func (x *UpdatePlatformUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlatformUserResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePlatformUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{71}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *UpdatePlatformUserResponse) GetStatus() int32 {
@@ -5500,7 +5808,7 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\"\x1b\n" +
 	"\tEmptyData\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok\"\x9f\x02\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"\xc4\x02\n" +
 	"\x10ListTasksRequest\x12\x19\n" +
 	"\bbatch_no\x18\x01 \x01(\tR\abatchNo\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12#\n" +
@@ -5511,7 +5819,9 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x04page\x18\x06 \x01(\x05R\x04page\x12\x1b\n" +
 	"\tpage_size\x18\a \x01(\x05R\bpageSize\x12#\n" +
 	"\rplatform_code\x18\b \x01(\tR\fplatformCode\x12\x1b\n" +
-	"\ttask_name\x18\t \x01(\tR\btaskName\"u\n" +
+	"\ttask_name\x18\t \x01(\tR\btaskName\x12#\n" +
+	"\rprovider_code\x18\n" +
+	" \x01(\tR\fproviderCode\"u\n" +
 	"\x11ListTasksResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12.\n" +
@@ -5520,7 +5830,7 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x05tasks\x18\x01 \x03(\v2\x1e.api.admin.v1.AdminTaskSummaryR\x05tasks\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x12\n" +
 	"\x04page\x18\x03 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xa9\x06\n" +
+	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xbd\a\n" +
 	"\x10AdminTaskSummary\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x1b\n" +
 	"\ttask_name\x18\x02 \x01(\tR\btaskName\x12\x19\n" +
@@ -5545,7 +5855,10 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\rsubmit_failed\x18\x12 \x01(\bR\fsubmitFailed\x12'\n" +
 	"\x0fdispatch_labels\x18\x13 \x03(\tR\x0edispatchLabels\x125\n" +
 	"\x17reassigned_from_task_id\x18\x14 \x01(\x03R\x14reassignedFromTaskId\x121\n" +
-	"\x15reassigned_to_task_id\x18\x15 \x01(\x03R\x12reassignedToTaskId\"\xf3\x01\n" +
+	"\x15reassigned_to_task_id\x18\x15 \x01(\x03R\x12reassignedToTaskId\x120\n" +
+	"\x14result_success_count\x18\x16 \x01(\x05R\x12resultSuccessCount\x12.\n" +
+	"\x13result_failed_count\x18\x17 \x01(\x05R\x11resultFailedCount\x120\n" +
+	"\x14result_missing_count\x18\x18 \x01(\x05R\x12resultMissingCount\"\xf3\x01\n" +
 	"\x14GetTaskDetailRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1b\n" +
 	"\titem_page\x18\x02 \x01(\x05R\bitemPage\x12$\n" +
@@ -5695,7 +6008,34 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\ffailed_count\x18\n" +
 	" \x01(\x05R\vfailedCount\x12%\n" +
 	"\x0eimported_count\x18\v \x01(\x05R\rimportedCount\x12&\n" +
-	"\x0ftask_item_count\x18\f \x01(\x05R\rtaskItemCount\"m\n" +
+	"\x0ftask_item_count\x18\f \x01(\x05R\rtaskItemCount\"D\n" +
+	"\x1aForceImportCallbackRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x8a\x01\n" +
+	"\x1bForceImportCallbackResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x129\n" +
+	"\x04data\x18\x03 \x01(\v2%.api.admin.v1.ForceImportCallbackDataR\x04data\"\xba\x04\n" +
+	"\x17ForceImportCallbackData\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x19\n" +
+	"\bbatch_no\x18\x02 \x01(\tR\abatchNo\x12\x1f\n" +
+	"\vtask_status\x18\x03 \x01(\tR\n" +
+	"taskStatus\x12\x1c\n" +
+	"\tdelivered\x18\x04 \x01(\bR\tdelivered\x12\x1a\n" +
+	"\brejected\x18\x05 \x01(\bR\brejected\x12\x1d\n" +
+	"\n" +
+	"file_count\x18\x06 \x01(\x05R\tfileCount\x12.\n" +
+	"\x13imported_file_count\x18\a \x01(\x05R\x11importedFileCount\x12\x1b\n" +
+	"\trow_count\x18\b \x01(\x05R\browCount\x12&\n" +
+	"\x0ftask_item_count\x18\t \x01(\x05R\rtaskItemCount\x12#\n" +
+	"\rsuccess_count\x18\n" +
+	" \x01(\x05R\fsuccessCount\x12!\n" +
+	"\ffailed_count\x18\v \x01(\x05R\vfailedCount\x12#\n" +
+	"\rcallback_mode\x18\f \x01(\tR\fcallbackMode\x12\x18\n" +
+	"\apartial\x18\r \x01(\bR\apartial\x122\n" +
+	"\x15task_status_unchanged\x18\x0e \x01(\bR\x13taskStatusUnchanged\x12\x16\n" +
+	"\x06reason\x18\x0f \x01(\tR\x06reason\x12)\n" +
+	"\x10unfinished_count\x18\x10 \x01(\x05R\x0funfinishedCount\"m\n" +
 	"\x13ReassignTaskRequest\x12\x19\n" +
 	"\bbatch_no\x18\x01 \x01(\tR\abatchNo\x12#\n" +
 	"\rprovider_code\x18\x02 \x01(\tR\fproviderCode\x12\x16\n" +
@@ -5952,7 +6292,7 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x1aUpdatePlatformUserResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12.\n" +
-	"\x04data\x18\x03 \x01(\v2\x1a.api.admin.v1.PlatformUserR\x04data2\xb5\x14\n" +
+	"\x04data\x18\x03 \x01(\v2\x1a.api.admin.v1.PlatformUserR\x04data2\xdd\x15\n" +
 	"\bAdminAPI\x12`\n" +
 	"\x05Login\x12\x1a.api.admin.v1.LoginRequest\x1a\x1b.api.admin.v1.LoginResponse\"\x1e\x82\xd3\xe4\x93\x02\x18:\x01*\"\x13/api/admin/v1/login\x12d\n" +
 	"\x06Logout\x12\x1b.api.admin.v1.LogoutRequest\x1a\x1c.api.admin.v1.LogoutResponse\"\x1f\x82\xd3\xe4\x93\x02\x19:\x01*\"\x14/api/admin/v1/logout\x12Q\n" +
@@ -5961,7 +6301,8 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\rGetTaskDetail\x12\".api.admin.v1.GetTaskDetailRequest\x1a#.api.admin.v1.GetTaskDetailResponse\" \x82\xd3\xe4\x93\x02\x1a\x12\x18/api/admin/v1/tasks/{id}\x12\x90\x01\n" +
 	"\x0fExportTaskItems\x12$.api.admin.v1.ExportTaskItemsRequest\x1a%.api.admin.v1.ExportTaskItemsResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/admin/v1/tasks/{id}/items-export\x12\x90\x01\n" +
 	"\x0fCheckTaskResult\x12$.api.admin.v1.CheckTaskResultRequest\x1a%.api.admin.v1.CheckTaskResultResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/admin/v1/tasks/{id}/check-result\x12\x98\x01\n" +
-	"\x11RetryTaskCallback\x12&.api.admin.v1.RetryTaskCallbackRequest\x1a'.api.admin.v1.RetryTaskCallbackResponse\"2\x82\xd3\xe4\x93\x02,:\x01*\"'/api/admin/v1/tasks/{id}/retry-callback\x12~\n" +
+	"\x11RetryTaskCallback\x12&.api.admin.v1.RetryTaskCallbackRequest\x1a'.api.admin.v1.RetryTaskCallbackResponse\"2\x82\xd3\xe4\x93\x02,:\x01*\"'/api/admin/v1/tasks/{id}/retry-callback\x12\xa5\x01\n" +
+	"\x13ForceImportCallback\x12(.api.admin.v1.ForceImportCallbackRequest\x1a).api.admin.v1.ForceImportCallbackResponse\"9\x82\xd3\xe4\x93\x023:\x01*\"./api/admin/v1/tasks/{id}/force-import-callback\x12~\n" +
 	"\fReassignTask\x12!.api.admin.v1.ReassignTaskRequest\x1a\".api.admin.v1.ReassignTaskResponse\"'\x82\xd3\xe4\x93\x02!:\x01*\"\x1c/api/admin/v1/tasks/reassign\x12q\n" +
 	"\n" +
 	"DeleteTask\x12\x1f.api.admin.v1.DeleteTaskRequest\x1a .api.admin.v1.DeleteTaskResponse\" \x82\xd3\xe4\x93\x02\x1a*\x18/api/admin/v1/tasks/{id}\x12y\n" +
@@ -5987,7 +6328,7 @@ func file_api_admin_v1_admin_proto_rawDescGZIP() []byte {
 	return file_api_admin_v1_admin_proto_rawDescData
 }
 
-var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
+var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 75)
 var file_api_admin_v1_admin_proto_goTypes = []any{
 	(*LoginRequest)(nil),                             // 0: api.admin.v1.LoginRequest
 	(*LoginResponse)(nil),                            // 1: api.admin.v1.LoginResponse
@@ -6019,48 +6360,51 @@ var file_api_admin_v1_admin_proto_goTypes = []any{
 	(*RetryTaskCallbackRequest)(nil),                 // 27: api.admin.v1.RetryTaskCallbackRequest
 	(*RetryTaskCallbackResponse)(nil),                // 28: api.admin.v1.RetryTaskCallbackResponse
 	(*RetryTaskCallbackData)(nil),                    // 29: api.admin.v1.RetryTaskCallbackData
-	(*ReassignTaskRequest)(nil),                      // 30: api.admin.v1.ReassignTaskRequest
-	(*ReassignTaskResponse)(nil),                     // 31: api.admin.v1.ReassignTaskResponse
-	(*ReassignTaskData)(nil),                         // 32: api.admin.v1.ReassignTaskData
-	(*DeleteTaskRequest)(nil),                        // 33: api.admin.v1.DeleteTaskRequest
-	(*DeleteTaskResponse)(nil),                       // 34: api.admin.v1.DeleteTaskResponse
-	(*ListProvidersRequest)(nil),                     // 35: api.admin.v1.ListProvidersRequest
-	(*ListProvidersResponse)(nil),                    // 36: api.admin.v1.ListProvidersResponse
-	(*ProviderListData)(nil),                         // 37: api.admin.v1.ProviderListData
-	(*Provider)(nil),                                 // 38: api.admin.v1.Provider
-	(*GetDispatchOptionsRequest)(nil),                // 39: api.admin.v1.GetDispatchOptionsRequest
-	(*GetDispatchOptionsResponse)(nil),               // 40: api.admin.v1.GetDispatchOptionsResponse
-	(*DispatchOptionsData)(nil),                      // 41: api.admin.v1.DispatchOptionsData
-	(*DispatchStrategyOption)(nil),                   // 42: api.admin.v1.DispatchStrategyOption
-	(*GetProviderMetricsRequest)(nil),                // 43: api.admin.v1.GetProviderMetricsRequest
-	(*GetProviderMetricsResponse)(nil),               // 44: api.admin.v1.GetProviderMetricsResponse
-	(*ProviderMetricsData)(nil),                      // 45: api.admin.v1.ProviderMetricsData
-	(*ProviderMetricsSummary)(nil),                   // 46: api.admin.v1.ProviderMetricsSummary
-	(*PlatformUser)(nil),                             // 47: api.admin.v1.PlatformUser
-	(*DispatchProfile)(nil),                          // 48: api.admin.v1.DispatchProfile
-	(*DispatchProfileInput)(nil),                     // 49: api.admin.v1.DispatchProfileInput
-	(*DispatchRule)(nil),                             // 50: api.admin.v1.DispatchRule
-	(*DispatchRuleInput)(nil),                        // 51: api.admin.v1.DispatchRuleInput
-	(*ListPlatformUsersRequest)(nil),                 // 52: api.admin.v1.ListPlatformUsersRequest
-	(*PlatformUserListData)(nil),                     // 53: api.admin.v1.PlatformUserListData
-	(*ListPlatformUsersResponse)(nil),                // 54: api.admin.v1.ListPlatformUsersResponse
-	(*GetPlatformUserRequest)(nil),                   // 55: api.admin.v1.GetPlatformUserRequest
-	(*GetPlatformUserResponse)(nil),                  // 56: api.admin.v1.GetPlatformUserResponse
-	(*GetPlatformUserMetricsRequest)(nil),            // 57: api.admin.v1.GetPlatformUserMetricsRequest
-	(*GetPlatformUserMetricsResponse)(nil),           // 58: api.admin.v1.GetPlatformUserMetricsResponse
-	(*ExportPlatformUserReconciliationRequest)(nil),  // 59: api.admin.v1.ExportPlatformUserReconciliationRequest
-	(*ExportPlatformUserReconciliationResponse)(nil), // 60: api.admin.v1.ExportPlatformUserReconciliationResponse
-	(*PlatformUserMetricsData)(nil),                  // 61: api.admin.v1.PlatformUserMetricsData
-	(*PlatformTaskMetrics)(nil),                      // 62: api.admin.v1.PlatformTaskMetrics
-	(*PlatformQuestionMetrics)(nil),                  // 63: api.admin.v1.PlatformQuestionMetrics
-	(*PlatformResultMetrics)(nil),                    // 64: api.admin.v1.PlatformResultMetrics
-	(*PlatformCallbackMetrics)(nil),                  // 65: api.admin.v1.PlatformCallbackMetrics
-	(*MetricBreakdown)(nil),                          // 66: api.admin.v1.MetricBreakdown
-	(*ProviderDailyMetric)(nil),                      // 67: api.admin.v1.ProviderDailyMetric
-	(*CreatePlatformUserRequest)(nil),                // 68: api.admin.v1.CreatePlatformUserRequest
-	(*CreatePlatformUserResponse)(nil),               // 69: api.admin.v1.CreatePlatformUserResponse
-	(*UpdatePlatformUserRequest)(nil),                // 70: api.admin.v1.UpdatePlatformUserRequest
-	(*UpdatePlatformUserResponse)(nil),               // 71: api.admin.v1.UpdatePlatformUserResponse
+	(*ForceImportCallbackRequest)(nil),               // 30: api.admin.v1.ForceImportCallbackRequest
+	(*ForceImportCallbackResponse)(nil),              // 31: api.admin.v1.ForceImportCallbackResponse
+	(*ForceImportCallbackData)(nil),                  // 32: api.admin.v1.ForceImportCallbackData
+	(*ReassignTaskRequest)(nil),                      // 33: api.admin.v1.ReassignTaskRequest
+	(*ReassignTaskResponse)(nil),                     // 34: api.admin.v1.ReassignTaskResponse
+	(*ReassignTaskData)(nil),                         // 35: api.admin.v1.ReassignTaskData
+	(*DeleteTaskRequest)(nil),                        // 36: api.admin.v1.DeleteTaskRequest
+	(*DeleteTaskResponse)(nil),                       // 37: api.admin.v1.DeleteTaskResponse
+	(*ListProvidersRequest)(nil),                     // 38: api.admin.v1.ListProvidersRequest
+	(*ListProvidersResponse)(nil),                    // 39: api.admin.v1.ListProvidersResponse
+	(*ProviderListData)(nil),                         // 40: api.admin.v1.ProviderListData
+	(*Provider)(nil),                                 // 41: api.admin.v1.Provider
+	(*GetDispatchOptionsRequest)(nil),                // 42: api.admin.v1.GetDispatchOptionsRequest
+	(*GetDispatchOptionsResponse)(nil),               // 43: api.admin.v1.GetDispatchOptionsResponse
+	(*DispatchOptionsData)(nil),                      // 44: api.admin.v1.DispatchOptionsData
+	(*DispatchStrategyOption)(nil),                   // 45: api.admin.v1.DispatchStrategyOption
+	(*GetProviderMetricsRequest)(nil),                // 46: api.admin.v1.GetProviderMetricsRequest
+	(*GetProviderMetricsResponse)(nil),               // 47: api.admin.v1.GetProviderMetricsResponse
+	(*ProviderMetricsData)(nil),                      // 48: api.admin.v1.ProviderMetricsData
+	(*ProviderMetricsSummary)(nil),                   // 49: api.admin.v1.ProviderMetricsSummary
+	(*PlatformUser)(nil),                             // 50: api.admin.v1.PlatformUser
+	(*DispatchProfile)(nil),                          // 51: api.admin.v1.DispatchProfile
+	(*DispatchProfileInput)(nil),                     // 52: api.admin.v1.DispatchProfileInput
+	(*DispatchRule)(nil),                             // 53: api.admin.v1.DispatchRule
+	(*DispatchRuleInput)(nil),                        // 54: api.admin.v1.DispatchRuleInput
+	(*ListPlatformUsersRequest)(nil),                 // 55: api.admin.v1.ListPlatformUsersRequest
+	(*PlatformUserListData)(nil),                     // 56: api.admin.v1.PlatformUserListData
+	(*ListPlatformUsersResponse)(nil),                // 57: api.admin.v1.ListPlatformUsersResponse
+	(*GetPlatformUserRequest)(nil),                   // 58: api.admin.v1.GetPlatformUserRequest
+	(*GetPlatformUserResponse)(nil),                  // 59: api.admin.v1.GetPlatformUserResponse
+	(*GetPlatformUserMetricsRequest)(nil),            // 60: api.admin.v1.GetPlatformUserMetricsRequest
+	(*GetPlatformUserMetricsResponse)(nil),           // 61: api.admin.v1.GetPlatformUserMetricsResponse
+	(*ExportPlatformUserReconciliationRequest)(nil),  // 62: api.admin.v1.ExportPlatformUserReconciliationRequest
+	(*ExportPlatformUserReconciliationResponse)(nil), // 63: api.admin.v1.ExportPlatformUserReconciliationResponse
+	(*PlatformUserMetricsData)(nil),                  // 64: api.admin.v1.PlatformUserMetricsData
+	(*PlatformTaskMetrics)(nil),                      // 65: api.admin.v1.PlatformTaskMetrics
+	(*PlatformQuestionMetrics)(nil),                  // 66: api.admin.v1.PlatformQuestionMetrics
+	(*PlatformResultMetrics)(nil),                    // 67: api.admin.v1.PlatformResultMetrics
+	(*PlatformCallbackMetrics)(nil),                  // 68: api.admin.v1.PlatformCallbackMetrics
+	(*MetricBreakdown)(nil),                          // 69: api.admin.v1.MetricBreakdown
+	(*ProviderDailyMetric)(nil),                      // 70: api.admin.v1.ProviderDailyMetric
+	(*CreatePlatformUserRequest)(nil),                // 71: api.admin.v1.CreatePlatformUserRequest
+	(*CreatePlatformUserResponse)(nil),               // 72: api.admin.v1.CreatePlatformUserResponse
+	(*UpdatePlatformUserRequest)(nil),                // 73: api.admin.v1.UpdatePlatformUserRequest
+	(*UpdatePlatformUserResponse)(nil),               // 74: api.admin.v1.UpdatePlatformUserResponse
 }
 var file_api_admin_v1_admin_proto_depIdxs = []int32{
 	2,  // 0: api.admin.v1.LoginResponse.data:type_name -> api.admin.v1.LoginData
@@ -6079,81 +6423,84 @@ var file_api_admin_v1_admin_proto_depIdxs = []int32{
 	23, // 13: api.admin.v1.TaskDetailData.callbacks:type_name -> api.admin.v1.TaskCallback
 	26, // 14: api.admin.v1.CheckTaskResultResponse.data:type_name -> api.admin.v1.CheckTaskResultData
 	29, // 15: api.admin.v1.RetryTaskCallbackResponse.data:type_name -> api.admin.v1.RetryTaskCallbackData
-	32, // 16: api.admin.v1.ReassignTaskResponse.data:type_name -> api.admin.v1.ReassignTaskData
-	9,  // 17: api.admin.v1.DeleteTaskResponse.data:type_name -> api.admin.v1.EmptyData
-	37, // 18: api.admin.v1.ListProvidersResponse.data:type_name -> api.admin.v1.ProviderListData
-	38, // 19: api.admin.v1.ProviderListData.providers:type_name -> api.admin.v1.Provider
-	41, // 20: api.admin.v1.GetDispatchOptionsResponse.data:type_name -> api.admin.v1.DispatchOptionsData
-	42, // 21: api.admin.v1.DispatchOptionsData.strategies:type_name -> api.admin.v1.DispatchStrategyOption
-	38, // 22: api.admin.v1.DispatchOptionsData.providers:type_name -> api.admin.v1.Provider
-	45, // 23: api.admin.v1.GetProviderMetricsResponse.data:type_name -> api.admin.v1.ProviderMetricsData
-	38, // 24: api.admin.v1.ProviderMetricsData.provider:type_name -> api.admin.v1.Provider
-	46, // 25: api.admin.v1.ProviderMetricsData.summary:type_name -> api.admin.v1.ProviderMetricsSummary
-	67, // 26: api.admin.v1.ProviderMetricsData.daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
-	48, // 27: api.admin.v1.PlatformUser.dispatch_profile:type_name -> api.admin.v1.DispatchProfile
-	50, // 28: api.admin.v1.DispatchProfile.rules:type_name -> api.admin.v1.DispatchRule
-	51, // 29: api.admin.v1.DispatchProfileInput.rules:type_name -> api.admin.v1.DispatchRuleInput
-	47, // 30: api.admin.v1.PlatformUserListData.users:type_name -> api.admin.v1.PlatformUser
-	53, // 31: api.admin.v1.ListPlatformUsersResponse.data:type_name -> api.admin.v1.PlatformUserListData
-	47, // 32: api.admin.v1.GetPlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	61, // 33: api.admin.v1.GetPlatformUserMetricsResponse.data:type_name -> api.admin.v1.PlatformUserMetricsData
-	18, // 34: api.admin.v1.ExportPlatformUserReconciliationResponse.data:type_name -> api.admin.v1.ExportTaskItemsData
-	47, // 35: api.admin.v1.PlatformUserMetricsData.user:type_name -> api.admin.v1.PlatformUser
-	62, // 36: api.admin.v1.PlatformUserMetricsData.task_metrics:type_name -> api.admin.v1.PlatformTaskMetrics
-	63, // 37: api.admin.v1.PlatformUserMetricsData.question_metrics:type_name -> api.admin.v1.PlatformQuestionMetrics
-	64, // 38: api.admin.v1.PlatformUserMetricsData.result_metrics:type_name -> api.admin.v1.PlatformResultMetrics
-	65, // 39: api.admin.v1.PlatformUserMetricsData.callback_metrics:type_name -> api.admin.v1.PlatformCallbackMetrics
-	66, // 40: api.admin.v1.PlatformUserMetricsData.status_breakdown:type_name -> api.admin.v1.MetricBreakdown
-	66, // 41: api.admin.v1.PlatformUserMetricsData.failure_reasons:type_name -> api.admin.v1.MetricBreakdown
-	13, // 42: api.admin.v1.PlatformUserMetricsData.recent_tasks:type_name -> api.admin.v1.AdminTaskSummary
-	67, // 43: api.admin.v1.PlatformUserMetricsData.provider_daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
-	49, // 44: api.admin.v1.CreatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
-	47, // 45: api.admin.v1.CreatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	49, // 46: api.admin.v1.UpdatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
-	47, // 47: api.admin.v1.UpdatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	0,  // 48: api.admin.v1.AdminAPI.Login:input_type -> api.admin.v1.LoginRequest
-	3,  // 49: api.admin.v1.AdminAPI.Logout:input_type -> api.admin.v1.LogoutRequest
-	5,  // 50: api.admin.v1.AdminAPI.Me:input_type -> api.admin.v1.MeRequest
-	10, // 51: api.admin.v1.AdminAPI.ListTasks:input_type -> api.admin.v1.ListTasksRequest
-	14, // 52: api.admin.v1.AdminAPI.GetTaskDetail:input_type -> api.admin.v1.GetTaskDetailRequest
-	16, // 53: api.admin.v1.AdminAPI.ExportTaskItems:input_type -> api.admin.v1.ExportTaskItemsRequest
-	24, // 54: api.admin.v1.AdminAPI.CheckTaskResult:input_type -> api.admin.v1.CheckTaskResultRequest
-	27, // 55: api.admin.v1.AdminAPI.RetryTaskCallback:input_type -> api.admin.v1.RetryTaskCallbackRequest
-	30, // 56: api.admin.v1.AdminAPI.ReassignTask:input_type -> api.admin.v1.ReassignTaskRequest
-	33, // 57: api.admin.v1.AdminAPI.DeleteTask:input_type -> api.admin.v1.DeleteTaskRequest
-	35, // 58: api.admin.v1.AdminAPI.ListProviders:input_type -> api.admin.v1.ListProvidersRequest
-	39, // 59: api.admin.v1.AdminAPI.GetDispatchOptions:input_type -> api.admin.v1.GetDispatchOptionsRequest
-	43, // 60: api.admin.v1.AdminAPI.GetProviderMetrics:input_type -> api.admin.v1.GetProviderMetricsRequest
-	52, // 61: api.admin.v1.AdminAPI.ListPlatformUsers:input_type -> api.admin.v1.ListPlatformUsersRequest
-	55, // 62: api.admin.v1.AdminAPI.GetPlatformUser:input_type -> api.admin.v1.GetPlatformUserRequest
-	57, // 63: api.admin.v1.AdminAPI.GetPlatformUserMetrics:input_type -> api.admin.v1.GetPlatformUserMetricsRequest
-	59, // 64: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:input_type -> api.admin.v1.ExportPlatformUserReconciliationRequest
-	68, // 65: api.admin.v1.AdminAPI.CreatePlatformUser:input_type -> api.admin.v1.CreatePlatformUserRequest
-	70, // 66: api.admin.v1.AdminAPI.UpdatePlatformUser:input_type -> api.admin.v1.UpdatePlatformUserRequest
-	1,  // 67: api.admin.v1.AdminAPI.Login:output_type -> api.admin.v1.LoginResponse
-	4,  // 68: api.admin.v1.AdminAPI.Logout:output_type -> api.admin.v1.LogoutResponse
-	6,  // 69: api.admin.v1.AdminAPI.Me:output_type -> api.admin.v1.MeResponse
-	11, // 70: api.admin.v1.AdminAPI.ListTasks:output_type -> api.admin.v1.ListTasksResponse
-	15, // 71: api.admin.v1.AdminAPI.GetTaskDetail:output_type -> api.admin.v1.GetTaskDetailResponse
-	17, // 72: api.admin.v1.AdminAPI.ExportTaskItems:output_type -> api.admin.v1.ExportTaskItemsResponse
-	25, // 73: api.admin.v1.AdminAPI.CheckTaskResult:output_type -> api.admin.v1.CheckTaskResultResponse
-	28, // 74: api.admin.v1.AdminAPI.RetryTaskCallback:output_type -> api.admin.v1.RetryTaskCallbackResponse
-	31, // 75: api.admin.v1.AdminAPI.ReassignTask:output_type -> api.admin.v1.ReassignTaskResponse
-	34, // 76: api.admin.v1.AdminAPI.DeleteTask:output_type -> api.admin.v1.DeleteTaskResponse
-	36, // 77: api.admin.v1.AdminAPI.ListProviders:output_type -> api.admin.v1.ListProvidersResponse
-	40, // 78: api.admin.v1.AdminAPI.GetDispatchOptions:output_type -> api.admin.v1.GetDispatchOptionsResponse
-	44, // 79: api.admin.v1.AdminAPI.GetProviderMetrics:output_type -> api.admin.v1.GetProviderMetricsResponse
-	54, // 80: api.admin.v1.AdminAPI.ListPlatformUsers:output_type -> api.admin.v1.ListPlatformUsersResponse
-	56, // 81: api.admin.v1.AdminAPI.GetPlatformUser:output_type -> api.admin.v1.GetPlatformUserResponse
-	58, // 82: api.admin.v1.AdminAPI.GetPlatformUserMetrics:output_type -> api.admin.v1.GetPlatformUserMetricsResponse
-	60, // 83: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:output_type -> api.admin.v1.ExportPlatformUserReconciliationResponse
-	69, // 84: api.admin.v1.AdminAPI.CreatePlatformUser:output_type -> api.admin.v1.CreatePlatformUserResponse
-	71, // 85: api.admin.v1.AdminAPI.UpdatePlatformUser:output_type -> api.admin.v1.UpdatePlatformUserResponse
-	67, // [67:86] is the sub-list for method output_type
-	48, // [48:67] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	32, // 16: api.admin.v1.ForceImportCallbackResponse.data:type_name -> api.admin.v1.ForceImportCallbackData
+	35, // 17: api.admin.v1.ReassignTaskResponse.data:type_name -> api.admin.v1.ReassignTaskData
+	9,  // 18: api.admin.v1.DeleteTaskResponse.data:type_name -> api.admin.v1.EmptyData
+	40, // 19: api.admin.v1.ListProvidersResponse.data:type_name -> api.admin.v1.ProviderListData
+	41, // 20: api.admin.v1.ProviderListData.providers:type_name -> api.admin.v1.Provider
+	44, // 21: api.admin.v1.GetDispatchOptionsResponse.data:type_name -> api.admin.v1.DispatchOptionsData
+	45, // 22: api.admin.v1.DispatchOptionsData.strategies:type_name -> api.admin.v1.DispatchStrategyOption
+	41, // 23: api.admin.v1.DispatchOptionsData.providers:type_name -> api.admin.v1.Provider
+	48, // 24: api.admin.v1.GetProviderMetricsResponse.data:type_name -> api.admin.v1.ProviderMetricsData
+	41, // 25: api.admin.v1.ProviderMetricsData.provider:type_name -> api.admin.v1.Provider
+	49, // 26: api.admin.v1.ProviderMetricsData.summary:type_name -> api.admin.v1.ProviderMetricsSummary
+	70, // 27: api.admin.v1.ProviderMetricsData.daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
+	51, // 28: api.admin.v1.PlatformUser.dispatch_profile:type_name -> api.admin.v1.DispatchProfile
+	53, // 29: api.admin.v1.DispatchProfile.rules:type_name -> api.admin.v1.DispatchRule
+	54, // 30: api.admin.v1.DispatchProfileInput.rules:type_name -> api.admin.v1.DispatchRuleInput
+	50, // 31: api.admin.v1.PlatformUserListData.users:type_name -> api.admin.v1.PlatformUser
+	56, // 32: api.admin.v1.ListPlatformUsersResponse.data:type_name -> api.admin.v1.PlatformUserListData
+	50, // 33: api.admin.v1.GetPlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	64, // 34: api.admin.v1.GetPlatformUserMetricsResponse.data:type_name -> api.admin.v1.PlatformUserMetricsData
+	18, // 35: api.admin.v1.ExportPlatformUserReconciliationResponse.data:type_name -> api.admin.v1.ExportTaskItemsData
+	50, // 36: api.admin.v1.PlatformUserMetricsData.user:type_name -> api.admin.v1.PlatformUser
+	65, // 37: api.admin.v1.PlatformUserMetricsData.task_metrics:type_name -> api.admin.v1.PlatformTaskMetrics
+	66, // 38: api.admin.v1.PlatformUserMetricsData.question_metrics:type_name -> api.admin.v1.PlatformQuestionMetrics
+	67, // 39: api.admin.v1.PlatformUserMetricsData.result_metrics:type_name -> api.admin.v1.PlatformResultMetrics
+	68, // 40: api.admin.v1.PlatformUserMetricsData.callback_metrics:type_name -> api.admin.v1.PlatformCallbackMetrics
+	69, // 41: api.admin.v1.PlatformUserMetricsData.status_breakdown:type_name -> api.admin.v1.MetricBreakdown
+	69, // 42: api.admin.v1.PlatformUserMetricsData.failure_reasons:type_name -> api.admin.v1.MetricBreakdown
+	13, // 43: api.admin.v1.PlatformUserMetricsData.recent_tasks:type_name -> api.admin.v1.AdminTaskSummary
+	70, // 44: api.admin.v1.PlatformUserMetricsData.provider_daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
+	52, // 45: api.admin.v1.CreatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
+	50, // 46: api.admin.v1.CreatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	52, // 47: api.admin.v1.UpdatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
+	50, // 48: api.admin.v1.UpdatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	0,  // 49: api.admin.v1.AdminAPI.Login:input_type -> api.admin.v1.LoginRequest
+	3,  // 50: api.admin.v1.AdminAPI.Logout:input_type -> api.admin.v1.LogoutRequest
+	5,  // 51: api.admin.v1.AdminAPI.Me:input_type -> api.admin.v1.MeRequest
+	10, // 52: api.admin.v1.AdminAPI.ListTasks:input_type -> api.admin.v1.ListTasksRequest
+	14, // 53: api.admin.v1.AdminAPI.GetTaskDetail:input_type -> api.admin.v1.GetTaskDetailRequest
+	16, // 54: api.admin.v1.AdminAPI.ExportTaskItems:input_type -> api.admin.v1.ExportTaskItemsRequest
+	24, // 55: api.admin.v1.AdminAPI.CheckTaskResult:input_type -> api.admin.v1.CheckTaskResultRequest
+	27, // 56: api.admin.v1.AdminAPI.RetryTaskCallback:input_type -> api.admin.v1.RetryTaskCallbackRequest
+	30, // 57: api.admin.v1.AdminAPI.ForceImportCallback:input_type -> api.admin.v1.ForceImportCallbackRequest
+	33, // 58: api.admin.v1.AdminAPI.ReassignTask:input_type -> api.admin.v1.ReassignTaskRequest
+	36, // 59: api.admin.v1.AdminAPI.DeleteTask:input_type -> api.admin.v1.DeleteTaskRequest
+	38, // 60: api.admin.v1.AdminAPI.ListProviders:input_type -> api.admin.v1.ListProvidersRequest
+	42, // 61: api.admin.v1.AdminAPI.GetDispatchOptions:input_type -> api.admin.v1.GetDispatchOptionsRequest
+	46, // 62: api.admin.v1.AdminAPI.GetProviderMetrics:input_type -> api.admin.v1.GetProviderMetricsRequest
+	55, // 63: api.admin.v1.AdminAPI.ListPlatformUsers:input_type -> api.admin.v1.ListPlatformUsersRequest
+	58, // 64: api.admin.v1.AdminAPI.GetPlatformUser:input_type -> api.admin.v1.GetPlatformUserRequest
+	60, // 65: api.admin.v1.AdminAPI.GetPlatformUserMetrics:input_type -> api.admin.v1.GetPlatformUserMetricsRequest
+	62, // 66: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:input_type -> api.admin.v1.ExportPlatformUserReconciliationRequest
+	71, // 67: api.admin.v1.AdminAPI.CreatePlatformUser:input_type -> api.admin.v1.CreatePlatformUserRequest
+	73, // 68: api.admin.v1.AdminAPI.UpdatePlatformUser:input_type -> api.admin.v1.UpdatePlatformUserRequest
+	1,  // 69: api.admin.v1.AdminAPI.Login:output_type -> api.admin.v1.LoginResponse
+	4,  // 70: api.admin.v1.AdminAPI.Logout:output_type -> api.admin.v1.LogoutResponse
+	6,  // 71: api.admin.v1.AdminAPI.Me:output_type -> api.admin.v1.MeResponse
+	11, // 72: api.admin.v1.AdminAPI.ListTasks:output_type -> api.admin.v1.ListTasksResponse
+	15, // 73: api.admin.v1.AdminAPI.GetTaskDetail:output_type -> api.admin.v1.GetTaskDetailResponse
+	17, // 74: api.admin.v1.AdminAPI.ExportTaskItems:output_type -> api.admin.v1.ExportTaskItemsResponse
+	25, // 75: api.admin.v1.AdminAPI.CheckTaskResult:output_type -> api.admin.v1.CheckTaskResultResponse
+	28, // 76: api.admin.v1.AdminAPI.RetryTaskCallback:output_type -> api.admin.v1.RetryTaskCallbackResponse
+	31, // 77: api.admin.v1.AdminAPI.ForceImportCallback:output_type -> api.admin.v1.ForceImportCallbackResponse
+	34, // 78: api.admin.v1.AdminAPI.ReassignTask:output_type -> api.admin.v1.ReassignTaskResponse
+	37, // 79: api.admin.v1.AdminAPI.DeleteTask:output_type -> api.admin.v1.DeleteTaskResponse
+	39, // 80: api.admin.v1.AdminAPI.ListProviders:output_type -> api.admin.v1.ListProvidersResponse
+	43, // 81: api.admin.v1.AdminAPI.GetDispatchOptions:output_type -> api.admin.v1.GetDispatchOptionsResponse
+	47, // 82: api.admin.v1.AdminAPI.GetProviderMetrics:output_type -> api.admin.v1.GetProviderMetricsResponse
+	57, // 83: api.admin.v1.AdminAPI.ListPlatformUsers:output_type -> api.admin.v1.ListPlatformUsersResponse
+	59, // 84: api.admin.v1.AdminAPI.GetPlatformUser:output_type -> api.admin.v1.GetPlatformUserResponse
+	61, // 85: api.admin.v1.AdminAPI.GetPlatformUserMetrics:output_type -> api.admin.v1.GetPlatformUserMetricsResponse
+	63, // 86: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:output_type -> api.admin.v1.ExportPlatformUserReconciliationResponse
+	72, // 87: api.admin.v1.AdminAPI.CreatePlatformUser:output_type -> api.admin.v1.CreatePlatformUserResponse
+	74, // 88: api.admin.v1.AdminAPI.UpdatePlatformUser:output_type -> api.admin.v1.UpdatePlatformUserResponse
+	69, // [69:89] is the sub-list for method output_type
+	49, // [49:69] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_api_admin_v1_admin_proto_init() }
@@ -6167,7 +6514,7 @@ func file_api_admin_v1_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_admin_v1_admin_proto_rawDesc), len(file_api_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   72,
+			NumMessages:   75,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

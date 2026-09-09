@@ -53,7 +53,7 @@ type yangshiReferenceRow struct {
 	AuthorIdentityType string `json:"authorIdentityType"`
 }
 
-func buildYangshiResultWorkbook(items []biz.TaskItemResultView) ([]byte, error) {
+func BuildYangshiResultWorkbook(items []biz.TaskItemResultView) ([]byte, error) {
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no task item results available for yangshi callback")
 	}

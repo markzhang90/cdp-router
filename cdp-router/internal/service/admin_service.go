@@ -388,6 +388,88 @@ func (s *AdminService) RetryTaskCallback(c *gin.Context) {
 	})
 }
 
+func (s *AdminService) ForceImportCallback(c *gin.Context) {
+	session, ok := adminSessionFromContext(c)
+	if !ok {
+		errorJSON(c, http.StatusUnauthorized, biz.ErrAdminUnauthorized)
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		errorJSON(c, http.StatusBadRequest, err)
+		return
+	}
+	req := adminv1.ForceImportCallbackRequest{Id: id}
+	raw, err := bindOptionalProto(c, &req)
+	if err != nil {
+		errorJSON(c, http.StatusBadRequest, err)
+		return
+	}
+	outcome, err := s.tasks.ForceImportCallback(c.Request.Context(), biz.ForceImportCallbackInput{
+		TaskID:         id,
+		Reason:         req.Reason,
+		OperatorUserID: session.User.UserID,
+	})
+	if err != nil {
+		writeBizError(c, err)
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"request":           json.RawMessage(defaultJSON(raw)),
+		"reason":            req.Reason,
+		"delivered":         outcome.Delivered,
+		"rejected":          outcome.Rejected,
+		"fileCount":         outcome.FileCount,
+		"importedFileCount": outcome.ImportedFileCount,
+		"rowCount":          outcome.RowCount,
+		"taskItemCount":     outcome.TaskItemCount,
+		"successCount":      outcome.SuccessCount,
+		"failedCount":       outcome.FailedCount,
+		"unfinishedCount":   outcome.UnfinishedCount,
+		"callbackMode":      outcome.CallbackMode,
+		"partial":           outcome.Partial,
+	})
+	_ = s.repo.AddAuditLog(c.Request.Context(), biz.AdminAuditLog{
+		UserID:       session.User.UserID,
+		Username:     session.User.Username,
+		Role:         session.User.Role,
+		Action:       "FORCE_IMPORT_CALLBACK",
+		ResourceType: "TASK",
+		ResourceID:   strconv.FormatInt(id, 10),
+		RequestID:    trace.RequestID(c.Request.Context()),
+		Payload:      payload,
+	})
+	task := outcome.Task
+	message := "强制回调已执行"
+	if outcome.Rejected {
+		message = "无有效成功结果，已拒绝回调"
+	} else if !outcome.Delivered {
+		message = "强制回调失败"
+	}
+	protoJSON(c, http.StatusOK, &adminv1.ForceImportCallbackResponse{
+		Status:  0,
+		Message: message,
+		Data: &adminv1.ForceImportCallbackData{
+			TaskId:              task.ID,
+			BatchNo:             task.BatchNo,
+			TaskStatus:          string(task.Status),
+			Delivered:           outcome.Delivered,
+			Rejected:            outcome.Rejected,
+			FileCount:           int32(outcome.FileCount),
+			ImportedFileCount:   int32(outcome.ImportedFileCount),
+			RowCount:            int32(outcome.RowCount),
+			TaskItemCount:       int32(outcome.TaskItemCount),
+			SuccessCount:        int32(outcome.SuccessCount),
+			FailedCount:         int32(outcome.FailedCount),
+			UnfinishedCount:     int32(outcome.UnfinishedCount),
+			CallbackMode:        outcome.CallbackMode,
+			Partial:             outcome.Partial,
+			TaskStatusUnchanged: outcome.TaskStatusUnchanged,
+			Reason:              req.Reason,
+		},
+	})
+}
+
 func (s *AdminService) ReassignTask(c *gin.Context) {
 	session, ok := adminSessionFromContext(c)
 	if !ok {
@@ -963,6 +1045,7 @@ func parseTaskFilter(c *gin.Context) (biz.AdminTaskFilter, error) {
 		BatchNo:      c.Query("batchNo"),
 		Source:       c.Query("source"),
 		PlatformCode: c.Query("platformCode"),
+		ProviderCode: c.Query("providerCode"),
 		ResultStatus: c.Query("resultStatus"),
 		CreatedFrom:  createdFrom,
 		CreatedTo:    createdTo,
@@ -1280,6 +1363,9 @@ func adminTaskSummaryProto(task biz.AdminTaskSummary) *adminv1.AdminTaskSummary 
 		CompletedCount:           int32(task.CompletedCount),
 		SuccessCount:             int32(task.SuccessCount),
 		FailedCount:              int32(task.FailedCount),
+		ResultSuccessCount:       int32(task.ResultSuccessCount),
+		ResultFailedCount:        int32(task.ResultFailedCount),
+		ResultMissingCount:       int32(task.ResultMissingCount),
 		Progress:                 task.Progress,
 		CreatedAt:                formatTime(task.CreatedAt),
 		UpdatedAt:                formatTime(task.UpdatedAt),

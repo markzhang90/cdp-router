@@ -104,7 +104,7 @@ func TestBuildYangshiResultWorkbookFromItemResults(t *testing.T) {
 		},
 	})
 	generatedAt := time.Date(2026, 7, 23, 18, 13, 0, 0, time.FixedZone("CST", 8*60*60))
-	content, err := buildYangshiResultWorkbook([]biz.TaskItemResultView{{
+	content, err := BuildYangshiResultWorkbook([]biz.TaskItemResultView{{
 		ItemID:               "864777",
 		PlatformCode:         "yuanbao",
 		Seq:                  1,

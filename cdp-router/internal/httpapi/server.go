@@ -45,6 +45,7 @@ func New(taskService *service.TaskService, adminService *service.AdminService) *
 		admin.POST("/tasks/:id/items-export", adminService.RequireAuth(true), adminService.ExportTaskItems)
 		admin.POST("/tasks/:id/check-result", adminService.RequireAuth(true), adminService.CheckTaskResult)
 		admin.POST("/tasks/:id/retry-callback", adminService.RequireAuth(true), adminService.RetryTaskCallback)
+		admin.POST("/tasks/:id/force-import-callback", adminService.RequireAuth(true), adminService.ForceImportCallback)
 		admin.POST("/tasks/reassign", adminService.RequireAuth(true), adminService.ReassignTask)
 		admin.DELETE("/tasks/:id", adminService.RequireAuth(true), adminService.DeleteTask)
 		admin.GET("/providers", adminService.RequireAuth(false), adminService.ListProviders)

@@ -1516,6 +1516,27 @@ where task_id=$1 and (item_id=$2 or question_id=$2)
 		}
 	}
 	_, err = tx.Exec(ctx, `
+with item_counts as (
+  select
+    coalesce((select count(*)::int from cdp_task_items where task_id=$1), 0) as item_count,
+    coalesce((select count(*)::int from cdp_task_items where task_id=$1 and status=2), 0) as provider_done_count
+),
+progress_counts as (
+  select
+    item_count,
+    least(
+      greatest(case when $3::int + $4::int > 0 then $3::int else provider_done_count end, 0),
+      item_count
+    ) as success_count
+  from item_counts
+),
+bounded_counts as (
+  select
+    item_count,
+    success_count,
+    least(greatest($4::int, 0), greatest(item_count - success_count, 0)) as failed_count
+  from progress_counts
+)
 update cdp_tasks
 set provider_response=coalesce($2::jsonb, '{}'::jsonb) ||
     case
@@ -1523,11 +1544,19 @@ set provider_response=coalesce($2::jsonb, '{}'::jsonb) ||
       then jsonb_build_object('providerCallback', provider_response->'providerCallback')
       else '{}'::jsonb
     end,
-  total_count=coalesce((select count(*) from cdp_task_items where task_id=$1), 0),
-  success_count=coalesce((select count(*) from cdp_task_items where task_id=$1 and status=2), 0),
+  total_count=bounded_counts.item_count,
+  success_count=case
+    when cdp_tasks.status in ($5,$6,$7,$8,$9) then cdp_tasks.success_count
+    else bounded_counts.success_count
+  end,
+  failed_count=case
+    when cdp_tasks.status in ($5,$6,$7,$8,$9) then cdp_tasks.failed_count
+    else bounded_counts.failed_count
+  end,
   updated_at=now()
+from bounded_counts
 where id=$1
-	`, taskID, result.RawResponse)
+	`, taskID, result.RawResponse, result.SuccessCount, result.FailedCount, biz.TaskStatusResultImported, biz.TaskStatusCallbackPending, biz.TaskStatusDone, biz.TaskStatusFailed, biz.TaskStatusReassigned)
 	if err != nil {
 		return err
 	}
@@ -2051,6 +2080,64 @@ where id=$1
 		return 0, false, err
 	}
 	return attemptCount, stopped, nil
+}
+
+// RecordForcedCallbackDone records a forced callback as succeeded.
+// It is intentionally independent from MarkCallbackDone: it only inserts a
+// callback row and bumps cdp_tasks.updated_at. It MUST NOT change task status
+// or callback_sent_at, so that subsequent normal imports/callbacks keep working.
+func (r *TaskRepo) RecordForcedCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if targetURL == "" {
+		task, err := r.GetTask(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		targetURL = task.CallbackURL
+	}
+	if _, err := tx.Exec(ctx, `
+insert into cdp_task_callbacks (task_id,target_url,request_payload,response_status,response_body,status)
+values ($1,$2,$3,$4,$5,$6)
+`, taskID, targetURL, payload, statusCode, responseBody, biz.TaskStatusDone); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set updated_at=now() where id=$1`, taskID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RecordForcedCallbackFailed records a forced callback as failed.
+// It is intentionally independent from MarkCallbackFailed: it only inserts a
+// callback row and bumps cdp_tasks.updated_at. It MUST NOT change task status,
+// callback_sent_at, last_error or retry counters.
+func (r *TaskRepo) RecordForcedCallbackFailed(ctx context.Context, taskID int64, targetURL string, errMessage string, payload json.RawMessage) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if targetURL == "" {
+		task, err := r.GetTask(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		targetURL = task.CallbackURL
+	}
+	if _, err := tx.Exec(ctx, `
+insert into cdp_task_callbacks (task_id,target_url,request_payload,status,last_error)
+values ($1,$2,$3,$4,$5)
+`, taskID, targetURL, payload, "FAILED", errMessage); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set updated_at=now() where id=$1`, taskID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *TaskRepo) AddEvent(ctx context.Context, taskID int64, eventType biz.EventType, payload any) error {

@@ -45,6 +45,7 @@ const (
 	EventTaskReassignSubmitted EventType = "TASK_REASSIGN_SUBMITTED"
 	EventTaskReassigned        EventType = "TASK_REASSIGNED"
 	EventTaskReassignFailed    EventType = "TASK_REASSIGN_FAILED"
+	EventForceImportCallback   EventType = "FORCE_IMPORT_CALLBACK"
 )
 
 var (
@@ -277,13 +278,54 @@ type CallbackDelivery struct {
 	Status          TaskStatus           `json:"status"`
 	ResultURL       string               `json:"resultUrl"`
 	Counts          CallbackCounts       `json:"counts"`
+	Items           []CallbackResultItem `json:"items,omitempty"`
 	ResultFiles     []CallbackResultFile `json:"-"`
 	ResultItems     []TaskItemResultView `json:"-"`
+}
+
+type CallbackResultItem struct {
+	ItemID                   string          `json:"itemId"`
+	PlatformCode             string          `json:"platformCode,omitempty"`
+	Seq                      int             `json:"seq,omitempty"`
+	Question                 string          `json:"question,omitempty"`
+	AnswerText               string          `json:"answerText,omitempty"`
+	ThinkingProcess          string          `json:"thinkingProcess,omitempty"`
+	GeneratedAt              string          `json:"generatedAt,omitempty"`
+	GeneratedAtText          string          `json:"generatedAtText,omitempty"`
+	RecommendedQuestionsJSON json.RawMessage `json:"recommendedQuestionsJson,omitempty"`
+	ReferencesJSON           json.RawMessage `json:"referencesJson,omitempty"`
+	ReferenceCount           int             `json:"referenceCount,omitempty"`
+	ParseStatus              string          `json:"parseStatus,omitempty"`
 }
 
 type RetryTaskCallbackOutcome struct {
 	Delivered bool
 	Readiness CallbackReadiness
+}
+
+type ForceImportCallbackInput struct {
+	TaskID         int64
+	Reason         string
+	OperatorUserID string
+}
+
+type ForceImportCallbackOutcome struct {
+	Task                  *Task
+	Delivered             bool
+	Rejected              bool
+	ProviderStatusFetched bool
+	ProviderFilesFetched  bool
+	FileCount             int
+	ImportedFileCount     int
+	RowCount              int
+	TaskItemCount         int
+	SuccessCount          int
+	FailedCount           int
+	UnfinishedCount       int
+	CallbackMode          string
+	YangshiUploaded       bool
+	Partial               bool
+	TaskStatusUnchanged   bool
 }
 
 type ReassignTaskInput struct {
@@ -447,6 +489,8 @@ type TaskRepo interface {
 	CompleteResultImport(ctx context.Context, taskID int64, notifyCallback bool) (*Task, bool, error)
 	MarkCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error
 	MarkCallbackFailed(ctx context.Context, taskID int64, targetURL string, errMessage string, payload json.RawMessage, maxRetry int) (attemptCount int, stopped bool, err error)
+	RecordForcedCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error
+	RecordForcedCallbackFailed(ctx context.Context, taskID int64, targetURL string, errMessage string, payload json.RawMessage) error
 	AddEvent(ctx context.Context, taskID int64, eventType EventType, payload any) error
 }
 
@@ -492,4 +536,9 @@ type ResultParser interface {
 
 type CallbackClient interface {
 	Deliver(ctx context.Context, task *Task, payload CallbackDelivery) (CallbackResult, error)
+	// ResolveMode returns the callback mode that Deliver would use for the
+	// given task (e.g. "DEFAULT_HTTP" or "YANGSHI"). It must match the
+	// routing logic inside Deliver exactly, so callers can report the mode
+	// without duplicating the selection rules.
+	ResolveMode(task *Task) string
 }

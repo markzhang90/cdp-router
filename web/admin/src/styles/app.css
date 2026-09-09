@@ -331,6 +331,69 @@ textarea {
   background: #eaf5f2 !important;
 }
 
+.task-progress-bar {
+  min-width: 146px;
+  max-width: 220px;
+  display: grid;
+  grid-template-columns: minmax(84px, 1fr) 48px;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-progress-bar--compact {
+  min-width: 132px;
+  max-width: 150px;
+  grid-template-columns: minmax(78px, 1fr) 44px;
+}
+
+.task-progress-bar__track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1ef;
+}
+
+.task-progress-bar__success,
+.task-progress-bar__failed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: block;
+}
+
+.task-progress-bar__success {
+  left: 0;
+  background: #2d9a50;
+}
+
+.task-progress-bar__failed {
+  background: #d14343;
+}
+
+.task-progress-bar__value {
+  color: #34413d;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.task-result-stats {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-result-stats .ant-tag {
+  margin-inline-end: 0;
+}
+
+.task-result-stats--compact {
+  max-width: 176px;
+}
+
 .status-pill {
   --status-bg: #f2f5f4;
   --status-border: #dbe4e1;

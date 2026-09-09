@@ -53,7 +53,7 @@ func (c *YangshiClient) Deliver(ctx context.Context, task *biz.Task, payload biz
 	if err != nil {
 		return biz.CallbackResult{}, err
 	}
-	content, err := buildYangshiResultWorkbook(payload.ResultItems)
+	content, err := BuildYangshiResultWorkbook(payload.ResultItems)
 	if err != nil {
 		return biz.CallbackResult{}, err
 	}

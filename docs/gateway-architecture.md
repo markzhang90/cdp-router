@@ -844,7 +844,7 @@ Client
 
 ### 8.2 提交下游
 
-当前任务创建接口必须同步完成供应商任务创建，只有供应商下发成功后才向接入方返回创建成功。worker 当前不扫描 `CREATED` 任务执行提交，避免和创建接口同步下发形成重复提交；worker 只处理结果导入、业务方回调、`SUBMITTED` 超时和进度刷新。
+当前任务创建接口必须同步完成供应商任务创建，只有供应商下发成功后才向接入方返回创建成功。worker 当前不扫描 `CREATED` 任务执行提交，避免和创建接口同步下发形成重复提交；worker 只处理结果导入、业务方回调和 `SUBMITTED` 进度刷新。`SUBMITTED` 超过 24 小时自动置为 `FAILED` 的兜底逻辑已暂时停用。
 
 针对当前供应商任务下发接口，由 provider adapter 调用：
 
@@ -1039,7 +1039,7 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 - `POST /api/admin/v1/login`：后台登录，使用 `[admin.bootstrap]` 配置初始化用户，签发 HttpOnly Session Cookie。
 - `POST /api/admin/v1/logout`：后台退出，删除 Redis session。
 - `GET /api/admin/v1/me`：查询当前登录用户。
-- `GET /api/admin/v1/tasks`：任务列表，支持 `taskName` 模糊搜索，以及 `batchNo`、`source`、`platformCode`、创建时间范围、执行结果状态筛选。
+- `GET /api/admin/v1/tasks`：任务列表，支持 `taskName` 模糊搜索，以及 `batchNo`、`source`、`platformCode`、`providerCode`、创建时间范围、执行结果状态筛选。后台任务列表页的 `providerCode` 筛选必须使用供应商下拉选择，筛选条件本地缓存，用户从详情页返回时保留上一次筛选和分页。
 - `GET /api/admin/v1/tasks/{id}`：任务详情，展示任务、问答完成情况、结构化结果、结果文件、业务方回调记录和事件。回调记录来自 `cdp_task_callbacks`，包含目标地址、请求 payload、HTTP 响应状态、响应体、错误信息和创建/更新时间。
 - `POST /api/admin/v1/tasks/{id}/check-result`：检查结果，默认 `force=true`、`notifyCallback=true`，复用主动查询供应商进度和结果重入链路。
 - `POST /api/admin/v1/tasks/{id}/retry-callback`：按单个任务重新触发业务方完成通知，写入新的 `cdp_task_callbacks` 记录并刷新任务详情中的回调结果。
@@ -1058,6 +1058,8 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 任务创建请求支持 `source` 字段，后台列表按 `source` 展示来源；如果业务方未传 `source`，服务端回退使用接入方 `platform_code`。
 
 供应商和接入方详情中的“问答数”按系统实际生成并下发的任务明细统计，优先读取 `cdp_task_items` 和已导入的 `cdp_task_item_results`，不从 `raw_request` 或接入方原始 `seq` 扩容计算。成功问答数量按 `cdp_task_item_results.parse_status='SUCCESS'` 的结果数统计；“失败/未回答数量”按 `实际任务数 - 成功结果数` 统计，包含显式失败、解析失败以及仍为 `PENDING` 的未返回任务。
+
+后台任务列表和详情页的进度条只展示供应商处理进度：绿色为供应商成功或已完成，红色为供应商明确失败，绿色加红色为当前供应商完成进度。导入结果不参与进度条计算，单独展示有效、失败、缺失统计；缺失统计只在任务已有导入结果后计算，未导入时显示为 0。例如供应商侧已完成但结果文件缺数据的 item，应在导入结果中显示为缺失。
 
 接入方后台管理字段：
 
@@ -1236,10 +1238,10 @@ POST /api/v1/tasks/{id}/refetch-result
 
 ### 8.8 提交中任务调度
 
-worker 需要对 `SUBMITTED` 任务做两个周期性处理：
+worker 需要对 `SUBMITTED` 任务做周期性处理：
 
-- 超时终止：任务提交后超过 24 小时仍未进入完成/失败状态，自动更新为 `FAILED`，`last_error=执行超过24小时`，并写入任务事件。
-- 进度同步：每 10 分钟扫描 `SUBMITTED` 任务，调用供应商 `status_url` 获取问题状态，更新 `cdp_task_items.status`、`cdp_tasks.provider_response`、`success_count` 和 `total_count`。后台进度继续使用 `(success_count + failed_count) / total_count` 展示。
+- 进度同步：每 10 分钟扫描 `SUBMITTED` 任务，调用供应商 `status_url` 获取问题状态，更新 `cdp_task_items.status`、`cdp_tasks.provider_response`、`success_count` 和 `total_count`。任务进入 `RESULT_IMPORTED`、`CALLBACK_PENDING`、`DONE`、`FAILED` 或 `REASSIGNED` 后，状态查询不再用供应商处理进度覆盖 `cdp_tasks.success_count / failed_count` 中的导入结果统计。后台进度条使用供应商处理进度展示；导入结果统计通过 `cdp_task_item_results.parse_status` 单独展示。
+- 暂停自动超时终止：任务提交后超过 24 小时仍未进入完成/失败状态时，不再由 worker 自动更新为 `FAILED`。保留 `FailTimedOutSubmitted` 用例能力，后续需要恢复自动兜底时再接回 worker 调度。
 
 进度同步只更新状态和进度，不导入结果文件；自动文件下载和解析只由 worker 扫描 `PROVIDER_DONE` 触发，手动 `sync-provider-result`/后台 `check-result` 仍允许同步检查并直接入库。
 

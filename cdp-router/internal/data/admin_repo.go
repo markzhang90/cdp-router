@@ -44,6 +44,135 @@ const adminTaskReassignedToTaskIDSQL = `coalesce((
   order by child.created_at desc, child.id desc
   limit 1
 ), 0)`
+const adminTaskSummarySelectSQL = `
+  t.id,
+  t.batch_no,
+  coalesce(t.task_name,''),
+  coalesce(t.source,''),
+  coalesce(t.platform_code,''),
+  coalesce(t.external_batch_id,''),
+  t.provider_code,
+  t.status,
+  admin_task_progress.total_count,
+  admin_task_progress.completed_count,
+  admin_task_progress.success_count,
+  admin_task_progress.failed_count,
+  admin_task_progress.result_success_count,
+  admin_task_progress.result_failed_count,
+  admin_task_progress.result_missing_count,
+  t.created_at,
+  t.updated_at,
+  ` + adminTaskExecutionEndedAtSQL + `,
+  ` + adminTaskSubmitFailedSQL + `,
+  ` + adminTaskDispatchLabelsSQL + `,
+  coalesce(t.reassigned_from_task_id,0),
+  ` + adminTaskReassignedToTaskIDSQL
+const adminTaskProgressJoinSQL = `
+left join lateral (
+  select
+    count(*)::int as item_count,
+    count(*) filter (where ti.status=2)::int as provider_done_count,
+    count(*) filter (
+      where exists (
+        select 1
+        from cdp_task_item_results tir
+        where tir.task_item_id=ti.id
+          and tir.parse_status='SUCCESS'
+      )
+    )::int as result_success_count,
+    count(*) filter (
+      where not exists (
+        select 1
+        from cdp_task_item_results tir
+        where tir.task_item_id=ti.id
+          and tir.parse_status='SUCCESS'
+      )
+      and exists (
+        select 1
+        from cdp_task_item_results tir
+        where tir.task_item_id=ti.id
+          and tir.parse_status <> 'SUCCESS'
+      )
+    )::int as result_failed_count
+  from cdp_task_items ti
+  where ti.task_id=t.id
+) admin_task_item_progress on true
+left join lateral (
+  select
+    greatest(
+      coalesce(nullif(t.provider_response #>> '{data,successCount}', '')::int, 0)
+        + coalesce(nullif(t.provider_response #>> '{data,failedCount}', '')::int, 0),
+      coalesce(nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int, 0)
+        + coalesce(nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int, 0),
+      coalesce(nullif(t.provider_response #>> '{providerCallbackProgress,successCount}', '')::int, 0)
+        + coalesce(nullif(t.provider_response #>> '{providerCallbackProgress,failedCount}', '')::int, 0),
+      coalesce(admin_task_item_progress.provider_done_count, 0),
+      case
+        when t.result_imported_at is null then coalesce(t.success_count, 0) + coalesce(t.failed_count, 0)
+        else 0
+      end
+    ) as raw_completed_count,
+    greatest(
+      coalesce(nullif(t.provider_response #>> '{data,failedCount}', '')::int, 0),
+      coalesce(nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int, 0),
+      coalesce(nullif(t.provider_response #>> '{providerCallbackProgress,failedCount}', '')::int, 0),
+      case
+        when t.result_imported_at is null then coalesce(t.failed_count, 0)
+        else 0
+      end
+    ) as raw_failed_count,
+    greatest(
+      coalesce(nullif(t.provider_response #>> '{data,totalCount}', '')::int, 0),
+      coalesce(nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int, 0),
+      coalesce(nullif(t.provider_response #>> '{providerCallbackProgress,totalCount}', '')::int, 0),
+      coalesce(admin_task_item_progress.item_count, 0),
+      coalesce(t.total_count, 0)
+    ) as raw_total_count
+) admin_task_progress_source on true
+left join lateral (
+  select
+    greatest(admin_task_progress_source.raw_total_count, 0) as total_count,
+    least(
+      greatest(admin_task_progress_source.raw_completed_count, 0),
+      greatest(admin_task_progress_source.raw_total_count, 0)
+    ) as completed_count
+) admin_task_progress_bounds on true
+left join lateral (
+  select
+    admin_task_progress_bounds.total_count,
+    admin_task_progress_bounds.completed_count,
+    least(
+      greatest(admin_task_progress_source.raw_failed_count, 0),
+      admin_task_progress_bounds.completed_count
+    ) as raw_failed_count
+) admin_task_progress_failure_source on true
+left join lateral (
+  select
+    admin_task_progress_failure_source.total_count,
+    admin_task_progress_failure_source.completed_count,
+    least(
+      admin_task_progress_failure_source.raw_failed_count,
+      admin_task_progress_bounds.completed_count
+    ) as failed_count
+) admin_task_progress_failure on true
+left join lateral (
+  select
+    admin_task_progress_failure.total_count,
+    admin_task_progress_failure.completed_count,
+    admin_task_progress_failure.completed_count - admin_task_progress_failure.failed_count as success_count,
+    admin_task_progress_failure.failed_count,
+    coalesce(admin_task_item_progress.result_success_count, 0) as result_success_count,
+    coalesce(admin_task_item_progress.result_failed_count, 0) as result_failed_count,
+    case
+      when t.result_imported_at is null then 0
+      else greatest(
+        coalesce(admin_task_item_progress.item_count, 0)
+          - coalesce(admin_task_item_progress.result_success_count, 0)
+          - coalesce(admin_task_item_progress.result_failed_count, 0),
+        0
+      )
+    end as result_missing_count
+) admin_task_progress on true`
 
 type AdminRepo struct {
 	db *pgxpool.Pool
@@ -67,26 +196,9 @@ func (r *AdminRepo) ListTasks(ctx context.Context, filter biz.AdminTaskFilter) (
 	queryArgs := append(append([]any{}, args...), limit, offset)
 	rows, err := r.db.Query(ctx, `
 select
-  t.id,
-  t.batch_no,
-  coalesce(t.task_name,''),
-  coalesce(t.source,''),
-  coalesce(t.platform_code,''),
-  coalesce(t.external_batch_id,''),
-  t.provider_code,
-  t.status,
-  t.total_count,
-  least(t.success_count + t.failed_count, t.total_count),
-  t.success_count,
-  t.failed_count,
-  t.created_at,
-  t.updated_at,
-  `+adminTaskExecutionEndedAtSQL+`,
-  `+adminTaskSubmitFailedSQL+`,
-  `+adminTaskDispatchLabelsSQL+`,
-  coalesce(t.reassigned_from_task_id,0),
-  `+adminTaskReassignedToTaskIDSQL+`
+`+adminTaskSummarySelectSQL+`
 from cdp_tasks t
+`+adminTaskProgressJoinSQL+`
 `+where+`
 order by t.created_at desc
 limit $`+strconv.Itoa(len(args)+1)+` offset $`+strconv.Itoa(len(args)+2), queryArgs...)
@@ -181,26 +293,9 @@ with locked_task as (
   for update
 )
 select
-  t.id,
-  t.batch_no,
-  coalesce(t.task_name,''),
-  coalesce(t.source,''),
-  coalesce(t.platform_code,''),
-  coalesce(t.external_batch_id,''),
-  t.provider_code,
-  t.status,
-  t.total_count,
-  least(t.success_count + t.failed_count, t.total_count),
-  t.success_count,
-  t.failed_count,
-  t.created_at,
-  t.updated_at,
-  `+adminTaskExecutionEndedAtSQL+`,
-  `+adminTaskSubmitFailedSQL+`,
-  `+adminTaskDispatchLabelsSQL+`,
-  coalesce(t.reassigned_from_task_id,0),
-  `+adminTaskReassignedToTaskIDSQL+`
+`+adminTaskSummarySelectSQL+`
 from locked_task t
+`+adminTaskProgressJoinSQL+`
 `, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return biz.AdminTaskSummary{}, biz.ErrTaskNotFound
@@ -230,26 +325,9 @@ where id=$1
 func (r *AdminRepo) getTaskSummary(ctx context.Context, id int64) (biz.AdminTaskSummary, error) {
 	summary, err := scanAdminTaskSummary(r.db.QueryRow(ctx, `
 select
-  t.id,
-  t.batch_no,
-  coalesce(t.task_name,''),
-  coalesce(t.source,''),
-  coalesce(t.platform_code,''),
-  coalesce(t.external_batch_id,''),
-  t.provider_code,
-  t.status,
-  t.total_count,
-  least(t.success_count + t.failed_count, t.total_count),
-  t.success_count,
-  t.failed_count,
-  t.created_at,
-  t.updated_at,
-  `+adminTaskExecutionEndedAtSQL+`,
-  `+adminTaskSubmitFailedSQL+`,
-  `+adminTaskDispatchLabelsSQL+`,
-  coalesce(t.reassigned_from_task_id,0),
-  `+adminTaskReassignedToTaskIDSQL+`
+`+adminTaskSummarySelectSQL+`
 from cdp_tasks t
+`+adminTaskProgressJoinSQL+`
 where t.id=$1
   and t.deleted_at is null
 	`, id))
@@ -1094,26 +1172,9 @@ func (r *AdminRepo) listPlatformRecentTasks(ctx context.Context, where string, a
 	queryArgs := append(append([]any{}, args...), 10)
 	rows, err := r.db.Query(ctx, `
 select
-  t.id,
-  t.batch_no,
-  coalesce(t.task_name,''),
-  coalesce(t.source,''),
-  coalesce(t.platform_code,''),
-  coalesce(t.external_batch_id,''),
-  t.provider_code,
-  t.status,
-  t.total_count,
-  least(t.success_count + t.failed_count, t.total_count),
-  t.success_count,
-  t.failed_count,
-  t.created_at,
-  t.updated_at,
-  `+adminTaskExecutionEndedAtSQL+`,
-  `+adminTaskSubmitFailedSQL+`,
-  `+adminTaskDispatchLabelsSQL+`,
-  coalesce(t.reassigned_from_task_id,0),
-  `+adminTaskReassignedToTaskIDSQL+`
+`+adminTaskSummarySelectSQL+`
 from cdp_tasks t
+`+adminTaskProgressJoinSQL+`
 `+where+`
 order by t.created_at desc
 limit $`+strconv.Itoa(len(args)+1), queryArgs...)
@@ -1240,6 +1301,9 @@ func scanAdminTaskSummary(scanner interface{ Scan(dest ...any) error }) (biz.Adm
 		&summary.CompletedCount,
 		&summary.SuccessCount,
 		&summary.FailedCount,
+		&summary.ResultSuccessCount,
+		&summary.ResultFailedCount,
+		&summary.ResultMissingCount,
 		&summary.CreatedAt,
 		&summary.UpdatedAt,
 		&executionEndedAt,
@@ -1294,6 +1358,7 @@ func normalizeTaskFilter(filter *biz.AdminTaskFilter) {
 	}
 	filter.ResultStatus = strings.TrimSpace(strings.ToUpper(filter.ResultStatus))
 	filter.PlatformCode = strings.TrimSpace(filter.PlatformCode)
+	filter.ProviderCode = strings.TrimSpace(filter.ProviderCode)
 	filter.TaskName = strings.TrimSpace(filter.TaskName)
 	filter.BatchNo = strings.TrimSpace(filter.BatchNo)
 }
@@ -1392,6 +1457,9 @@ func adminTaskWhere(filter biz.AdminTaskFilter) (string, []any) {
 	}
 	if filter.PlatformCode != "" {
 		add(" and t.platform_code = $%d", filter.PlatformCode)
+	}
+	if filter.ProviderCode != "" {
+		add(" and t.provider_code = $%d", filter.ProviderCode)
 	}
 	if !filter.CreatedFrom.IsZero() {
 		add(" and t.created_at >= $%d", filter.CreatedFrom)

@@ -4,6 +4,7 @@ import type {
   CheckResultData,
   DispatchOptionsData,
   ExportTaskItemsData,
+  ForceImportCallbackData,
   LoginData,
   MeData,
   ProviderListData,
@@ -111,6 +112,13 @@ export function retryTaskCallback(id: number, force = false): Promise<RetryCallb
   return request<RetryCallbackData>(`/tasks/${id}/retry-callback`, {
     method: "POST",
     body: JSON.stringify({ force })
+  });
+}
+
+export function forceImportCallback(id: number, reason?: string): Promise<ForceImportCallbackData> {
+  return request<ForceImportCallbackData>(`/tasks/${id}/force-import-callback`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
   });
 }
 

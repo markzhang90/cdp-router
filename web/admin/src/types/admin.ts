@@ -34,6 +34,9 @@ export interface TaskSummary {
   completedCount: number;
   successCount: number;
   failedCount: number;
+  resultSuccessCount: number;
+  resultFailedCount: number;
+  resultMissingCount: number;
   progress: number;
   createdAt: string;
   updatedAt: string;
@@ -57,6 +60,7 @@ export interface TaskListQuery {
   batchNo?: string;
   source?: string;
   platformCode?: string;
+  providerCode?: string;
   resultStatus?: string;
   createdFrom?: string;
   createdTo?: string;
@@ -174,6 +178,25 @@ export interface RetryCallbackData {
   failedCount: number;
   importedCount: number;
   taskItemCount: number;
+}
+
+export interface ForceImportCallbackData {
+  taskId: number;
+  batchNo: string;
+  taskStatus: string;
+  delivered: boolean;
+  rejected: boolean;
+  fileCount: number;
+  importedFileCount: number;
+  rowCount: number;
+  taskItemCount: number;
+  successCount: number;
+  failedCount: number;
+  unfinishedCount: number;
+  callbackMode: string;
+  partial: boolean;
+  taskStatusUnchanged: boolean;
+  reason: string;
 }
 
 export interface ReassignTaskPayload {

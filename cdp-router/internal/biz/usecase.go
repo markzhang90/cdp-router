@@ -1529,6 +1529,293 @@ func (u *TaskUsecase) RetryTaskCallback(ctx context.Context, id int64, force boo
 	return updated, outcome, nil
 }
 
+// ForceImportCallback fetches the provider's latest status and result files,
+// force-imports them (marking empty answers as failed), then delivers a
+// callback using only the currently imported results. It must NOT change the
+// task status or callback_sent_at, and must not block subsequent imports.
+func (u *TaskUsecase) ForceImportCallback(ctx context.Context, input ForceImportCallbackInput) (ForceImportCallbackOutcome, error) {
+	outcome := ForceImportCallbackOutcome{
+		TaskStatusUnchanged: true,
+	}
+	task, err := u.repo.GetTask(ctx, input.TaskID)
+	if err != nil {
+		return outcome, err
+	}
+	outcome.Task = task
+	taskItemCount, err := u.taskItemCount(ctx, task.ID)
+	if err != nil {
+		return outcome, err
+	}
+	outcome.TaskItemCount = taskItemCount
+
+	if err := u.refreshForcedCallbackResults(ctx, task, &outcome); err != nil {
+		return outcome, err
+	}
+
+	allItems, err := u.repo.ListTaskItemResults(ctx, task.ID)
+	if err != nil {
+		return outcome, err
+	}
+	successItems := successfulResultItems(allItems)
+	outcome.SuccessCount = len(successItems)
+	outcome.FailedCount = failedResultItemCount(allItems)
+	outcome.UnfinishedCount = maxInt(outcome.TaskItemCount-outcome.SuccessCount-outcome.FailedCount, 0)
+	outcome.Partial = outcome.SuccessCount < outcome.TaskItemCount
+
+	if outcome.SuccessCount == 0 {
+		outcome.Rejected = true
+		_ = u.repo.AddEvent(ctx, task.ID, EventForceImportCallback, u.forceImportCallbackEventPayload(input.Reason, outcome, "", 0, false, nil, ""))
+		return outcome, nil
+	}
+
+	callbackExternalBatchID := taskCallbackExternalBatchID(task)
+	resultURL := u.resultURL(callbackExternalBatchID) + "?successOnly=true"
+	payload := CallbackDelivery{
+		ExternalBatchID: callbackExternalBatchID,
+		BatchNo:         taskCallbackBatchNo(task),
+		Status:          TaskStatusDone,
+		ResultURL:       resultURL,
+		Counts: CallbackCounts{
+			Total:   outcome.SuccessCount,
+			Success: outcome.SuccessCount,
+			Failed:  0,
+		},
+		ResultItems: successItems,
+		Items:       callbackResultItems(successItems),
+	}
+	payload.ResultFiles = u.callbackResultFiles(ctx, task)
+
+	taskCopy := *task
+	taskCopy.TotalCount = outcome.SuccessCount
+	taskCopy.SuccessCount = outcome.SuccessCount
+	taskCopy.FailedCount = 0
+
+	callbackMode := u.callback.ResolveMode(task)
+	outcome.CallbackMode = callbackMode
+
+	result, err := u.callback.Deliver(ctx, &taskCopy, payload)
+	payloadBytes, _ := json.Marshal(payload)
+	if len(result.RequestPayload) > 0 {
+		payloadBytes = result.RequestPayload
+	}
+	targetURL := task.CallbackURL
+	if result.TargetURL != "" {
+		targetURL = result.TargetURL
+	}
+	if err != nil {
+		if markErr := u.repo.RecordForcedCallbackFailed(ctx, task.ID, targetURL, err.Error(), payloadBytes); markErr != nil {
+			return outcome, markErr
+		}
+		_ = u.repo.AddEvent(ctx, task.ID, EventForceImportCallback, u.forceImportCallbackEventPayload(input.Reason, outcome, targetURL, result.StatusCode, false, result.RequestPayload, result.ResponseBody))
+		slog.WarnContext(ctx, "forced import callback failed",
+			"trace_id", trace.RequestID(ctx),
+			"task_id", task.ID,
+			"batch_no", task.BatchNo,
+			"provider_code", task.ProviderCode,
+			"target_url", targetURL,
+			"success_count", outcome.SuccessCount,
+			"failed_count", outcome.FailedCount,
+			"error", err,
+		)
+		return outcome, nil
+	}
+	if err := u.repo.RecordForcedCallbackDone(ctx, task.ID, targetURL, result.StatusCode, result.ResponseBody, payloadBytes); err != nil {
+		return outcome, err
+	}
+	outcome.Delivered = true
+	if callbackMode == "YANGSHI" {
+		outcome.YangshiUploaded = true
+	}
+	_ = u.repo.AddEvent(ctx, task.ID, EventForceImportCallback, u.forceImportCallbackEventPayload(input.Reason, outcome, targetURL, result.StatusCode, true, result.RequestPayload, result.ResponseBody))
+	slog.InfoContext(ctx, "forced import callback delivered",
+		"trace_id", trace.RequestID(ctx),
+		"task_id", task.ID,
+		"batch_no", task.BatchNo,
+		"provider_code", task.ProviderCode,
+		"target_url", targetURL,
+		"status_code", result.StatusCode,
+		"success_count", outcome.SuccessCount,
+		"failed_count", outcome.FailedCount,
+		"partial", outcome.Partial,
+	)
+	updated, err := u.repo.GetTask(ctx, task.ID)
+	if err == nil {
+		outcome.Task = updated
+	}
+	return outcome, nil
+}
+
+func (u *TaskUsecase) refreshForcedCallbackResults(ctx context.Context, task *Task, outcome *ForceImportCallbackOutcome) error {
+	if _, err := u.GetProviderStatus(ctx, task.ID); err != nil {
+		return err
+	}
+	outcome.ProviderStatusFetched = true
+
+	fileResult, err := u.fetchProviderResultFiles(ctx, task)
+	if err != nil {
+		return err
+	}
+	outcome.ProviderFilesFetched = true
+	outcome.FileCount = len(fileResult.FileURLs)
+
+	importedFileCount, rowCount, err := u.forceImportProviderFiles(ctx, task, fileResult.FileURLs)
+	if err != nil {
+		return err
+	}
+	outcome.ImportedFileCount = importedFileCount
+	outcome.RowCount = rowCount
+	return nil
+}
+
+// forceImportCallbackEventPayload builds the FORCE_IMPORT_CALLBACK event payload.
+func (u *TaskUsecase) forceImportCallbackEventPayload(reason string, outcome ForceImportCallbackOutcome, targetURL string, statusCode int, delivered bool, requestPayload json.RawMessage, responseBody string) map[string]any {
+	return map[string]any{
+		"reason":                reason,
+		"providerStatusFetched": outcome.ProviderStatusFetched,
+		"providerFilesFetched":  outcome.ProviderFilesFetched,
+		"fileCount":             outcome.FileCount,
+		"importedFileCount":     outcome.ImportedFileCount,
+		"rowCount":              outcome.RowCount,
+		"taskItemCount":         outcome.TaskItemCount,
+		"successCount":          outcome.SuccessCount,
+		"failedCount":           outcome.FailedCount,
+		"unfinishedCount":       outcome.UnfinishedCount,
+		"callbackMode":          outcome.CallbackMode,
+		"yangshiUploaded":       outcome.YangshiUploaded,
+		"partial":               outcome.Partial,
+		"taskStatusUnchanged":   outcome.TaskStatusUnchanged,
+		"delivered":             delivered,
+		"targetUrl":             targetURL,
+		"statusCode":            statusCode,
+		"requestPayload":        json.RawMessage(requestPayload),
+		"responseBody":          responseBody,
+	}
+}
+
+// forceImportProviderFiles imports the provider's latest result files without
+// calling CompleteResultImport (so task status is not changed). Empty-answer
+// items are marked as FAILED. It returns the imported file count and total row
+// count.
+func (u *TaskUsecase) forceImportProviderFiles(ctx context.Context, task *Task, fileURLs []string) (int, int, error) {
+	storedFiles, externalURLs, missingObjectKeys, err := u.matchProviderOwnOSSFiles(ctx, task, fileURLs, true)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(missingObjectKeys) > 0 {
+		return 0, 0, fmt.Errorf("provider result files missing from database: %d object keys, first=%s", len(missingObjectKeys), missingObjectKeys[0])
+	}
+	importedFileCount := 0
+	totalRows := 0
+	var firstImportErr error
+	for _, file := range storedFiles {
+		rows, ok, err := u.forceImportStoredFile(ctx, task, file)
+		if err != nil {
+			if firstImportErr == nil {
+				firstImportErr = err
+			}
+			slog.WarnContext(ctx, "force import stored file failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"object_key", file.ObjectKey,
+				"error", err,
+			)
+			continue
+		}
+		if ok {
+			importedFileCount++
+			totalRows += rows
+		}
+	}
+	for _, fileURL := range externalURLs {
+		rows, ok, err := u.forceImportExternalFile(ctx, task, fileURL)
+		if err != nil {
+			if firstImportErr == nil {
+				firstImportErr = err
+			}
+			slog.WarnContext(ctx, "force import external file failed",
+				"trace_id", trace.RequestID(ctx),
+				"task_id", task.ID,
+				"file_url", fileURL,
+				"error", err,
+			)
+			continue
+		}
+		if ok {
+			importedFileCount++
+			totalRows += rows
+		}
+	}
+	if len(fileURLs) > 0 && importedFileCount == 0 && firstImportErr != nil {
+		return 0, 0, fmt.Errorf("all forced result files failed to import: %w", firstImportErr)
+	}
+	return importedFileCount, totalRows, nil
+}
+
+func (u *TaskUsecase) forceImportStoredFile(ctx context.Context, task *Task, file ResultFileInput) (int, bool, error) {
+	if file.SourceType == "" {
+		file.SourceType = "OSS_UPLOAD"
+	}
+	if file.FileName == "" {
+		file.FileName = path.Base(file.ObjectKey)
+	}
+	content, err := u.store.ReadObject(ctx, file.ObjectKey)
+	if err != nil {
+		return 0, false, fmt.Errorf("read oss object: %w", err)
+	}
+	parsed, err := u.parser.Parse(ctx, file.FileName, content)
+	if err != nil {
+		return 0, false, fmt.Errorf("parse result: %w", err)
+	}
+	markEmptyAnswerFailed(parsed)
+	file.Checksum = checksum(content)
+	file.ExternalBatchID = task.ProviderExternalBatchID
+	file.NotifyCallback = false
+	if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
+		return 0, false, err
+	}
+	return parsed.RowCount, true, nil
+}
+
+func (u *TaskUsecase) forceImportExternalFile(ctx context.Context, task *Task, fileURL string) (int, bool, error) {
+	provider, ok := u.providers.Get(task.ProviderCode)
+	if !ok {
+		return 0, false, ErrProviderNotFound
+	}
+	content, err := provider.DownloadResultFile(ctx, fileURL)
+	if err != nil {
+		return 0, false, err
+	}
+	fileName := fileNameFromURL(fileURL)
+	parsed, err := u.parser.Parse(ctx, fileName, content)
+	if err != nil {
+		return 0, false, err
+	}
+	markEmptyAnswerFailed(parsed)
+	file := ResultFileInput{
+		SourceType:      "PROVIDER_FILE",
+		FileURL:         fileURL,
+		FileName:        fileName,
+		Checksum:        checksum(content),
+		ExternalBatchID: task.ProviderExternalBatchID,
+		NotifyCallback:  false,
+	}
+	if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
+		return 0, false, err
+	}
+	return parsed.RowCount, true, nil
+}
+
+// markEmptyAnswerFailed sets parse_status to FAILED for item results whose
+// answer text is empty, so they are counted as failures in forced callbacks.
+func markEmptyAnswerFailed(parsed *ParsedResult) {
+	for i := range parsed.ItemResults {
+		if strings.TrimSpace(parsed.ItemResults[i].AnswerText) == "" {
+			parsed.ItemResults[i].ParseStatus = "FAILED"
+			parsed.ItemResults[i].ParseError = "empty answer"
+		}
+	}
+}
+
 func (u *TaskUsecase) deliverTaskCallback(ctx context.Context, task *Task, successOnly bool) (bool, error) {
 	startedAt := time.Now()
 	callbackExternalBatchID := taskCallbackExternalBatchID(task)
@@ -1620,6 +1907,64 @@ func successfulResultItems(items []TaskItemResultView) []TaskItemResultView {
 		}
 	}
 	return successful
+}
+
+func failedResultItemCount(items []TaskItemResultView) int {
+	statusByItem := make(map[string]string, len(items))
+	for _, item := range items {
+		switch item.ParseStatus {
+		case "SUCCESS":
+			statusByItem[item.ItemID] = "SUCCESS"
+		case "":
+			continue
+		default:
+			if statusByItem[item.ItemID] != "SUCCESS" {
+				statusByItem[item.ItemID] = "FAILED"
+			}
+		}
+	}
+	failed := 0
+	for _, status := range statusByItem {
+		if status == "FAILED" {
+			failed++
+		}
+	}
+	return failed
+}
+
+func callbackResultItems(items []TaskItemResultView) []CallbackResultItem {
+	out := make([]CallbackResultItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, CallbackResultItem{
+			ItemID:                   item.ItemID,
+			PlatformCode:             item.PlatformCode,
+			Seq:                      item.Seq,
+			Question:                 item.Question,
+			AnswerText:               item.AnswerText,
+			ThinkingProcess:          item.ThinkingProcess,
+			GeneratedAt:              callbackResultTime(item.GeneratedAt),
+			GeneratedAtText:          item.GeneratedAtText,
+			RecommendedQuestionsJSON: item.RecommendedQuestions,
+			ReferencesJSON:           item.ReferencesJSON,
+			ReferenceCount:           item.ReferenceCount,
+			ParseStatus:              item.ParseStatus,
+		})
+	}
+	return out
+}
+
+func callbackResultTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format(time.RFC3339)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func callbackEventPayload(result CallbackResult, targetURL string, extra map[string]any) map[string]any {

@@ -1,16 +1,82 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, DatePicker, Form, Input, Modal, Progress, Select, Space, Table, Tag, Tooltip, Typography, message } from "antd";
+import { Button, DatePicker, Form, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import dayjs from "dayjs";
+import type { Dayjs } from "dayjs";
 import { Copy, ExternalLink, GitBranch, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { checkTaskResult, deleteTask, listPlatformUsers, listProviders, listTasks, reassignTask } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
 import { TaskStatusTag } from "../components/StatusTag";
+import { TaskProgressBar } from "../components/TaskProgressBar";
+import { TaskResultStats } from "../components/TaskResultStats";
 import type { PlatformUser, Provider, TaskListQuery, TaskSummary } from "../types/admin";
-import { compactText, formatDateTime, positiveID, precisePercent, taskProgress } from "../utils/format";
+import { compactText, formatDateTime, positiveID } from "../utils/format";
 
 const { RangePicker } = DatePicker;
 const CLOSED_REASSIGN_STATUSES = new Set(["CALLBACK_PENDING", "DONE", "REASSIGNED"]);
+const TASK_LIST_FILTER_CACHE_KEY = "cdp-router:admin:task-list-filter:v1";
+
+type TaskListFormValues = {
+  taskName?: string;
+  batchNo?: string;
+  platformCode?: string;
+  providerCode?: string;
+  resultStatus?: string;
+  createdRange?: [Dayjs, Dayjs];
+};
+
+function cleanCachedText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function cleanCachedNumber(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return value > 0 ? Math.floor(value) : fallback;
+}
+
+function readCachedTaskListQuery(): TaskListQuery {
+  try {
+    const raw = window.localStorage.getItem(TASK_LIST_FILTER_CACHE_KEY);
+    if (!raw) return { page: 1, pageSize: 20 };
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      taskName: cleanCachedText(value.taskName),
+      batchNo: cleanCachedText(value.batchNo),
+      source: cleanCachedText(value.source),
+      platformCode: cleanCachedText(value.platformCode),
+      providerCode: cleanCachedText(value.providerCode),
+      resultStatus: cleanCachedText(value.resultStatus),
+      createdFrom: cleanCachedText(value.createdFrom),
+      createdTo: cleanCachedText(value.createdTo),
+      page: cleanCachedNumber(value.page, 1),
+      pageSize: cleanCachedNumber(value.pageSize, 20)
+    };
+  } catch {
+    return { page: 1, pageSize: 20 };
+  }
+}
+
+function cacheTaskListQuery(query: TaskListQuery) {
+  try {
+    window.localStorage.setItem(TASK_LIST_FILTER_CACHE_KEY, JSON.stringify(query));
+  } catch {
+    // localStorage can be unavailable in private browsing; filtering should still work.
+  }
+}
+
+function taskListFormValues(query: TaskListQuery): TaskListFormValues {
+  const createdFrom = query.createdFrom ? dayjs(query.createdFrom) : null;
+  const createdTo = query.createdTo ? dayjs(query.createdTo) : null;
+  return {
+    taskName: query.taskName,
+    batchNo: query.batchNo,
+    platformCode: query.platformCode,
+    providerCode: query.providerCode,
+    resultStatus: query.resultStatus,
+    createdRange: createdFrom?.isValid() && createdTo?.isValid() ? [createdFrom, createdTo] : undefined
+  };
+}
 
 function DispatchLabelPill({ label }: { label: string }) {
   const normalized = label.trim().toLowerCase();
@@ -33,14 +99,14 @@ function isReassignedTask(task: TaskSummary): boolean {
 
 export function TaskListPage() {
   const navigate = useNavigate();
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<TaskListFormValues>();
   const [reassignForm] = Form.useForm<{ providerCode: string; reason?: string }>();
   const [loading, setLoading] = useState(false);
   const [checkingId, setCheckingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [reassigningId, setReassigningId] = useState<number | null>(null);
   const [reassignTaskRow, setReassignTaskRow] = useState<TaskSummary | null>(null);
-  const [query, setQuery] = useState<TaskListQuery>({ page: 1, pageSize: 20 });
+  const [query, setQuery] = useState<TaskListQuery>(() => readCachedTaskListQuery());
   const [rows, setRows] = useState<TaskSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [platformUsers, setPlatformUsers] = useState<PlatformUser[]>([]);
@@ -54,7 +120,9 @@ export function TaskListPage() {
       const data = await listTasks(nextQuery);
       setRows(data.tasks);
       setTotal(data.total);
-      setQuery({ ...nextQuery, page: data.page, pageSize: data.pageSize });
+      const loadedQuery = { ...nextQuery, page: data.page, pageSize: data.pageSize };
+      setQuery(loadedQuery);
+      cacheTaskListQuery(loadedQuery);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "加载任务失败");
     } finally {
@@ -63,8 +131,10 @@ export function TaskListPage() {
   };
 
   useEffect(() => {
+    form.setFieldsValue(taskListFormValues(query));
     void load(query);
     void loadPlatformUsers();
+    void loadProviders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -87,6 +157,7 @@ export function TaskListPage() {
       taskName: values.taskName,
       batchNo: values.batchNo,
       platformCode: values.platformCode,
+      providerCode: values.providerCode,
       resultStatus: values.resultStatus,
       createdFrom: range?.[0] ? String((range[0] as { toISOString: () => string }).toISOString()) : undefined,
       createdTo: range?.[1] ? String((range[1] as { toISOString: () => string }).toISOString()) : undefined,
@@ -131,11 +202,11 @@ export function TaskListPage() {
     });
   };
 
-  const loadReassignProviders = async () => {
+  const loadProviders = async () => {
     setProviderLoading(true);
     try {
       const data = await listProviders();
-      setProviders(data.providers.filter((provider) => provider.enabled && provider.submitUrlConfigured));
+      setProviders(data.providers);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "加载供应商失败");
     } finally {
@@ -146,7 +217,7 @@ export function TaskListPage() {
   const handleOpenReassign = (task: TaskSummary) => {
     setReassignTaskRow(task);
     reassignForm.resetFields();
-    void loadReassignProviders();
+    void loadProviders();
   };
 
   const handleConfirmReassign = async () => {
@@ -252,8 +323,27 @@ export function TaskListPage() {
       },
       {
         title: "进度",
-        width: 150,
-        render: (_, task) => <Progress percent={precisePercent(taskProgress(task))} size="small" />
+        width: 170,
+        render: (_, task) => (
+          <TaskProgressBar
+            compact
+            successCount={task.successCount}
+            failedCount={task.failedCount}
+            totalCount={task.questionCount}
+          />
+        )
+      },
+      {
+        title: "导入结果",
+        width: 190,
+        render: (_, task) => (
+          <TaskResultStats
+            compact
+            successCount={task.resultSuccessCount}
+            failedCount={task.resultFailedCount}
+            missingCount={task.resultMissingCount}
+          />
+        )
       },
       {
         title: "供应商",
@@ -347,11 +437,16 @@ export function TaskListPage() {
   );
 
   const reassignProviderOptions = providers
-    .filter((provider) => provider.providerCode !== reassignTaskRow?.providerCode)
+    .filter((provider) => provider.enabled && provider.submitUrlConfigured && provider.providerCode !== reassignTaskRow?.providerCode)
     .map((provider) => ({
       label: `${provider.providerCode}${provider.displayName ? ` · ${provider.displayName}` : ""}`,
       value: provider.providerCode
     }));
+
+  const providerOptions = providers.map((provider) => ({
+    label: `${provider.providerCode}${provider.displayName ? ` · ${provider.displayName}` : ""}`,
+    value: provider.providerCode
+  }));
 
   return (
     <section>
@@ -387,6 +482,18 @@ export function TaskListPage() {
                 label: `${user.platformCode} · ${user.name}`,
                 value: user.platformCode
               }))}
+            />
+          </Form.Item>
+          <Form.Item name="providerCode">
+            <Select
+              allowClear
+              showSearch
+              loading={providerLoading}
+              optionFilterProp="label"
+              placeholder="执行供应商"
+              style={{ width: 180 }}
+              onFocus={() => loadProviders()}
+              options={providerOptions}
             />
           </Form.Item>
           <Form.Item name="resultStatus">

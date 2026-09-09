@@ -28,16 +28,27 @@ func NewClient(timeout time.Duration, uploadTimeout time.Duration, users map[str
 }
 
 func (r *Router) Deliver(ctx context.Context, task *biz.Task, payload biz.CallbackDelivery) (biz.CallbackResult, error) {
-	user := r.users[task.PlatformCode]
-	mode := strings.ToUpper(strings.TrimSpace(user.CallbackMode))
-	platformCode := strings.ToLower(strings.TrimSpace(task.PlatformCode))
-
-	switch {
-	case matchYangshiKeyword(platformCode) || matchYangshiKeyword(mode):
+	mode := r.ResolveMode(task)
+	switch mode {
+	case "YANGSHI":
+		user := r.users[task.PlatformCode]
 		return r.yangshi.Deliver(ctx, task, payload, user)
 	default:
 		return r.defaultClient.Deliver(ctx, task, payload)
 	}
+}
+
+// ResolveMode returns the callback mode that Deliver would use for the task.
+// It mirrors the selection rules from Deliver so callers can report the mode
+// without duplicating the logic.
+func (r *Router) ResolveMode(task *biz.Task) string {
+	user := r.users[task.PlatformCode]
+	mode := strings.ToUpper(strings.TrimSpace(user.CallbackMode))
+	platformCode := strings.ToLower(strings.TrimSpace(task.PlatformCode))
+	if matchYangshiKeyword(platformCode) || matchYangshiKeyword(mode) {
+		return "YANGSHI"
+	}
+	return "DEFAULT_HTTP"
 }
 
 func matchYangshiKeyword(code string) bool {

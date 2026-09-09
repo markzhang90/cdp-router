@@ -32,6 +32,7 @@ type AdminTaskFilter struct {
 	BatchNo      string
 	Source       string
 	PlatformCode string
+	ProviderCode string
 	ResultStatus string
 	CreatedFrom  time.Time
 	CreatedTo    time.Time
@@ -75,6 +76,9 @@ type AdminTaskSummary struct {
 	CompletedCount       int
 	SuccessCount         int
 	FailedCount          int
+	ResultSuccessCount   int
+	ResultFailedCount    int
+	ResultMissingCount   int
 	Progress             float64
 	CreatedAt            time.Time
 	UpdatedAt            time.Time

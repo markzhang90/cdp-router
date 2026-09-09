@@ -82,6 +82,103 @@ func TestMatchStoredProviderFilesSkipsSuccessUnlessForce(t *testing.T) {
 	}
 }
 
+func TestForcedCallbackResultItemsOnlyIncludeSuccessfulResults(t *testing.T) {
+	items := []TaskItemResultView{
+		{ItemID: "item-1", Seq: 1, ParseStatus: "SUCCESS", AnswerText: "answer"},
+		{ItemID: "item-2", Seq: 1, ParseStatus: "FAILED", ParseError: "empty answer"},
+		{ItemID: "item-3", Seq: 1, ParseStatus: ""},
+	}
+
+	successItems := successfulResultItems(items)
+	payloadItems := callbackResultItems(successItems)
+
+	if len(payloadItems) != 1 {
+		t.Fatalf("payload item count=%d, want 1", len(payloadItems))
+	}
+	if payloadItems[0].ItemID != "item-1" || payloadItems[0].AnswerText != "answer" {
+		t.Fatalf("payload item=%+v, want successful item-1", payloadItems[0])
+	}
+}
+
+func TestForcedCallbackProgressCountsTreatSuccessAsFinalForItem(t *testing.T) {
+	items := []TaskItemResultView{
+		{ItemID: "item-1", Seq: 1, ParseStatus: "SUCCESS"},
+		{ItemID: "item-1", Seq: 2, ParseStatus: "FAILED"},
+		{ItemID: "item-2", Seq: 1, ParseStatus: "FAILED"},
+		{ItemID: "item-3", Seq: 1, ParseStatus: ""},
+	}
+
+	successCount := len(successfulResultItems(items))
+	failedCount := failedResultItemCount(items)
+	unfinishedCount := maxInt(3-successCount-failedCount, 0)
+
+	if successCount != 1 {
+		t.Fatalf("successCount=%d, want 1", successCount)
+	}
+	if failedCount != 1 {
+		t.Fatalf("failedCount=%d, want only item-2", failedCount)
+	}
+	if unfinishedCount != 1 {
+		t.Fatalf("unfinishedCount=%d, want 1", unfinishedCount)
+	}
+}
+
+func TestForceImportCallbackDeliversOnlySuccessfulItems(t *testing.T) {
+	ctx := context.Background()
+	task := &Task{
+		ID:                      100,
+		JobID:                   "job-force",
+		BatchNo:                 "batch-force",
+		ProviderCode:            "vendor_force",
+		ProviderExternalBatchID: "provider-batch",
+		CallbackURL:             "https://business.example.com/callback",
+		Status:                  TaskStatusSubmitted,
+	}
+	repo := &forceImportCallbackRepo{task: task}
+	callback := &captureCallbackClient{}
+	usecase := NewTaskUsecase(
+		repo,
+		forceImportCallbackRegistry{provider: forceImportCallbackProvider{}},
+		nil,
+		nil,
+		forceImportCallbackParser{},
+		callback,
+		TaskUsecaseOptions{PublicBaseURL: "https://gateway.example.com"},
+	)
+
+	outcome, err := usecase.ForceImportCallback(ctx, ForceImportCallbackInput{
+		TaskID: 100,
+		Reason: "submit current successful results",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.Delivered || outcome.Rejected {
+		t.Fatalf("outcome delivered=%v rejected=%v, want delivered", outcome.Delivered, outcome.Rejected)
+	}
+	if outcome.SuccessCount != 1 || outcome.FailedCount != 1 || outcome.UnfinishedCount != 1 {
+		t.Fatalf("counts success=%d failed=%d unfinished=%d, want 1/1/1", outcome.SuccessCount, outcome.FailedCount, outcome.UnfinishedCount)
+	}
+	if callback.payload.Counts.Total != 1 || callback.payload.Counts.Success != 1 || callback.payload.Counts.Failed != 0 {
+		t.Fatalf("callback counts=%+v, want submit only one successful result", callback.payload.Counts)
+	}
+	if len(callback.payload.Items) != 1 || callback.payload.Items[0].ItemID != "item-success" {
+		t.Fatalf("callback items=%+v, want only successful item", callback.payload.Items)
+	}
+	if len(callback.payload.ResultItems) != 1 || callback.payload.ResultItems[0].ParseStatus != "SUCCESS" {
+		t.Fatalf("yangshi result items=%+v, want only success", callback.payload.ResultItems)
+	}
+	if !repo.forcedDone || repo.markCallbackDoneCalled {
+		t.Fatalf("forcedDone=%v markCallbackDoneCalled=%v, want forced callback recorder only", repo.forcedDone, repo.markCallbackDoneCalled)
+	}
+	if repo.markedResult.ItemResults[1].ParseStatus != "FAILED" {
+		t.Fatalf("empty answer parse status=%q, want FAILED", repo.markedResult.ItemResults[1].ParseStatus)
+	}
+	if len(repo.eventTypes) == 0 || repo.eventTypes[len(repo.eventTypes)-1] != EventForceImportCallback {
+		t.Fatalf("events=%v, want FORCE_IMPORT_CALLBACK", repo.eventTypes)
+	}
+}
+
 func TestDeliverTaskCallbackUsesOriginalIdentifiersForReassignedTask(t *testing.T) {
 	ctx := context.Background()
 	callback := &captureCallbackClient{}
@@ -698,6 +795,12 @@ func (unsupportedTaskRepo) MarkCallbackDone(ctx context.Context, taskID int64, t
 func (unsupportedTaskRepo) MarkCallbackFailed(ctx context.Context, taskID int64, targetURL string, errMessage string, payload json.RawMessage, maxRetry int) (int, bool, error) {
 	return 0, false, errors.New("unexpected MarkCallbackFailed")
 }
+func (unsupportedTaskRepo) RecordForcedCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error {
+	return errors.New("unexpected RecordForcedCallbackDone")
+}
+func (unsupportedTaskRepo) RecordForcedCallbackFailed(ctx context.Context, taskID int64, targetURL string, errMessage string, payload json.RawMessage) error {
+	return errors.New("unexpected RecordForcedCallbackFailed")
+}
 func (unsupportedTaskRepo) AddEvent(ctx context.Context, taskID int64, eventType EventType, payload any) error {
 	return errors.New("unexpected AddEvent")
 }
@@ -729,4 +832,141 @@ type captureCallbackClient struct {
 func (c *captureCallbackClient) Deliver(ctx context.Context, task *Task, payload CallbackDelivery) (CallbackResult, error) {
 	c.payload = payload
 	return CallbackResult{TargetURL: task.CallbackURL, StatusCode: 200, ResponseBody: `{"ok":true}`}, nil
+}
+
+func (c *captureCallbackClient) ResolveMode(_ *Task) string {
+	return "DEFAULT_HTTP"
+}
+
+type forceImportCallbackRepo struct {
+	unsupportedTaskRepo
+	task                   *Task
+	markedResult           ParsedResult
+	forcedDone             bool
+	markCallbackDoneCalled bool
+	eventTypes             []EventType
+}
+
+func (r *forceImportCallbackRepo) GetTask(ctx context.Context, id int64) (*Task, error) {
+	return cloneTask(r.task), nil
+}
+
+func (r *forceImportCallbackRepo) CountTaskItems(ctx context.Context, taskID int64) (int, error) {
+	return 3, nil
+}
+
+func (r *forceImportCallbackRepo) MarkProviderStatus(ctx context.Context, taskID int64, result ProviderStatusResult) error {
+	return nil
+}
+
+func (r *forceImportCallbackRepo) ListUploadedResultFiles(ctx context.Context, taskID int64, includeImported bool) ([]ResultFileInput, error) {
+	return nil, nil
+}
+
+func (r *forceImportCallbackRepo) MarkResultImported(ctx context.Context, taskID int64, file ResultFileInput, result ParsedResult) error {
+	r.markedResult = result
+	return nil
+}
+
+func (r *forceImportCallbackRepo) ListTaskItemResults(ctx context.Context, taskID int64) ([]TaskItemResultView, error) {
+	return []TaskItemResultView{
+		{ItemID: "item-success", Seq: 1, ParseStatus: r.markedResult.ItemResults[0].ParseStatus, AnswerText: r.markedResult.ItemResults[0].AnswerText},
+		{ItemID: "item-empty", Seq: 1, ParseStatus: r.markedResult.ItemResults[1].ParseStatus, ParseError: r.markedResult.ItemResults[1].ParseError},
+		{ItemID: "item-unfinished", Seq: 1, ParseStatus: ""},
+	}, nil
+}
+
+func (r *forceImportCallbackRepo) ListTaskResultFiles(ctx context.Context, taskID int64) ([]CallbackResultFile, error) {
+	return nil, nil
+}
+
+func (r *forceImportCallbackRepo) RecordForcedCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error {
+	r.forcedDone = true
+	return nil
+}
+
+func (r *forceImportCallbackRepo) MarkCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error {
+	r.markCallbackDoneCalled = true
+	return nil
+}
+
+func (r *forceImportCallbackRepo) AddEvent(ctx context.Context, taskID int64, eventType EventType, payload any) error {
+	r.eventTypes = append(r.eventTypes, eventType)
+	return nil
+}
+
+type forceImportCallbackRegistry struct {
+	provider ProviderClient
+}
+
+func (r forceImportCallbackRegistry) Get(code string) (ProviderClient, bool) {
+	return r.provider, r.provider != nil
+}
+
+func (r forceImportCallbackRegistry) Codes() []string {
+	return []string{"vendor_force"}
+}
+
+type forceImportCallbackProvider struct{}
+
+func (p forceImportCallbackProvider) SubmitTask(ctx context.Context, task *Task, payload SubmitTaskPayload) (SubmitResult, error) {
+	return SubmitResult{}, errors.New("unexpected SubmitTask")
+}
+
+func (p forceImportCallbackProvider) FetchStatus(ctx context.Context, externalBatchID string) (ProviderStatusResult, error) {
+	return ProviderStatusResult{
+		ExternalBatchID: externalBatchID,
+		Questions: []ProviderQuestionStatus{
+			{QuestionID: "item-success", Status: 2},
+			{QuestionID: "item-empty", Status: 2},
+			{QuestionID: "item-unfinished", Status: 1},
+		},
+		TotalCount:   3,
+		SuccessCount: 1,
+		FailedCount:  0,
+	}, nil
+}
+
+func (p forceImportCallbackProvider) FetchResultFiles(ctx context.Context, externalBatchID string) (ProviderFilesResult, error) {
+	return ProviderFilesResult{
+		ExternalBatchID: externalBatchID,
+		FileURLs:        []string{"https://provider.example.com/result.xlsx"},
+	}, nil
+}
+
+func (p forceImportCallbackProvider) CompletionFiles(ctx context.Context, task *Task) (ProviderCompletionFilesResult, error) {
+	return ProviderCompletionFilesResult{}, errors.New("unexpected CompletionFiles")
+}
+
+func (p forceImportCallbackProvider) DownloadResultFile(ctx context.Context, fileURL string) ([]byte, error) {
+	return []byte("xlsx-bytes"), nil
+}
+
+type forceImportCallbackParser struct{}
+
+func (p forceImportCallbackParser) Parse(ctx context.Context, fileName string, content []byte) (*ParsedResult, error) {
+	return &ParsedResult{
+		RowCount:      2,
+		ValidRowCount: 2,
+		ItemResults: []TaskItemResult{
+			{
+				ItemID:               "item-success",
+				Seq:                  1,
+				AnswerText:           "usable answer",
+				RecommendedQuestions: json.RawMessage(`[]`),
+				ReferencesJSON:       json.RawMessage(`[]`),
+				CleanedPayload:       json.RawMessage(`{}`),
+				ParseStatus:          "SUCCESS",
+			},
+			{
+				ItemID:               "item-empty",
+				Seq:                  1,
+				AnswerText:           "",
+				RecommendedQuestions: json.RawMessage(`[]`),
+				ReferencesJSON:       json.RawMessage(`[]`),
+				CleanedPayload:       json.RawMessage(`{}`),
+				ParseStatus:          "SUCCESS",
+			},
+		},
+	}, nil
 }

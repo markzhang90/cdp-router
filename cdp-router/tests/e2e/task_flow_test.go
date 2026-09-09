@@ -2369,6 +2369,9 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 				ExternalBatchID          string  `json:"externalBatchId"`
 				Source                   string  `json:"source"`
 				QuestionCount            int     `json:"questionCount"`
+				ResultSuccessCount       int     `json:"resultSuccessCount"`
+				ResultFailedCount        int     `json:"resultFailedCount"`
+				ResultMissingCount       int     `json:"resultMissingCount"`
 				Progress                 float64 `json:"progress"`
 				ExecutionDurationSeconds int32   `json:"executionDurationSeconds"`
 				ExecutionDurationText    string  `json:"executionDurationText"`
@@ -2383,7 +2386,10 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 		listBody.Data.Tasks[0].TaskName != adminTaskName ||
 		!strings.HasPrefix(listBody.Data.Tasks[0].ExternalBatchID, "job_") ||
 		listBody.Data.Tasks[0].Source != "admin-e2e-source" ||
-		listBody.Data.Tasks[0].QuestionCount != 2 {
+		listBody.Data.Tasks[0].QuestionCount != 2 ||
+		listBody.Data.Tasks[0].ResultSuccessCount != 0 ||
+		listBody.Data.Tasks[0].ResultFailedCount != 0 ||
+		listBody.Data.Tasks[0].ResultMissingCount != 0 {
 		t.Fatalf("unexpected admin list body: %+v", listBody.Data)
 	}
 	if listBody.Data.Tasks[0].ExecutionDurationSeconds < 0 || !strings.HasPrefix(listBody.Data.Tasks[0].ExecutionDurationText, "已执行 ") {
@@ -2407,6 +2413,41 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	_ = platformFilteredResp.Body.Close()
 	if platformFilteredBody.Data.Total != 1 || platformFilteredBody.Data.Tasks[0].PlatformCode != "mainland" {
 		t.Fatalf("unexpected platform filtered list body: %+v", platformFilteredBody.Data)
+	}
+	providerFilteredResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks?batchNo="+batchNo+"&providerCode=vendor_a&page=1&pageSize=10", auth)
+	if providerFilteredResp.StatusCode != http.StatusOK {
+		t.Fatalf("admin provider filtered list status=%d body=%s", providerFilteredResp.StatusCode, readBody(providerFilteredResp))
+	}
+	var providerFilteredBody struct {
+		Data struct {
+			Total int `json:"total"`
+			Tasks []struct {
+				ProviderCode string `json:"providerCode"`
+			} `json:"tasks"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(providerFilteredResp.Body).Decode(&providerFilteredBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = providerFilteredResp.Body.Close()
+	if providerFilteredBody.Data.Total != 1 || providerFilteredBody.Data.Tasks[0].ProviderCode != "vendor_a" {
+		t.Fatalf("unexpected provider filtered list body: %+v", providerFilteredBody.Data)
+	}
+	providerMissResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks?batchNo="+batchNo+"&providerCode=missing-provider&page=1&pageSize=10", auth)
+	if providerMissResp.StatusCode != http.StatusOK {
+		t.Fatalf("admin provider miss list status=%d body=%s", providerMissResp.StatusCode, readBody(providerMissResp))
+	}
+	var providerMissBody struct {
+		Data struct {
+			Total int `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(providerMissResp.Body).Decode(&providerMissBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = providerMissResp.Body.Close()
+	if providerMissBody.Data.Total != 0 {
+		t.Fatalf("unexpected provider miss filtered list body: %+v", providerMissBody.Data)
 	}
 
 	rejectDeleteResp := adminDelete(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(task.ID), auth)
@@ -3005,6 +3046,38 @@ insert into cdp_task_result_files (
 	}
 	if _, err := db.Exec(ctx, `delete from cdp_task_item_results where task_id=$1 and item_id=$2`, updatedTask.ID, "MPZ-REAL-20260723180500-qwen-002"); err != nil {
 		t.Fatal(err)
+	}
+	progressDetailResp := adminGet(t, gatewayBaseURL+"/api/admin/v1/tasks/"+fmt.Sprint(updatedTask.ID), auth)
+	if progressDetailResp.StatusCode != http.StatusOK {
+		t.Fatalf("admin progress detail status=%d body=%s", progressDetailResp.StatusCode, readBody(progressDetailResp))
+	}
+	var progressDetailBody struct {
+		Data struct {
+			Task struct {
+				QuestionCount      int     `json:"questionCount"`
+				CompletedCount     int     `json:"completedCount"`
+				SuccessCount       int     `json:"successCount"`
+				FailedCount        int     `json:"failedCount"`
+				ResultSuccessCount int     `json:"resultSuccessCount"`
+				ResultFailedCount  int     `json:"resultFailedCount"`
+				ResultMissingCount int     `json:"resultMissingCount"`
+				Progress           float64 `json:"progress"`
+			} `json:"task"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(progressDetailResp.Body).Decode(&progressDetailBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = progressDetailResp.Body.Close()
+	if progressDetailBody.Data.Task.QuestionCount != 2 ||
+		progressDetailBody.Data.Task.CompletedCount != 2 ||
+		progressDetailBody.Data.Task.SuccessCount != 2 ||
+		progressDetailBody.Data.Task.FailedCount != 0 ||
+		progressDetailBody.Data.Task.ResultSuccessCount != 1 ||
+		progressDetailBody.Data.Task.ResultFailedCount != 0 ||
+		progressDetailBody.Data.Task.ResultMissingCount != 1 ||
+		progressDetailBody.Data.Task.Progress != 1 {
+		t.Fatalf("unexpected admin progress detail after missing result: %+v", progressDetailBody.Data.Task)
 	}
 	unansweredPlatformResp := adminGet(t, metricsURL, auth)
 	if unansweredPlatformResp.StatusCode != http.StatusOK {
