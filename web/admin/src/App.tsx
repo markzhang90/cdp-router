@@ -8,6 +8,7 @@ import { PlatformUsersPage } from "./pages/PlatformUsersPage";
 import { ProviderDetailPage } from "./pages/ProviderDetailPage";
 import { ProviderListPage } from "./pages/ProviderListPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
+import { ValidationRulesPage } from "./pages/ValidationRulesPage";
 import { TaskListPage } from "./pages/TaskListPage";
 
 export function App() {
@@ -46,6 +47,7 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route element={<AdminLayout />}>
+          <Route path="/validation-rules" element={<ValidationRulesPage />} />
           <Route path="/tasks" element={<TaskListPage />} />
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/providers" element={<ProviderListPage />} />

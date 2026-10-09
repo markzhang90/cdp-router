@@ -1,6 +1,7 @@
 import { clearSession, getCSRFToken } from "./session";
 import type {
   ApiResponse,
+  ValidationRules,
   CheckResultData,
   DispatchOptionsData,
   ExportTaskItemsData,
@@ -108,10 +109,10 @@ export function checkTaskResult(id: number): Promise<CheckResultData> {
   });
 }
 
-export function retryTaskCallback(id: number, force = false): Promise<RetryCallbackData> {
+export function retryTaskCallback(id: number, force = false, ignoreRisk = false): Promise<RetryCallbackData> {
   return request<RetryCallbackData>(`/tasks/${id}/retry-callback`, {
     method: "POST",
-    body: JSON.stringify({ force })
+    body: JSON.stringify({ force, ignoreRisk })
   });
 }
 
@@ -194,5 +195,21 @@ export function updatePlatformUser(id: number, payload: PlatformUserPayload): Pr
   return request<PlatformUser>(`/platform-users/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload)
+  });
+}
+
+export function getValidationRules(): Promise<ValidationRules> {
+  return request<ValidationRules>("/result-validation-rules");
+}
+export function saveValidationRules(expectedVersion: string, keywords: string[]): Promise<ValidationRules> {
+  return request<ValidationRules>("/result-validation-rules", {
+    method: "PUT",
+    body: JSON.stringify({ expectedVersion, keywords })
+  });
+}
+
+export function saveProviderValidationRule(expectedVersion: string, providerCode: string, riskInterceptionEnabled: boolean): Promise<ValidationRules> {
+  return request<ValidationRules>(`/result-validation-rules/providers/${encodeURIComponent(providerCode)}`, {
+    method: "PUT", body: JSON.stringify({ expectedVersion, riskInterceptionEnabled })
   });
 }

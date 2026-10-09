@@ -28,6 +28,7 @@ type AdminSession struct {
 }
 
 type AdminTaskFilter struct {
+	HasRisk      bool
 	TaskName     string
 	BatchNo      string
 	Source       string
@@ -64,6 +65,10 @@ type AdminTaskDetailFilter struct {
 }
 
 type AdminTaskSummary struct {
+	RiskCount            int
+	InvalidAnswerCount   int
+	RiskSummary          json.RawMessage
+	RiskStatsUpdatedAt   *time.Time
 	TaskID               int64
 	TaskName             string
 	BatchNo              string
@@ -112,6 +117,7 @@ type AdminTaskItemsExport struct {
 }
 
 type AdminTaskItem struct {
+	AnswerValidation
 	TaskItemID       int64
 	ItemID           string
 	PlatformCode     string

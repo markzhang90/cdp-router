@@ -41,7 +41,7 @@ func TestTaskProxyFlowWithRealPostgresAndOSS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,14 @@ func TestTaskProxyFlowWithRealPostgresAndOSS(t *testing.T) {
 	if task.TaskName != taskName {
 		t.Fatalf("taskName=%q, want %q", task.TaskName, taskName)
 	}
-	if len(task.ResultPayload) == 0 || string(task.ResultPayload) == "{}" {
+	payload, err := repo.GetTaskResultPayload(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(task.ResultPayload) != 0 {
+		t.Fatal("normal task query loaded full result payload")
+	}
+	if len(payload) == 0 || string(payload) == "{}" {
 		t.Fatal("expected result payload saved in database")
 	}
 	if task.ResultObjectKey == "" {
@@ -326,7 +333,7 @@ func TestYangshiDevCustomCallbackWithRealPostgresAndOSS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +592,7 @@ func TestSyncProviderResultWithRealExcelAndPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -809,7 +816,7 @@ func TestSyncProviderResultMarksProviderDoneFromStatusCounts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -991,7 +998,7 @@ func TestSyncProviderResultExplainsProcessingStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1168,7 +1175,7 @@ func TestMpzdataCallbackReconcilesProviderFilesWithRealPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1357,7 +1364,7 @@ func TestSubmittedTaskMaintenanceWithRealPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1458,11 +1465,11 @@ func TestSubmittedTaskMaintenanceWithRealPostgres(t *testing.T) {
 	}
 }
 
-func TestRuleBasedDispatchWithProductionTaskDataDoesNotSubmitProvider(t *testing.T) {
+func TestRuleBasedDispatchWithLargeTaskDoesNotSubmitProvider(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1478,9 +1485,13 @@ func TestRuleBasedDispatchWithProductionTaskDataDoesNotSubmitProvider(t *testing
 		t.Fatal(err)
 	}
 
-	items, rawRequest := loadProductionDispatchRequest(t, filepath.Join("..", "..", "..", "exports", "Q2A3-20260820-mpzdata-60d7980d-raw-request.json"))
-	if len(items) != 1680 {
-		t.Fatalf("production item count=%d, want 1680", len(items))
+	items := make([]biz.TaskItem, 1680)
+	for i := range items {
+		items[i] = biz.TaskItem{ItemID: fmt.Sprintf("large-item-%d", i), PlatformCode: "doubao", Seq: 1, Question: fmt.Sprintf("local question %d", i)}
+	}
+	rawRequest, err := json.Marshal(map[string]any{"items": items})
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	platformCode := fmt.Sprintf("rule-prod-e2e-%d", time.Now().UnixNano())
@@ -1574,7 +1585,7 @@ func TestRuleBasedDispatchSelectionThroughHTTPWithRealPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1808,7 +1819,7 @@ func TestAdminReassignTaskCallbackUsesOriginalBatchNoWithRealPostgresAndRedis(t 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2148,7 +2159,7 @@ func TestAdminTaskAPIsWithRealPostgresAndRedis(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
+	cfg, err := loadLocalE2EConfig(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3580,24 +3591,20 @@ func openRealRedisForTest(t *testing.T, ctx context.Context, cfg *config.Config)
 	if dockerErr != nil {
 		t.Fatalf("open redis: %v; docker unavailable: %v", err, dockerErr)
 	}
-	listener, listenErr := net.Listen("tcp", "127.0.0.1:0")
-	if listenErr != nil {
-		t.Fatal(listenErr)
-	}
-	_, port, splitErr := net.SplitHostPort(listener.Addr().String())
-	_ = listener.Close()
-	if splitErr != nil {
-		t.Fatal(splitErr)
-	}
 	name := fmt.Sprintf("cdp-router-e2e-redis-%d", time.Now().UnixNano())
-	runCmd := exec.Command(dockerPath, "run", "-d", "--rm", "--name", name, "-p", "127.0.0.1:"+port+":6379", "redis:latest")
+	runCmd := exec.Command(dockerPath, "run", "-d", "--rm", "--name", name, "-p", "127.0.0.1::6379", "redis:latest")
 	if output, runErr := runCmd.CombinedOutput(); runErr != nil {
 		t.Fatalf("start redis container: %v output=%s", runErr, string(output))
 	}
 	cleanup := func() {
 		_ = exec.Command(dockerPath, "rm", "-f", name).Run()
 	}
-	cfg.Redis.Addr = "127.0.0.1:" + port
+	portOutput, portErr := exec.Command(dockerPath, "port", name, "6379/tcp").Output()
+	if portErr != nil {
+		cleanup()
+		t.Fatalf("read Redis port: %v", portErr)
+	}
+	cfg.Redis.Addr = strings.TrimSpace(string(portOutput))
 	deadline := time.Now().Add(10 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -3640,7 +3647,7 @@ where task_id=$1 and item_id='item-1'
 `, taskID).Scan(&answerText, &referenceCount, &recommendedQuestions); err != nil {
 		t.Fatal(err)
 	}
-	if answerText != "这是一条 E2E 测试回答" {
+	if answerText != "这是一条用于端到端测试的完整回答内容并包含有效的参考来源" {
 		t.Fatalf("answer_text=%q", answerText)
 	}
 	if referenceCount != 2 {
@@ -3909,7 +3916,7 @@ func resultWorkbookForItem(t *testing.T, itemID string) []byte {
 	sheet := "AI回答"
 	book.SetSheetName("Sheet1", sheet)
 	_ = book.SetSheetRow(sheet, "A1", &[]any{"itemId", "问题", "平台", "深度思考过程", "AI回答", "AI生成时间", "推荐问题", "设备ID", "录屏url"})
-	_ = book.SetSheetRow(sheet, "A2", &[]any{itemID, "请评价某产品的优缺点", "yuanbao", "这是一段思考过程", "这是一条 E2E 测试回答", "2026年07月23日18:13", "推荐追问一, 推荐追问二", "device-e2e", "https://example.com/recording"})
+	_ = book.SetSheetRow(sheet, "A2", &[]any{itemID, "请评价某产品的优缺点", "yuanbao", "这是一段思考过程", "这是一条用于端到端测试的完整回答内容并包含有效的参考来源", "2026年07月23日18:13", "推荐追问一, 推荐追问二", "device-e2e", "https://example.com/recording"})
 	sourceSheet := "溯源信息"
 	_, _ = book.NewSheet(sourceSheet)
 	_ = book.SetSheetRow(sourceSheet, "A1", &[]any{"itemId", "url", "标题", "内容", "发布日期", "网站名称", "网站权威性等级", "网站分类", "作者", "作者分类", "作者身份类型"})
@@ -4047,41 +4054,6 @@ func cleanupTaskDataByBatchNo(t *testing.T, db *pgxpool.Pool, batchNo string) {
 			t.Logf("cleanup task data for batch %s failed: %v", batchNo, err)
 		}
 	}
-}
-
-func loadProductionDispatchRequest(t *testing.T, path string) ([]biz.TaskItem, json.RawMessage) {
-	t.Helper()
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var request struct {
-		Items []struct {
-			ItemID       string `json:"itemId"`
-			PlatformCode string `json:"platformCode"`
-			Seq          int    `json:"seq"`
-			Question     string `json:"question"`
-			Deepthink    bool   `json:"deepthink"`
-			WebSearch    bool   `json:"webSearch"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(body, &request); err != nil {
-		t.Fatal(err)
-	}
-	items := make([]biz.TaskItem, 0, len(request.Items))
-	for _, item := range request.Items {
-		rawItem, _ := json.Marshal(item)
-		items = append(items, biz.TaskItem{
-			ItemID:       item.ItemID,
-			PlatformCode: item.PlatformCode,
-			Seq:          item.Seq,
-			Question:     item.Question,
-			Deepthink:    item.Deepthink,
-			WebSearch:    item.WebSearch,
-			RawItem:      rawItem,
-		})
-	}
-	return items, json.RawMessage(body)
 }
 
 func assertDispatchOnlyTask(t *testing.T, ctx context.Context, db *pgxpool.Pool, taskID int64, wantRuleCode string, wantLabel string) {

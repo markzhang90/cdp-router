@@ -16,14 +16,19 @@ const (
 )
 
 type Config struct {
-	Server        ServerConfig
-	Postgres      PostgresConfig
-	Redis         RedisConfig
-	OSS           OSSConfig
-	Provider      map[string]ProviderConfig
-	PlatformUsers map[string]PlatformUserConfig
-	Callback      CallbackConfig
-	Admin         AdminConfig
+	ResultValidation ResultValidationConfig
+	Server           ServerConfig
+	Postgres         PostgresConfig
+	Redis            RedisConfig
+	OSS              OSSConfig
+	Provider         map[string]ProviderConfig
+	PlatformUsers    map[string]PlatformUserConfig
+	Callback         CallbackConfig
+	Admin            AdminConfig
+}
+
+type ResultValidationConfig struct {
+	KeywordRefreshInterval time.Duration
 }
 
 type ServerConfig struct {
@@ -183,6 +188,21 @@ func Load(path string) (*Config, error) {
 		Provider:      map[string]ProviderConfig{},
 		PlatformUsers: map[string]PlatformUserConfig{},
 	}
+
+	validation := f.Section("result_validation")
+	for _, key := range validation.Keys() {
+		if key.Name() != "keyword_refresh_interval_seconds" {
+			return nil, fmt.Errorf("unknown result_validation field %s", key.Name())
+		}
+	}
+	seconds := 60
+	if validation.HasKey("keyword_refresh_interval_seconds") {
+		seconds, err = validation.Key("keyword_refresh_interval_seconds").Int()
+	}
+	if err != nil || seconds <= 0 || int64(seconds) > int64((1<<63-1)/time.Second) {
+		return nil, fmt.Errorf("result_validation.keyword_refresh_interval_seconds must be positive")
+	}
+	cfg.ResultValidation.KeywordRefreshInterval = time.Duration(seconds) * time.Second
 
 	server := f.Section("server")
 	cfg.Server = ServerConfig{

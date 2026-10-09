@@ -4,6 +4,8 @@ import type { ColumnsType } from "antd/es/table";
 import { AlertTriangle, ArrowLeft, Download, ExternalLink, RefreshCw, RotateCcw, Send, Trash2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { checkTaskResult, deleteTask, exportTaskItemsXlsx, forceImportCallback, getTaskDetail, retryTaskCallback } from "../api/client";
+import { getStoredUser } from "../api/session";
+import { AnswerRiskTags, TaskRiskSummary } from "../components/AnswerRiskTags";
 import { JsonBlock } from "../components/JsonBlock";
 import { PageHeader } from "../components/PageHeader";
 import { ResultStatusTag, TaskStatusTag } from "../components/StatusTag";
@@ -21,6 +23,8 @@ export function TaskDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [retryingCallback, setRetryingCallback] = useState(false);
+  const [forcingRiskCallback, setForcingRiskCallback] = useState(false);
+  const canWrite = ["admin", "operator"].includes(getStoredUser()?.role || "");
   const [forcingImportCallback, setForcingImportCallback] = useState(false);
   const [detail, setDetail] = useState<TaskDetailData | null>(null);
   const [sourceTask, setSourceTask] = useState<TaskSummary | null>(null);
@@ -163,7 +167,7 @@ export function TaskDetailPage() {
           <Alert
             type="error"
             showIcon
-            message="此操作会重新导入供应商当前文件，然后不管供应商是否已全部结束，直接按当前进度向上游提交结果。"
+            message="此操作只导入新文件或失败文件，已成功文件会跳过；结果存在风险时不会发送。无风险时按当前进度提交。"
           />
           <Typography.Text>
             回调只包含当前 parse_status=SUCCESS 的结果；未完成、失败或空答案 item 不会返回给上游。
@@ -181,7 +185,7 @@ export function TaskDetailPage() {
         try {
           const data = await forceImportCallback(taskId);
           if (data.rejected) {
-            message.warning("无有效成功结果，已拒绝回调");
+            message.warning("结果存在风险、尚未校验或没有成功结果，已拒绝回调；请完成导入后查看风险提示。");
           } else if (data.delivered) {
             message.success(
               `强制回调已发送：成功 ${data.successCount}，未完成 ${data.unfinishedCount}${data.partial ? "（部分结果）" : ""}`
@@ -259,6 +263,7 @@ export function TaskDetailPage() {
         width: 120,
         render: (status: string) => <ResultStatusTag status={status} />
       },
+      { title: "质量校验", key: "validation", width: 190, render: (_, item) => <AnswerRiskTags item={item} /> },
       {
         title: "回答",
         dataIndex: "answerText",
@@ -390,6 +395,24 @@ export function TaskDetailPage() {
     );
   }
 
+  const handleForceRiskCallback = () => {
+    if (!detail) return;
+    Modal.confirm({
+      title: "确认忽略本次风险并回调上游？",
+      content: <Space direction="vertical"><TaskRiskSummary task={detail.task} /><Typography.Text>将发送当前已导入结果，保留风险标记。不会重新导入或剔除风险回答；发送失败后需再次手动操作。</Typography.Text></Space>,
+      okText: "强制回调", okButtonProps: { danger: true },
+      onOk: async () => {
+        setForcingRiskCallback(true);
+        try {
+          const result = await retryTaskCallback(taskId, false, true);
+          message[result.delivered ? "success" : "warning"](result.delivered ? "强制回调成功" : result.reason || "回调未成功，请查看回调记录");
+          await load();
+        } catch (error) { message.error(error instanceof Error ? error.message : "强制回调失败"); }
+        finally { setForcingRiskCallback(false); }
+      }
+    });
+  };
+
   const task = detail?.task;
   const renderRelatedBatchNo = (relatedTask: TaskSummary | null, relatedTaskId: number) => {
     if (!relatedTaskId) return "-";
@@ -413,7 +436,7 @@ export function TaskDetailPage() {
             <Button icon={<RefreshCw size={16} />} onClick={() => load()}>
               刷新
             </Button>
-            <Button icon={<Send size={16} />} loading={retryingCallback} onClick={handleRetryCallback}>
+            <Button icon={<Send size={16} />} loading={retryingCallback} disabled={!canWrite} onClick={handleRetryCallback}>
               重新回调
             </Button>
             <Button
@@ -421,6 +444,7 @@ export function TaskDetailPage() {
               type="primary"
               icon={<AlertTriangle size={16} />}
               loading={forcingImportCallback}
+              disabled={!canWrite}
               onClick={handleForceImportCallback}
             >
               强制导入回调
@@ -436,6 +460,11 @@ export function TaskDetailPage() {
           </Space>
         }
       />
+      {task && task.riskCount > 0 && <Alert className="task-risk-alert" type="warning" showIcon
+        message={task.status === "DONE" ? "任务已回调，结果风险标记保留" : "结果存在风险，回调遵循供应商风险拦截配置"}
+        description={<TaskRiskSummary task={task} />}
+        action={canWrite && <Button danger icon={<Send size={16} />} loading={forcingRiskCallback} disabled={!task.riskStatsUpdatedAt || checking || forcingImportCallback || task.status === "REASSIGNED"} onClick={handleForceRiskCallback}>强制回调</Button>}
+      />}
       <div className="detail-summary">
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 4 }} size="small">
           <Descriptions.Item label="任务名称">
@@ -485,6 +514,7 @@ export function TaskDetailPage() {
               "-"
             )}
           </Descriptions.Item>
+          <Descriptions.Item label="内容校验">{task ? <TaskRiskSummary task={task} /> : "—"}</Descriptions.Item>
           <Descriptions.Item label="执行耗时">{compactText(task?.executionDurationText ?? "")}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{formatFullDateTime(task?.createdAt ?? "")}</Descriptions.Item>
           <Descriptions.Item label="更新时间">{formatFullDateTime(task?.updatedAt ?? "")}</Descriptions.Item>
@@ -523,6 +553,10 @@ export function TaskDetailPage() {
                   expandedRowRender: (item) => (
                     <div className="item-expanded">
                       <div>
+                        <h3>质量校验</h3>
+                        <AnswerRiskTags item={item} />
+                        <div className="answer-risk-details">{item.riskItems?.map((risk) => <p key={risk.code}>{risk.message}{risk.code === "ANSWER_TOO_SHORT" ? `：${risk.actualLength} / ${risk.minLength} 字` : ""}{risk.matchedKeywords?.length ? `：${risk.matchedKeywords.join("、")}` : ""}</p>)}</div>
+                        <Typography.Text type="secondary">规则版本 {item.validationRuleVersion || "—"} · {formatFullDateTime(item.validatedAt || "")}</Typography.Text>
                         <h3>回答内容</h3>
                         <Typography.Paragraph>{compactText(item.answerText)}</Typography.Paragraph>
                       </div>

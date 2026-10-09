@@ -55,3 +55,10 @@ cdp-router/web/admin/dist/
 /*.xlsx
 /*.xls
 /*.csv
+
+# Local documentation and generated outputs
+/docs/
+/outputs/
+
+# Local exports may contain credentials and signed download URLs.
+/exports/

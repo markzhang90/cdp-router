@@ -88,7 +88,7 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 	if questionCount <= 0 {
 		return nil, biz.ErrInvalidTaskRequest
 	}
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (r *TaskRepo) CreateReassignedTask(ctx context.Context, input biz.ReassignT
 	if strings.TrimSpace(input.SourceBatchNo) == "" || strings.TrimSpace(input.TargetBatchNo) == "" || strings.TrimSpace(input.ProviderCode) == "" {
 		return nil, biz.ErrInvalidTaskRequest
 	}
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +203,25 @@ func (r *TaskRepo) CreateReassignedTask(ctx context.Context, input biz.ReassignT
 	}
 	if source.Status == biz.TaskStatusCallbackPending || source.Status == biz.TaskStatusDone || source.Status == biz.TaskStatusReassigned {
 		return nil, biz.ErrTaskClosed
+	}
+	if source.ReassignedFromTaskID > 0 {
+		return nil, biz.ErrTaskClosed
+	}
+	var existingTargetID int64
+	err = tx.QueryRow(ctx, `
+select id
+from cdp_tasks
+where reassigned_from_task_id=$1
+  and deleted_at is null
+  and status <> $2
+order by created_at desc, id desc
+limit 1
+	`, source.ID, biz.TaskStatusFailed).Scan(&existingTargetID)
+	if err == nil {
+		return nil, biz.ErrTaskClosed
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
 	}
 	if source.ProviderCode == input.ProviderCode {
 		return nil, fmt.Errorf("%w: target provider must differ from source provider", biz.ErrInvalidTaskRequest)
@@ -308,7 +327,7 @@ func reassignCallbackExternalBatchID(source *biz.Task) string {
 }
 
 func (r *TaskRepo) MarkTaskReassigned(ctx context.Context, sourceTaskID, targetTaskID int64, payload any) error {
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -337,7 +356,7 @@ func (r *TaskRepo) MarkTaskReassigned(ctx context.Context, sourceTaskID, targetT
 }
 
 func (r *TaskRepo) PrepareTaskForSubmit(ctx context.Context, taskID int64, providerSettings []biz.ProviderSettings, providerCallbackBaseURL string) (*biz.Task, error) {
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -896,15 +915,27 @@ func taskDispatchPayload(task biz.Task, decision taskDispatchDecision) json.RawM
 }
 
 func (r *TaskRepo) GetTask(ctx context.Context, id int64) (*biz.Task, error) {
-	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where id=$1 and deleted_at is null`, id))
+	task, err := r.scanTask(r.dbFor(ctx).QueryRow(ctx, taskSelectSQL()+` where id=$1 and deleted_at is null`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, biz.ErrTaskNotFound
 	}
 	return task, err
 }
 
+// GetTaskResultPayload loads the retained full result only when explicitly needed.
+// Normal task reads intentionally leave Task.ResultPayload unset.
+func (r *TaskRepo) GetTaskResultPayload(ctx context.Context, id int64) (json.RawMessage, error) {
+	var payload json.RawMessage
+	err := r.dbFor(ctx).QueryRow(ctx, `select coalesce(result_payload, '{}'::jsonb)
+from cdp_tasks where id=$1 and deleted_at is null`, id).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, biz.ErrTaskNotFound
+	}
+	return payload, err
+}
+
 func (r *TaskRepo) GetTaskByJobID(ctx context.Context, jobID string, platformUserID int64) (*biz.Task, error) {
-	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where job_id=$1 and platform_user_id=$2 and deleted_at is null`, jobID, platformUserID))
+	task, err := r.scanTask(r.dbFor(ctx).QueryRow(ctx, taskSelectSQL()+` where job_id=$1 and platform_user_id=$2 and deleted_at is null`, jobID, platformUserID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, biz.ErrTaskNotFound
 	}
@@ -912,7 +943,7 @@ func (r *TaskRepo) GetTaskByJobID(ctx context.Context, jobID string, platformUse
 		return nil, err
 	}
 	if task.Status == biz.TaskStatusReassigned {
-		reassigned, reassignErr := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+`
+		reassigned, reassignErr := r.scanTask(r.dbFor(ctx).QueryRow(ctx, taskSelectSQL()+`
 where reassigned_from_task_id=$1
   and platform_user_id=$2
   and deleted_at is null
@@ -930,7 +961,7 @@ limit 1
 }
 
 func (r *TaskRepo) GetTaskByBatchNo(ctx context.Context, batchNo string) (*biz.Task, error) {
-	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where batch_no=$1 and deleted_at is null`, batchNo))
+	task, err := r.scanTask(r.dbFor(ctx).QueryRow(ctx, taskSelectSQL()+` where batch_no=$1 and deleted_at is null`, batchNo))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, biz.ErrTaskNotFound
 	}
@@ -938,7 +969,7 @@ func (r *TaskRepo) GetTaskByBatchNo(ctx context.Context, batchNo string) (*biz.T
 }
 
 func (r *TaskRepo) ResolveProviderTask(ctx context.Context, providerCode, batchNo string) (*biz.Task, error) {
-	task, err := r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+`
+	task, err := r.scanTask(r.dbFor(ctx).QueryRow(ctx, taskSelectSQL()+`
 where id=(
   select child.id
   from cdp_tasks child
@@ -958,7 +989,7 @@ where id=(
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	task, err = r.scanTask(r.db.QueryRow(ctx, taskSelectSQL()+` where provider_code=$1 and batch_no=$2 and deleted_at is null`, providerCode, batchNo))
+	task, err = r.scanTask(r.dbFor(ctx).QueryRow(ctx, taskSelectSQL()+` where provider_code=$1 and batch_no=$2 and deleted_at is null`, providerCode, batchNo))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, biz.ErrTaskNotFound
 	}
@@ -972,7 +1003,7 @@ where id=(
 }
 
 func (r *TaskRepo) ListTasksByStatus(ctx context.Context, status biz.TaskStatus, limit int) ([]*biz.Task, error) {
-	rows, err := r.db.Query(ctx, taskSelectSQL()+` where status=$1 and deleted_at is null order by created_at asc limit $2`, status, limit)
+	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+` where status=$1 and deleted_at is null and ($1<>'CALLBACK_PENDING' or ((risk_count=0 or provider_code=any($3::text[])) and risk_stats_updated_at is not null)) order by created_at asc limit $2`, status, limit, biz.RiskCallbackProviderCodes(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -989,13 +1020,14 @@ func (r *TaskRepo) ListTasksByStatus(ctx context.Context, status biz.TaskStatus,
 }
 
 func (r *TaskRepo) ListResultImportedTasksWithProviderCallback(ctx context.Context, limit int) ([]*biz.Task, error) {
-	rows, err := r.db.Query(ctx, taskSelectSQL()+`
+	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+`
 where status=$1
+  and (risk_count=0 or provider_code=any($3::text[])) and risk_stats_updated_at is not null
   and coalesce(provider_response, '{}'::jsonb) ? 'providerCallback'
   and deleted_at is null
 order by coalesce(result_imported_at, updated_at) asc, id asc
 limit $2
-`, biz.TaskStatusResultImported, limit)
+`, biz.TaskStatusResultImported, limit, biz.RiskCallbackProviderCodes(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1012,7 +1044,7 @@ limit $2
 }
 
 func (r *TaskRepo) ListSubmittedTasksForProgress(ctx context.Context, limit int, submittedBefore time.Time) ([]*biz.Task, error) {
-	rows, err := r.db.Query(ctx, taskSelectSQL()+`
+	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+`
 where status=$1
   and provider_external_batch_id is not null
   and deleted_at is null
@@ -1037,14 +1069,14 @@ limit $3
 
 func (r *TaskRepo) CountTaskItems(ctx context.Context, taskID int64) (int, error) {
 	var count int
-	if err := r.db.QueryRow(ctx, `select count(*)::int from cdp_task_items where task_id=$1`, taskID).Scan(&count); err != nil {
+	if err := r.dbFor(ctx).QueryRow(ctx, `select count(*)::int from cdp_task_items where task_id=$1`, taskID).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
 }
 
 func (r *TaskRepo) ListTaskItems(ctx context.Context, taskID int64) ([]biz.TaskItem, error) {
-	rows, err := r.db.Query(ctx, `
+	rows, err := r.dbFor(ctx).Query(ctx, `
 select item_id, platform_code, seq, question, deepthink, web_search, raw_item
 from cdp_task_items
 where task_id=$1
@@ -1067,7 +1099,7 @@ order by id asc
 }
 
 func (r *TaskRepo) ListTaskItemResults(ctx context.Context, taskID int64) ([]biz.TaskItemResultView, error) {
-	rows, err := r.db.Query(ctx, `
+	rows, err := r.dbFor(ctx).Query(ctx, `
 with item_bounds as (
   select ti.*, greatest(coalesce(max(tir.seq), 0), 1) as expected_count
   from cdp_task_items ti
@@ -1102,7 +1134,7 @@ select
 	  coalesce(tir.references_json,'[]'::jsonb),
 	  coalesce(tir.reference_count,0),
 	  coalesce(tir.parse_status,''),
-  coalesce(tir.parse_error,'')
+  coalesce(tir.parse_error,''),coalesce(tir.validation_status,'UNKNOWN'),coalesce(tir.risk_items,'[]'::jsonb),coalesce(tir.validation_rule_version,''),tir.validated_at
 from expanded ti
 left join cdp_task_item_results tir on tir.task_item_id=ti.id and tir.seq=ti.result_seq
 order by ti.id asc, ti.result_seq asc
@@ -1115,15 +1147,22 @@ order by ti.id asc, ti.result_seq asc
 	var results []biz.TaskItemResultView
 	for rows.Next() {
 		var item biz.TaskItemResultView
-		var generatedAt *time.Time
+		var generatedAt, validatedAt *time.Time
+		var riskJSON []byte
 		if err := rows.Scan(&item.ItemID, &item.PlatformCode, &item.Seq, &item.Question, &item.ProviderStatus,
 			&item.ResultStatus, &item.AnswerText, &item.ThinkingProcess, &generatedAt, &item.GeneratedAtText,
 			&item.RecommendedQuestions, &item.DeviceID, &item.RecordingURL, &item.ReferencesJSON, &item.ReferenceCount,
-			&item.ParseStatus, &item.ParseError); err != nil {
+			&item.ParseStatus, &item.ParseError, &item.AnswerValidation.Status, &riskJSON, &item.RuleVersion, &validatedAt); err != nil {
 			return nil, err
 		}
 		if generatedAt != nil {
 			item.GeneratedAt = *generatedAt
+		}
+		if err := json.Unmarshal(riskJSON, &item.RiskItems); err != nil {
+			return nil, err
+		}
+		if validatedAt != nil {
+			item.ValidatedAt = *validatedAt
 		}
 		results = append(results, item)
 	}
@@ -1133,44 +1172,16 @@ order by ti.id asc, ti.result_seq asc
 func (r *TaskRepo) GetCallbackReadiness(ctx context.Context, taskID int64) (biz.CallbackReadiness, error) {
 	var readiness biz.CallbackReadiness
 	var status string
-	if err := r.db.QueryRow(ctx, `
-with stats as (
-  select
-    t.status,
-    coalesce(nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int, 0) as provider_total_count,
-    count(ti.id)::int as task_item_count,
-    count(ti.id) filter (where ti.result_status='IMPORTED')::int as imported_count,
-    count(ti.id) filter (
-      where exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-    )::int as success_count,
-    count(ti.id) filter (
-      where not exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-      and exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status <> 'SUCCESS'
-      )
-    )::int as failed_count
-	  from cdp_tasks t
-	  left join cdp_task_items ti on ti.task_id=t.id
-	  where t.id=$1
-	    and t.deleted_at is null
-	  group by t.id
-)
-select
-  status,
-  provider_total_count,
-  task_item_count,
-  imported_count,
-  success_count,
-  failed_count
-from stats
-	`, taskID).Scan(&status, &readiness.ProviderTotal, &readiness.TaskItemCount, &readiness.ImportedCount, &readiness.SuccessCount, &readiness.FailedCount); err != nil {
+	if err := r.dbFor(ctx).QueryRow(ctx, `
+select t.status,
+  coalesce(nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int, 0),
+  stats.item_count, stats.imported_count, stats.result_success_count, stats.result_failed_count, t.risk_count,t.risk_stats_updated_at is not null
+from cdp_tasks t
+cross join lateral (
+`+taskItemStatsSQL("t.id")+`
+) stats
+where t.id=$1 and t.deleted_at is null
+	`, taskID).Scan(&status, &readiness.ProviderTotal, &readiness.TaskItemCount, &readiness.ImportedCount, &readiness.SuccessCount, &readiness.FailedCount, &readiness.RiskCount, &readiness.RiskStatsReady); err != nil {
 		return biz.CallbackReadiness{}, err
 	}
 	readiness.TotalCount = readiness.TaskItemCount
@@ -1191,12 +1202,11 @@ from stats
 }
 
 func (r *TaskRepo) ListTaskResultFiles(ctx context.Context, taskID int64) ([]biz.CallbackResultFile, error) {
-	rows, err := r.db.Query(ctx, `
+	rows, err := r.dbFor(ctx).Query(ctx, `
 select source_type, coalesce(object_key,''), coalesce(file_url,''), coalesce(file_name,'')
 from cdp_task_result_files
 where task_id=$1 and parse_status='SUCCESS'
 order by created_at desc, id desc
-limit 20
 `, taskID)
 	if err != nil {
 		return nil, err
@@ -1215,7 +1225,7 @@ limit 20
 }
 
 func (r *TaskRepo) ListUploadedResultFiles(ctx context.Context, taskID int64, includeImported bool) ([]biz.ResultFileInput, error) {
-	rows, err := r.db.Query(ctx, `
+	rows, err := r.dbFor(ctx).Query(ctx, `
 select source_type, coalesce(object_key,''), coalesce(file_name,''), coalesce(external_batch_id,''), parse_status
 from cdp_task_result_files
 where task_id=$1
@@ -1241,7 +1251,7 @@ order by created_at asc, id asc
 }
 
 func (r *TaskRepo) ListPendingResultFiles(ctx context.Context, taskID int64) ([]biz.ResultFileInput, error) {
-	rows, err := r.db.Query(ctx, `
+	rows, err := r.dbFor(ctx).Query(ctx, `
 select source_type, coalesce(object_key,''), coalesce(file_url,''), coalesce(file_name,''), coalesce(external_batch_id,''), parse_status
 from cdp_task_result_files
 where task_id=$1
@@ -1266,12 +1276,12 @@ order by created_at asc, id asc
 
 func (r *TaskRepo) CountSuccessfulResultFiles(ctx context.Context, taskID int64) (int, error) {
 	var count int
-	err := r.db.QueryRow(ctx, `select count(*) from cdp_task_result_files where task_id=$1 and parse_status='SUCCESS'`, taskID).Scan(&count)
+	err := r.dbFor(ctx).QueryRow(ctx, `select count(*) from cdp_task_result_files where task_id=$1 and parse_status='SUCCESS'`, taskID).Scan(&count)
 	return count, err
 }
 
 func (r *TaskRepo) MarkSubmitted(ctx context.Context, taskID int64, providerRequest json.RawMessage, result biz.SubmitResult) error {
-	_, err := r.db.Exec(ctx, `
+	_, err := r.dbFor(ctx).Exec(ctx, `
 update cdp_tasks
 set status=$2,
   provider_request=$3,
@@ -1287,12 +1297,12 @@ where id=$1
 }
 
 func (r *TaskRepo) MarkSubmitFailed(ctx context.Context, taskID int64, errMessage string) error {
-	_, err := r.db.Exec(ctx, `update cdp_tasks set status=$2,last_error=$3,updated_at=now() where id=$1`, taskID, biz.TaskStatusFailed, errMessage)
+	_, err := r.dbFor(ctx).Exec(ctx, `update cdp_tasks set status=$2,last_error=$3,updated_at=now() where id=$1`, taskID, biz.TaskStatusFailed, errMessage)
 	return err
 }
 
 func (r *TaskRepo) FailSubmittedOlderThan(ctx context.Context, cutoff time.Time, errMessage string, limit int) (int, error) {
-	rows, err := r.db.Query(ctx, `
+	rows, err := r.dbFor(ctx).Query(ctx, `
 with picked as (
   select id
   from cdp_tasks
@@ -1333,7 +1343,10 @@ select task_id from events
 }
 
 func (r *TaskRepo) SaveUploadObjectKey(ctx context.Context, taskID int64, key string, fileName string) error {
-	tx, err := r.db.Begin(ctx)
+	if !taskLocked(ctx, taskID) {
+		return r.WithTaskLock(ctx, taskID, func(ctx context.Context) error { return r.SaveUploadObjectKey(ctx, taskID, key, fileName) })
+	}
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -1361,6 +1374,9 @@ on conflict (batch_no, object_key) where object_key is not null do update set
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set risk_stats_updated_at=null where id=$1 and risk_stats_updated_at is not null and exists(select 1 from cdp_task_result_files where task_id=$1 and parse_status<>'SUCCESS')`, taskID); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -1383,7 +1399,7 @@ func (r *TaskRepo) MarkProviderCallback(ctx context.Context, input biz.ProviderC
 	if len(rawRequest) == 0 {
 		rawRequest = json.RawMessage(`{}`)
 	}
-	_, err = r.db.Exec(ctx, `
+	_, err = r.dbFor(ctx).Exec(ctx, `
 with item_counts as (
   select
     cdp_tasks.id as task_id,
@@ -1446,7 +1462,7 @@ func (r *TaskRepo) MarkProviderCallbackProgress(ctx context.Context, input biz.P
 	if len(rawRequest) == 0 {
 		rawRequest = json.RawMessage(`{}`)
 	}
-	_, err = r.db.Exec(ctx, `
+	_, err = r.dbFor(ctx).Exec(ctx, `
 update cdp_tasks
 set provider_external_batch_id=coalesce(nullif($2,''), provider_external_batch_id),
   provider_response=coalesce(provider_response, '{}'::jsonb) || jsonb_build_object(
@@ -1499,7 +1515,7 @@ func taskBatchNoForProvider(task *biz.Task) string {
 }
 
 func (r *TaskRepo) MarkProviderStatus(ctx context.Context, taskID int64, result biz.ProviderStatusResult) error {
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -1510,6 +1526,7 @@ func (r *TaskRepo) MarkProviderStatus(ctx context.Context, taskID int64, result 
 	update cdp_task_items
 set question_id=$3, status=$4, updated_at=now()
 where task_id=$1 and (item_id=$2 or question_id=$2)
+  and (question_id, status) is distinct from ($3::varchar, $4::int)
 `, taskID, question.QuestionID, question.QuestionID, question.Status)
 		if err != nil {
 			return err
@@ -1564,10 +1581,13 @@ where id=$1
 }
 
 func (r *TaskRepo) UpsertPendingResultFiles(ctx context.Context, taskID int64, files []biz.ResultFileInput) error {
+	if !taskLocked(ctx, taskID) {
+		return r.WithTaskLock(ctx, taskID, func(ctx context.Context) error { return r.UpsertPendingResultFiles(ctx, taskID, files) })
+	}
 	if len(files) == 0 {
 		return nil
 	}
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -1638,10 +1658,16 @@ on conflict (batch_no, file_url) where file_url is not null do update set
 			return err
 		}
 	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set risk_stats_updated_at=null where id=$1 and risk_stats_updated_at is not null and exists(select 1 from cdp_task_result_files where task_id=$1 and parse_status<>'SUCCESS')`, taskID); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
 func (r *TaskRepo) MarkResultFileFailed(ctx context.Context, taskID int64, file biz.ResultFileInput, errMessage string) error {
+	if !taskLocked(ctx, taskID) {
+		return r.WithTaskLock(ctx, taskID, func(ctx context.Context) error { return r.MarkResultFileFailed(ctx, taskID, file, errMessage) })
+	}
 	task, err := r.GetTask(ctx, taskID)
 	if err != nil {
 		return err
@@ -1651,7 +1677,7 @@ func (r *TaskRepo) MarkResultFileFailed(ctx context.Context, taskID int64, file 
 		file.ExternalBatchID = task.ProviderExternalBatchID
 	}
 	if file.ObjectKey != "" {
-		_, err = r.db.Exec(ctx, `
+		_, err = r.dbFor(ctx).Exec(ctx, `
 insert into cdp_task_result_files (
   task_id,batch_no,external_batch_id,source_type,object_key,file_name,parse_status,last_error,fetched_at
 ) values ($1,$2,$3,$4,$5,$6,'FAILED',$7,now())
@@ -1663,7 +1689,7 @@ on conflict (batch_no, object_key) where object_key is not null do update set
 		return err
 	}
 	if file.FileURL != "" {
-		_, err = r.db.Exec(ctx, `
+		_, err = r.dbFor(ctx).Exec(ctx, `
 insert into cdp_task_result_files (
   task_id,batch_no,external_batch_id,source_type,file_url,file_name,parse_status,last_error,fetched_at
 ) values ($1,$2,$3,$4,$5,$6,'FAILED',$7,now())
@@ -1678,7 +1704,10 @@ on conflict (batch_no, file_url) where file_url is not null do update set
 }
 
 func (r *TaskRepo) MarkResultImported(ctx context.Context, taskID int64, file biz.ResultFileInput, result biz.ParsedResult) error {
-	tx, err := r.db.Begin(ctx)
+	if !taskLocked(ctx, taskID) {
+		return r.WithTaskLock(ctx, taskID, func(ctx context.Context) error { return r.MarkResultImported(ctx, taskID, file, result) })
+	}
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -1687,6 +1716,13 @@ func (r *TaskRepo) MarkResultImported(ctx context.Context, taskID int64, file bi
 	task, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where id=$1 for update`, taskID))
 	if err != nil {
 		return err
+	}
+	var imported bool
+	if err := tx.QueryRow(ctx, `select exists(select 1 from cdp_task_result_files where task_id=$1 and parse_status='SUCCESS' and (($2<>'' and object_key=$2) or ($2='' and $3<>'' and file_url=$3)))`, taskID, file.ObjectKey, file.FileURL).Scan(&imported); err != nil {
+		return err
+	}
+	if imported {
+		return nil
 	}
 	batchNo := taskBatchNoForProvider(task)
 	if file.ExternalBatchID == "" {
@@ -1769,6 +1805,16 @@ on conflict (result_file_id, sheet_name, row_index) do update set
 		}
 	}
 	for _, itemResult := range result.ItemResults {
+		if itemResult.Status == "" {
+			itemResult.Status = biz.ValidationUnknown
+		}
+		if itemResult.RiskItems == nil {
+			itemResult.RiskItems = []biz.AnswerRisk{}
+		}
+		riskJSON, marshalErr := json.Marshal(itemResult.RiskItems)
+		if marshalErr != nil {
+			return marshalErr
+		}
 		var taskItemID int64
 		err := tx.QueryRow(ctx, `
 select id from cdp_task_items
@@ -1789,15 +1835,15 @@ where task_id=$1 and item_id=$2
 		if len(itemResult.CleanedPayload) == 0 {
 			itemResult.CleanedPayload = json.RawMessage(`{}`)
 		}
-		_, err = tx.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 insert into cdp_task_item_results (
   task_id,task_item_id,batch_no,item_id,seq,platform_code,question,answer_text,thinking_process,
 	  generated_at,generated_at_text,recommended_questions,device_id,recording_url,references_json,
-	  cleaned_payload,parse_status,parse_error,result_file_id,answer_sheet_row_index,reference_count,row_hash
+	  cleaned_payload,parse_status,parse_error,result_file_id,answer_sheet_row_index,reference_count,row_hash,validation_status,risk_items,validation_rule_version,validated_at
 	) values (
 	  $1,$2,$3,$4,$5,$6,$7,$8,$9,
 	  $10,$11,$12,$13,$14,$15,
-	  $16,$17,$18,$19,$20,$21,$22
+	  $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
 	)
 on conflict (task_item_id, seq) do update set
 	  batch_no=excluded.batch_no,
@@ -1819,15 +1865,23 @@ on conflict (task_item_id, seq) do update set
   answer_sheet_row_index=excluded.answer_sheet_row_index,
 	  reference_count=excluded.reference_count,
 	  row_hash=excluded.row_hash,
+ validation_status=excluded.validation_status, risk_items=excluded.risk_items,
+ validation_rule_version=excluded.validation_rule_version,validated_at=excluded.validated_at,
 	  updated_at=now()
+where excluded.result_file_id >= cdp_task_item_results.result_file_id
 	`, taskID, taskItemID, batchNo, itemResult.ItemID, resultSeq(itemResult.Seq), nullableString(itemResult.PlatformCode),
 			nullableString(itemResult.Question), nullableString(itemResult.AnswerText), nullableString(itemResult.ThinkingProcess),
 			nullableTime(itemResult.GeneratedAt), nullableString(itemResult.GeneratedAtText), itemResult.RecommendedQuestions,
 			nullableString(itemResult.DeviceID), nullableString(itemResult.RecordingURL), itemResult.ReferencesJSON,
 			itemResult.CleanedPayload, itemResult.ParseStatus, nullableString(itemResult.ParseError), resultFileID,
-			nullableInt(itemResult.AnswerSheetRowIndex), itemResult.ReferenceCount, nullableString(itemResult.RowHash))
+			nullableInt(itemResult.AnswerSheetRowIndex), itemResult.ReferenceCount, nullableString(itemResult.RowHash), itemResult.Status, riskJSON, itemResult.RuleVersion, nullableTime(itemResult.ValidatedAt))
 		if err != nil {
 			return err
+		}
+		// A failed older file may finish after a newer file. Keep the newer
+		// answer and its item status instead of applying the stale retry.
+		if tag.RowsAffected() == 0 {
+			continue
 		}
 		resultStatus := "IMPORTED"
 		if itemResult.ParseStatus != "" && itemResult.ParseStatus != "SUCCESS" {
@@ -1855,34 +1909,16 @@ where task_id=$1 and item_id=$2
 
 	_, err = tx.Exec(ctx, `
 with item_result_counts as (
-  select
-    count(ti.id)::int as total_count,
-    count(ti.id) filter (
-      where exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-    )::int as success_count,
-    count(ti.id) filter (
-      where not exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-      and exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status <> 'SUCCESS'
-      )
-    )::int as failed_count
-  from cdp_task_items ti
-  where ti.task_id=$1
+`+taskItemStatsSQL("$1")+`
 )
 update cdp_tasks
 set result_payload=$2,
+ risk_stats_updated_at=null,
   result_imported_at=now(),
   result_row_count=(select count(*) from cdp_task_result_rows where task_id=$1),
-  total_count=item_result_counts.total_count,
-  success_count=item_result_counts.success_count,
-  failed_count=item_result_counts.failed_count,
+  total_count=item_result_counts.item_count,
+  success_count=item_result_counts.result_success_count,
+  failed_count=item_result_counts.result_failed_count,
   updated_at=now()
 from item_result_counts
 where id=$1
@@ -1894,126 +1930,95 @@ where id=$1
 }
 
 func (r *TaskRepo) CompleteResultImport(ctx context.Context, taskID int64, notifyCallback bool) (*biz.Task, bool, error) {
-	_, err := r.db.Exec(ctx, `
-with readiness as (
-  select
-    t.id,
-    t.status,
-	    nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int as provider_total_count,
-	    nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int as provider_success_count,
-	    nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int as provider_failed_count,
-	    coalesce(t.provider_response, '{}'::jsonb) ? 'providerCallback' as has_provider_callback,
-	    count(ti.id)::int as item_count,
-    count(ti.id) filter (where ti.result_status='IMPORTED')::int as imported_item_count,
-    count(ti.id) filter (
-      where exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-    )::int as success_count,
-    count(ti.id) filter (
-      where not exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-      and exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status <> 'SUCCESS'
-      )
-    )::int as failed_count
-	  from cdp_tasks t
-	  left join cdp_task_items ti on ti.task_id=t.id
-	  where t.id=$1
-	    and t.deleted_at is null
-	  group by t.id
-),
-decision as (
-  select
-    id,
-    item_count,
-    success_count,
-    failed_count,
-    (
-	      $2
-		      and (status=$3 or (status=$6 and has_provider_callback))
-	      and item_count > 0
-      and imported_item_count = item_count
-      and success_count + failed_count = item_count
-      and coalesce(provider_total_count, item_count) = item_count
-      and coalesce(provider_success_count, success_count) + coalesce(provider_failed_count, failed_count) = coalesce(provider_total_count, item_count)
-    ) as callback_ready
+	if !taskLocked(ctx, taskID) {
+		var task *biz.Task
+		var ready bool
+		err := r.WithTaskLock(ctx, taskID, func(ctx context.Context) error {
+			var err error
+			task, ready, err = r.CompleteResultImport(ctx, taskID, notifyCallback)
+			return err
+		})
+		return task, ready, err
+	}
+	tx, err := r.dbFor(ctx).Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize the decision with result import and task status updates. Reuse
+	// one statistics snapshot for both the transition and callback readiness.
+	task, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where id=$1 and deleted_at is null for update`, taskID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, biz.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if err := aggregateTaskValidation(ctx, tx, taskID); err != nil {
+		return nil, false, err
+	}
+	var nextStatus biz.TaskStatus
+	var total, success, failed int
+	var callbackReady bool
+	err = tx.QueryRow(ctx, `
+with stats as materialized (
+`+taskItemStatsSQL("$1")+`
+), readiness as (
+  select t.status, stats.*,
+    coalesce(t.provider_response, '{}'::jsonb) ? 'providerCallback' as has_provider_callback,
+    ($2 and (t.risk_count=0 or $7) and t.risk_stats_updated_at is not null and item_count > 0 and imported_count=item_count
+      and result_success_count + result_failed_count=item_count
+      and coalesce(nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int, item_count)=item_count
+      and coalesce(nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int, result_success_count)
+        + coalesce(nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int, result_failed_count)
+        = coalesce(nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int, item_count)
+    ) as counts_ready
+  from cdp_tasks t cross join stats where t.id=$1
+), decision as (
+  select *, case
+    when status=$5 then status
+    when status=$4 and counts_ready then status
+    when counts_ready and (status=$3 or (status=$6 and has_provider_callback)) then $4
+    else $6
+  end as next_status
   from readiness
 )
-update cdp_tasks t
-set status=case
-      when t.status in ($4,$5) then t.status
-      when decision.callback_ready then $4
-      else $6
-    end,
-    total_count=decision.item_count,
-	    success_count=decision.success_count,
-	    failed_count=decision.failed_count,
-	    result_imported_at=coalesce(t.result_imported_at, now()),
-	    updated_at=now()
-from decision
-where t.id=decision.id
-		`, taskID, notifyCallback, biz.TaskStatusProviderDone, biz.TaskStatusCallbackPending, biz.TaskStatusDone, biz.TaskStatusResultImported)
+select next_status, item_count, result_success_count, result_failed_count,
+  (counts_ready and next_status=$4)
+from decision`, taskID, notifyCallback, biz.TaskStatusProviderDone, biz.TaskStatusCallbackPending, biz.TaskStatusDone, biz.TaskStatusResultImported, biz.AllowsRiskCallback(ctx, task.ProviderCode)).
+		Scan(&nextStatus, &total, &success, &failed, &callbackReady)
 	if err != nil {
 		return nil, false, err
 	}
-	task, err := r.GetTask(ctx, taskID)
-	if err != nil {
-		return nil, false, err
-	}
-	var callbackReady bool
-	if err := r.db.QueryRow(ctx, `
-	with readiness as (
-	  select
-	    t.status,
-	    nullif(t.provider_response #>> '{providerCallback,totalCount}', '')::int as provider_total_count,
-	    nullif(t.provider_response #>> '{providerCallback,successCount}', '')::int as provider_success_count,
-	    nullif(t.provider_response #>> '{providerCallback,failedCount}', '')::int as provider_failed_count,
-		    count(ti.id)::int as item_count,
-    count(ti.id) filter (where ti.result_status='IMPORTED')::int as imported_item_count,
-    count(ti.id) filter (
-      where exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-    )::int as success_count,
-    count(ti.id) filter (
-      where not exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status='SUCCESS'
-      )
-      and exists (
-        select 1 from cdp_task_item_results tir
-        where tir.task_item_id=ti.id and tir.parse_status <> 'SUCCESS'
-      )
-    )::int as failed_count
-	  from cdp_tasks t
-	  left join cdp_task_items ti on ti.task_id=t.id
-	  where t.id=$1
-	    and t.deleted_at is null
-	  group by t.id
+	var updatedAt time.Time
+	err = tx.QueryRow(ctx, `
+update cdp_tasks
+set status=$2, total_count=$3, success_count=$4, failed_count=$5,
+  result_imported_at=coalesce(result_imported_at, now()), updated_at=now()
+where id=$1 and (
+  (status, total_count, success_count, failed_count) is distinct from ($2::varchar, $3::int, $4::int, $5::int)
+  or result_imported_at is null
 )
-select
-	  $2
-	  and status=$3
-	  and item_count > 0
-  and imported_item_count = item_count
-  and success_count + failed_count = item_count
-  and coalesce(provider_total_count, item_count) = item_count
-  and coalesce(provider_success_count, success_count) + coalesce(provider_failed_count, failed_count) = coalesce(provider_total_count, item_count)
-from readiness
-		`, taskID, notifyCallback, biz.TaskStatusCallbackPending).Scan(&callbackReady); err != nil {
+returning updated_at`, taskID, nextStatus, total, success, failed).Scan(&updatedAt)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, err
+	}
+	if err == nil {
+		task.UpdatedAt = updatedAt
+	}
+	task.Status, task.TotalCount, task.SuccessCount, task.FailedCount = nextStatus, total, success, failed
+	if err := tx.QueryRow(ctx, `select risk_count,invalid_answer_count,risk_summary,risk_stats_updated_at from cdp_tasks where id=$1`, taskID).Scan(&task.RiskCount, &task.InvalidAnswerCount, &task.RiskSummary, &task.RiskStatsUpdatedAt); err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, false, err
 	}
 	return task, callbackReady, nil
 }
 
 func (r *TaskRepo) MarkCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error {
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -2040,7 +2045,7 @@ values ($1,$2,$3,$4,$5,$6)
 }
 
 func (r *TaskRepo) MarkCallbackFailed(ctx context.Context, taskID int64, targetURL string, errMessage string, payload json.RawMessage, maxRetry int) (int, bool, error) {
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return 0, false, err
 	}
@@ -2087,7 +2092,7 @@ where id=$1
 // callback row and bumps cdp_tasks.updated_at. It MUST NOT change task status
 // or callback_sent_at, so that subsequent normal imports/callbacks keep working.
 func (r *TaskRepo) RecordForcedCallbackDone(ctx context.Context, taskID int64, targetURL string, statusCode int, responseBody string, payload json.RawMessage) error {
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -2116,7 +2121,7 @@ values ($1,$2,$3,$4,$5,$6)
 // callback row and bumps cdp_tasks.updated_at. It MUST NOT change task status,
 // callback_sent_at, last_error or retry counters.
 func (r *TaskRepo) RecordForcedCallbackFailed(ctx context.Context, taskID int64, targetURL string, errMessage string, payload json.RawMessage) error {
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.dbFor(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -2145,7 +2150,7 @@ func (r *TaskRepo) AddEvent(ctx context.Context, taskID int64, eventType biz.Eve
 	if err != nil {
 		body = []byte(`{}`)
 	}
-	_, err = r.db.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, taskID, eventType, body)
+	_, err = r.dbFor(ctx).Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, taskID, eventType, body)
 	return err
 }
 
@@ -2159,8 +2164,8 @@ coalesce(gateway_code,''),coalesce(source,''),coalesce(external_batch_id,''),coa
 coalesce(reassigned_from_task_id,0),coalesce(callback_batch_no,''),coalesce(callback_external_batch_id,''),
 coalesce(dispatch_profile_id,0),coalesce(dispatch_profile_code,''),coalesce(dispatch_strategy,''),biz_date,coalesce(quota_date,biz_date),status,
 coalesce(callback_url,''),coalesce(provider_callback_url,''),raw_request,coalesce(provider_request,'{}'::jsonb),
-coalesce(provider_response,'{}'::jsonb),coalesce(result_payload,'{}'::jsonb),coalesce(result_object_key,''),
-coalesce(result_file_name,''),result_row_count,total_count,success_count,failed_count,coalesce(last_error,''),created_at,updated_at from cdp_tasks`
+coalesce(provider_response,'{}'::jsonb),coalesce(result_object_key,''),
+coalesce(result_file_name,''),result_row_count,total_count,success_count,failed_count,coalesce(last_error,''),created_at,updated_at,risk_count,invalid_answer_count,risk_summary,risk_stats_updated_at from cdp_tasks`
 }
 
 func (r *TaskRepo) scanTask(scanner taskScanner) (*biz.Task, error) {
@@ -2170,8 +2175,8 @@ func (r *TaskRepo) scanTask(scanner taskScanner) (*biz.Task, error) {
 		&task.ReassignedFromTaskID, &task.CallbackBatchNo, &task.CallbackExternalBatchID,
 		&task.DispatchProfileID, &task.DispatchProfileCode, &task.DispatchStrategy, &task.BizDate,
 		&task.QuotaDate, &task.Status, &task.CallbackURL, &task.ProviderCallbackURL, &task.RawRequest, &task.ProviderRequest, &task.ProviderResponse,
-		&task.ResultPayload, &task.ResultObjectKey, &task.ResultFileName, &task.ResultRowCount, &task.TotalCount, &task.SuccessCount,
-		&task.FailedCount, &task.LastError, &task.CreatedAt, &task.UpdatedAt); err != nil {
+		&task.ResultObjectKey, &task.ResultFileName, &task.ResultRowCount, &task.TotalCount, &task.SuccessCount,
+		&task.FailedCount, &task.LastError, &task.CreatedAt, &task.UpdatedAt, &task.RiskCount, &task.InvalidAnswerCount, &task.RiskSummary, &task.RiskStatsUpdatedAt); err != nil {
 		return nil, err
 	}
 	return &task, nil

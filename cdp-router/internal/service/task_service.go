@@ -635,7 +635,7 @@ func writeBizError(c *gin.Context, err error) {
 		errorJSON(c, http.StatusServiceUnavailable, err)
 	case errors.Is(err, biz.ErrPlatformUserNotFound), errors.Is(err, biz.ErrPlatformUserDisabled):
 		errorJSON(c, http.StatusUnauthorized, err)
-	case errors.Is(err, biz.ErrPlatformUserConflict):
+	case errors.Is(err, biz.ErrPlatformUserConflict), errors.Is(err, biz.ErrValidationRulesConflict):
 		errorJSON(c, http.StatusConflict, err)
 	case errors.Is(err, biz.ErrInvalidTaskRequest):
 		errorJSON(c, http.StatusBadRequest, err)

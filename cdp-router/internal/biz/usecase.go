@@ -17,6 +17,7 @@ import (
 )
 
 type TaskUsecase struct {
+	validationRules         *ValidationRuleCache
 	repo                    TaskRepo
 	providers               ProviderRegistry
 	providerConfig          ProviderSettingsRepo
@@ -32,6 +33,7 @@ type TaskUsecase struct {
 }
 
 type TaskUsecaseOptions struct {
+	ValidationRules         *ValidationRuleCache
 	PublicBaseURL           string
 	OSSUploadDir            string
 	OSSPublicHosts          []string
@@ -41,11 +43,17 @@ type TaskUsecaseOptions struct {
 }
 
 func NewTaskUsecase(repo TaskRepo, providers ProviderRegistry, providerConfig ProviderSettingsRepo, store ObjectStore, parser ResultParser, callback CallbackClient, opts TaskUsecaseOptions) *TaskUsecase {
+	if opts.ValidationRules == nil {
+		if rulesRepo, ok := repo.(ValidationRuleRepo); ok {
+			opts.ValidationRules = NewValidationRuleCache(rulesRepo, time.Minute)
+		}
+	}
 	retentionDays := opts.TempObjectRetentionDays
 	if retentionDays <= 0 {
 		retentionDays = 7
 	}
 	return &TaskUsecase{
+		validationRules:         opts.ValidationRules,
 		repo:                    repo,
 		providers:               providers,
 		providerConfig:          providerConfig,
@@ -262,6 +270,15 @@ func (u *TaskUsecase) CreateTemporaryDownloadFile(ctx context.Context, fileName 
 
 func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input ProviderCallbackInput) (*Task, error) {
 	receivedTask, lookupErr := u.repo.ResolveProviderTask(ctx, input.ProviderCode, input.BatchNo)
+	if lookupErr == nil && !taskProcessingLocked(ctx, receivedTask.ID) {
+		var task *Task
+		err := u.withTaskLock(ctx, receivedTask.ID, func(ctx context.Context) error {
+			var err error
+			task, err = u.HandleProviderCallback(ctx, input)
+			return err
+		})
+		return task, err
+	}
 	receivedStatus := TaskStatus("")
 	expectedCount := 0
 	importedPendingFiles := 0
@@ -290,6 +307,10 @@ func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input Provider
 		}
 	}
 	if lookupErr == nil && (receivedStatus == TaskStatusResultImported || receivedStatus == TaskStatusCallbackPending || receivedStatus == TaskStatusDone) {
+		if err := u.reconcileProviderCallbackFiles(ctx, receivedTask, input); err != nil {
+			return nil, err
+		}
+
 		task, err := u.repo.MarkProviderCallback(ctx, input)
 		if err != nil {
 			_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
@@ -298,7 +319,7 @@ func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input Provider
 			return nil, err
 		}
 		if importedPendingFiles > 0 {
-			if updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, true); err != nil {
+			if updatedTask, _, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, true); err != nil {
 				_ = u.repo.AddEvent(ctx, receivedTask.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
 					"error": err.Error(),
 				}))
@@ -356,7 +377,7 @@ func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input Provider
 		return nil, err
 	}
 	if importedPendingFiles > 0 {
-		if updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, true); err != nil {
+		if updatedTask, _, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, true); err != nil {
 			_ = u.repo.AddEvent(ctx, task.ID, EventProviderCallbackFail, providerCallbackEventPayload(input, map[string]any{
 				"error": err.Error(),
 			}))
@@ -462,6 +483,10 @@ func (u *TaskUsecase) reconcileProviderCallbackFiles(ctx context.Context, task *
 	payload["externalBatchId"] = completion.Result.ExternalBatchID
 	payload["fileCount"] = len(completion.Result.FileURLs)
 	payload["handled"] = true
+	files, err = u.unimportedResultFiles(ctx, task.ID, files)
+	if err != nil {
+		return err
+	}
 	if err := u.repo.UpsertPendingResultFiles(ctx, task.ID, files); err != nil {
 		return err
 	}
@@ -597,9 +622,30 @@ func (u *TaskUsecase) SubmitPending(ctx context.Context, limit int) error {
 }
 
 func (u *TaskUsecase) ImportPendingResults(ctx context.Context, limit int) error {
+	if err := u.initializeSkippedResults(ctx, limit); err != nil {
+		return err
+	}
 	tasks, err := u.repo.ListTasksByStatus(ctx, TaskStatusProviderDone, limit)
 	if err != nil {
 		return err
+	}
+	if repo, ok := u.repo.(interface {
+		ListTasksWithPendingResultFiles(context.Context, int) ([]*Task, error)
+	}); ok {
+		extra, err := repo.ListTasksWithPendingResultFiles(ctx, limit)
+		if err != nil {
+			return err
+		}
+		seen := map[int64]bool{}
+		for _, t := range tasks {
+			seen[t.ID] = true
+		}
+		for _, t := range extra {
+			if !seen[t.ID] {
+				tasks = append(tasks, t)
+				seen[t.ID] = true
+			}
+		}
 	}
 	if len(tasks) > 0 {
 		slog.InfoContext(ctx, "import pending results picked", "trace_id", trace.RequestID(ctx), "count", len(tasks), "limit", limit)
@@ -620,6 +666,7 @@ func (u *TaskUsecase) ImportPendingResults(ctx context.Context, limit int) error
 }
 
 func (u *TaskUsecase) queueImportedCallbacks(ctx context.Context, limit int) error {
+	ctx = u.validationContext(ctx)
 	tasks, err := u.repo.ListResultImportedTasksWithProviderCallback(ctx, limit)
 	if err != nil {
 		return err
@@ -628,7 +675,7 @@ func (u *TaskUsecase) queueImportedCallbacks(ctx context.Context, limit int) err
 		slog.InfoContext(ctx, "queue imported callbacks picked", "trace_id", trace.RequestID(ctx), "count", len(tasks), "limit", limit)
 	}
 	for _, task := range tasks {
-		updatedTask, ready, err := u.repo.CompleteResultImport(ctx, task.ID, true)
+		updatedTask, ready, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, true)
 		if err != nil {
 			slog.ErrorContext(ctx, "queue imported callback failed",
 				"trace_id", trace.RequestID(ctx),
@@ -729,6 +776,15 @@ func (u *TaskUsecase) importStoredResultFiles(ctx context.Context, task *Task, f
 	successFiles := 0
 	totalRows := 0
 	for _, file := range files {
+		imported, checkErr := u.resultFileImported(ctx, task.ID, file)
+		if checkErr != nil {
+			return successFiles, totalRows, checkErr
+		}
+		if imported {
+			successFiles++
+			continue
+		}
+
 		if file.SourceType == "" {
 			file.SourceType = "OSS_UPLOAD"
 		}
@@ -779,6 +835,7 @@ func (u *TaskUsecase) importStoredResultFiles(ctx context.Context, task *Task, f
 		file.Checksum = checksum(content)
 		file.ExternalBatchID = task.ProviderExternalBatchID
 		file.NotifyCallback = notifyCallback
+		u.validateParsedResult(ctx, parsed)
 		if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
 			return successFiles, totalRows, err
 		}
@@ -805,6 +862,15 @@ func (u *TaskUsecase) importStoredResultFiles(ctx context.Context, task *Task, f
 }
 
 func (u *TaskUsecase) importUploadedFiles(ctx context.Context, task *Task, force bool, notifyCallback bool) (int, int, error) {
+	if !taskProcessingLocked(ctx, task.ID) {
+		var a, b int
+		err := u.withTaskLock(ctx, task.ID, func(ctx context.Context) error {
+			var err error
+			a, b, err = u.importUploadedFiles(ctx, task, force, notifyCallback)
+			return err
+		})
+		return a, b, err
+	}
 	files, err := u.uploadedResultFiles(ctx, task, force)
 	if err != nil {
 		return 0, 0, err
@@ -815,7 +881,7 @@ func (u *TaskUsecase) importUploadedFiles(ctx context.Context, task *Task, force
 			return 0, 0, countErr
 		}
 		if successfulFiles > 0 {
-			updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback)
+			updatedTask, _, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, notifyCallback)
 			if err != nil {
 				return 0, 0, err
 			}
@@ -839,14 +905,14 @@ func (u *TaskUsecase) importUploadedFiles(ctx context.Context, task *Task, force
 		_ = u.repo.MarkSubmitFailed(ctx, task.ID, "all uploaded result files failed to import")
 		return len(files), totalRows, nil
 	}
-	if _, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback); err != nil {
+	if _, _, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, notifyCallback); err != nil {
 		return len(files), totalRows, err
 	}
 	return len(files), totalRows, nil
 }
 
 func (u *TaskUsecase) uploadedResultFiles(ctx context.Context, task *Task, force bool) ([]ResultFileInput, error) {
-	files, err := u.repo.ListUploadedResultFiles(ctx, task.ID, force)
+	files, err := u.repo.ListUploadedResultFiles(ctx, task.ID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -862,6 +928,15 @@ func (u *TaskUsecase) uploadedResultFiles(ctx context.Context, task *Task, force
 }
 
 func (u *TaskUsecase) importCompletionFiles(ctx context.Context, task *Task, force bool, notifyCallback bool) (int, int, error) {
+	if !taskProcessingLocked(ctx, task.ID) {
+		var a, b int
+		err := u.withTaskLock(ctx, task.ID, func(ctx context.Context) error {
+			var err error
+			a, b, err = u.importCompletionFiles(ctx, task, force, notifyCallback)
+			return err
+		})
+		return a, b, err
+	}
 	pendingFiles, err := u.repo.ListPendingResultFiles(ctx, task.ID)
 	if err != nil {
 		return 0, 0, err
@@ -898,6 +973,15 @@ func (u *TaskUsecase) importCompletionFiles(ctx context.Context, task *Task, for
 }
 
 func (u *TaskUsecase) importResultFileInputs(ctx context.Context, task *Task, files []ResultFileInput, notifyCallback bool, triggerType string) (int, int, error) {
+	if !taskProcessingLocked(ctx, task.ID) {
+		var a, b int
+		err := u.withTaskLock(ctx, task.ID, func(ctx context.Context) error {
+			var err error
+			a, b, err = u.importResultFileInputs(ctx, task, files, notifyCallback, triggerType)
+			return err
+		})
+		return a, b, err
+	}
 	fileCount, successFiles, totalRows, err := u.importResultFileInputsOnly(ctx, task, files, notifyCallback, triggerType)
 	if err != nil {
 		return fileCount, totalRows, err
@@ -906,43 +990,45 @@ func (u *TaskUsecase) importResultFileInputs(ctx context.Context, task *Task, fi
 		_ = u.repo.MarkSubmitFailed(ctx, task.ID, "all pending result files failed to import")
 		return fileCount, totalRows, nil
 	}
-	if _, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback); err != nil {
+	if _, _, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, notifyCallback); err != nil {
 		return fileCount, totalRows, err
 	}
 	return fileCount, totalRows, nil
 }
 
 func (u *TaskUsecase) importResultFileInputsOnly(ctx context.Context, task *Task, files []ResultFileInput, notifyCallback bool, triggerType string) (int, int, int, error) {
-	var storedFiles []ResultFileInput
-	var externalFiles []ResultFileInput
+	totalRows, successFiles := 0, 0
+	var provider ProviderClient
+	// Keep database registration order across both OSS and external files.
 	for _, file := range files {
 		if file.ObjectKey != "" {
-			storedFiles = append(storedFiles, file)
+			imported, rows, err := u.importStoredResultFiles(ctx, task, []ResultFileInput{file}, notifyCallback, triggerType)
+			if err != nil {
+				return len(files), successFiles, totalRows, err
+			}
+			successFiles += imported
+			totalRows += rows
 			continue
 		}
-		if file.FileURL != "" {
-			externalFiles = append(externalFiles, file)
+		if file.FileURL == "" {
+			continue
 		}
-	}
-	totalRows := 0
-	successFiles := 0
-	if len(storedFiles) > 0 {
-		importedFiles, importedRows, err := u.importStoredResultFiles(ctx, task, storedFiles, notifyCallback, triggerType)
-		if err != nil {
-			return len(files), successFiles, totalRows, err
+		if provider == nil {
+			var ok bool
+			provider, ok = u.providers.Get(task.ProviderCode)
+			if !ok {
+				return len(files), successFiles, totalRows, ErrProviderNotFound
+			}
 		}
-		successFiles += importedFiles
-		totalRows += importedRows
-	}
-	var provider ProviderClient
-	if len(externalFiles) > 0 {
-		var ok bool
-		provider, ok = u.providers.Get(task.ProviderCode)
-		if !ok {
-			return len(files), successFiles, totalRows, ErrProviderNotFound
+		imported, checkErr := u.resultFileImported(ctx, task.ID, file)
+		if checkErr != nil {
+			return len(files), successFiles, totalRows, checkErr
 		}
-	}
-	for _, file := range externalFiles {
+		if imported {
+			successFiles++
+			continue
+		}
+
 		startedAt := time.Now()
 		content, err := provider.DownloadResultFile(ctx, file.FileURL)
 		if err != nil {
@@ -964,6 +1050,7 @@ func (u *TaskUsecase) importResultFileInputsOnly(ctx context.Context, task *Task
 			_ = u.repo.MarkResultFileFailed(ctx, task.ID, file, errMessage)
 			return len(files), successFiles, totalRows, err
 		}
+		u.validateParsedResult(ctx, parsed)
 		if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
 			return len(files), successFiles, totalRows, err
 		}
@@ -1050,6 +1137,15 @@ func (u *TaskUsecase) RefetchProviderResults(ctx context.Context, id int64, forc
 }
 
 func (u *TaskUsecase) SyncProviderResult(ctx context.Context, id int64, force bool, notifyCallback bool) (SyncProviderResultOutcome, error) {
+	if !taskProcessingLocked(ctx, id) {
+		var out SyncProviderResultOutcome
+		err := u.withTaskLock(ctx, id, func(ctx context.Context) error {
+			var err error
+			out, err = u.SyncProviderResult(ctx, id, force, notifyCallback)
+			return err
+		})
+		return out, err
+	}
 	task, err := u.repo.GetTask(ctx, id)
 	if err != nil {
 		return SyncProviderResultOutcome{}, err
@@ -1164,147 +1260,6 @@ func (u *TaskUsecase) importProviderFiles(ctx context.Context, task *Task, force
 	return u.importProviderFileResult(ctx, task, fileResult, force, notifyCallback, "MANUAL")
 }
 
-func (u *TaskUsecase) importProviderFileResult(ctx context.Context, task *Task, fileResult ProviderFilesResult, force bool, notifyCallback bool, triggerType string) (int, int, error) {
-	provider, ok := u.providers.Get(task.ProviderCode)
-	if !ok {
-		return 0, 0, ErrProviderNotFound
-	}
-	storedFiles, externalURLs, missingObjectKeys, err := u.matchProviderOwnOSSFiles(ctx, task, fileResult.FileURLs, force)
-	if err != nil {
-		return 0, 0, err
-	}
-	if len(missingObjectKeys) > 0 {
-		_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
-			"triggerType":       triggerType,
-			"fileCount":         len(fileResult.FileURLs),
-			"missingFileCount":  len(missingObjectKeys),
-			"firstMissingKey":   missingObjectKeys[0],
-			"ownOSSURLDetected": true,
-			"force":             force,
-		})
-		return len(fileResult.FileURLs), 0, fmt.Errorf("provider result files missing from database: %d object keys, first=%s", len(missingObjectKeys), missingObjectKeys[0])
-	}
-	if len(fileResult.FileURLs) > 0 && len(storedFiles) == 0 && len(externalURLs) == 0 {
-		updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback)
-		if err != nil {
-			return len(fileResult.FileURLs), 0, err
-		}
-		_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
-			"triggerType":       triggerType,
-			"fileCount":         len(fileResult.FileURLs),
-			"rowCount":          updatedTask.ResultRowCount,
-			"force":             force,
-			"skipped":           true,
-			"ownOSSURLDetected": true,
-		})
-		return len(fileResult.FileURLs), updatedTask.ResultRowCount, nil
-	}
-	if len(fileResult.FileURLs) > 0 && len(externalURLs) == len(fileResult.FileURLs) {
-		localFileCount, err := u.repo.CountSuccessfulResultFiles(ctx, task.ID)
-		if err != nil {
-			return 0, 0, err
-		}
-		if localFileCount == len(fileResult.FileURLs) {
-			updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback)
-			if err != nil {
-				return 0, 0, err
-			}
-			_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
-				"triggerType":           triggerType,
-				"fileCount":             len(fileResult.FileURLs),
-				"rowCount":              updatedTask.ResultRowCount,
-				"force":                 force,
-				"skipped":               true,
-				"localSuccessFileCount": localFileCount,
-			})
-			slog.InfoContext(ctx, "provider result file import skipped with matching local file count",
-				"trace_id", trace.RequestID(ctx),
-				"task_id", task.ID,
-				"batch_no", task.BatchNo,
-				"provider_code", task.ProviderCode,
-				"trigger_type", triggerType,
-				"file_count", len(fileResult.FileURLs),
-				"row_count", updatedTask.ResultRowCount,
-			)
-			return len(fileResult.FileURLs), updatedTask.ResultRowCount, nil
-		}
-	}
-	totalRows := 0
-	successFiles := 0
-	if len(storedFiles) > 0 {
-		importedFiles, importedRows, err := u.importStoredResultFiles(ctx, task, storedFiles, notifyCallback, triggerType)
-		if err != nil {
-			return len(fileResult.FileURLs), totalRows, err
-		}
-		successFiles += importedFiles
-		totalRows += importedRows
-	}
-	for _, fileURL := range externalURLs {
-		startedAt := time.Now()
-		content, err := provider.DownloadResultFile(ctx, fileURL)
-		if err != nil {
-			return len(fileResult.FileURLs), totalRows, err
-		}
-		fileName := fileNameFromURL(fileURL)
-		file := ResultFileInput{
-			SourceType:      "PROVIDER_FILE",
-			FileURL:         fileURL,
-			FileName:        fileName,
-			Checksum:        checksum(content),
-			ExternalBatchID: task.ProviderExternalBatchID,
-			NotifyCallback:  notifyCallback,
-		}
-		parsed, err := u.parser.Parse(ctx, fileName, content)
-		if err != nil {
-			return len(fileResult.FileURLs), totalRows, err
-		}
-		if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
-			return len(fileResult.FileURLs), totalRows, err
-		}
-		successFiles++
-		totalRows += parsed.RowCount
-		slog.InfoContext(ctx, "provider result file imported",
-			"trace_id", trace.RequestID(ctx),
-			"task_id", task.ID,
-			"batch_no", task.BatchNo,
-			"provider_code", task.ProviderCode,
-			"trigger_type", triggerType,
-			"file_name", fileName,
-			"row_count", parsed.RowCount,
-			"content_bytes", len(content),
-			"latency_ms", time.Since(startedAt).Milliseconds(),
-		)
-	}
-	if len(storedFiles) > 0 && successFiles == 0 && len(externalURLs) == 0 {
-		_ = u.repo.MarkSubmitFailed(ctx, task.ID, "all matched provider result files failed to import")
-		return len(fileResult.FileURLs), totalRows, nil
-	}
-	if len(fileResult.FileURLs) > 0 && successFiles == 0 && len(storedFiles) == 0 {
-		updatedTask, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback)
-		if err != nil {
-			return len(fileResult.FileURLs), totalRows, err
-		}
-		_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
-			"triggerType": triggerType,
-			"fileCount":   len(fileResult.FileURLs),
-			"rowCount":    updatedTask.ResultRowCount,
-			"force":       force,
-			"skipped":     true,
-		})
-		return len(fileResult.FileURLs), updatedTask.ResultRowCount, nil
-	}
-	_ = u.repo.AddEvent(ctx, task.ID, EventResultFetchCompleted, map[string]any{
-		"triggerType": triggerType,
-		"fileCount":   len(fileResult.FileURLs),
-		"rowCount":    totalRows,
-		"force":       force,
-	})
-	if _, _, err := u.repo.CompleteResultImport(ctx, task.ID, notifyCallback); err != nil {
-		return len(fileResult.FileURLs), totalRows, err
-	}
-	return len(fileResult.FileURLs), totalRows, nil
-}
-
 func (u *TaskUsecase) matchProviderOwnOSSFiles(ctx context.Context, task *Task, fileURLs []string, force bool) ([]ResultFileInput, []string, []string, error) {
 	var ownObjectKeys []string
 	var externalURLs []string
@@ -1350,7 +1305,7 @@ func matchStoredProviderFiles(task *Task, ownObjectKeys []string, dbFiles []Resu
 			missingObjectKeys = append(missingObjectKeys, objectKey)
 			continue
 		}
-		if !force && file.ParseStatus == "SUCCESS" {
+		if file.ParseStatus == "SUCCESS" {
 			continue
 		}
 		if file.SourceType == "" {
@@ -1450,6 +1405,7 @@ func providerProgressCount(status ProviderStatusResult) (int, int) {
 }
 
 func (u *TaskUsecase) DeliverPendingCallbacks(ctx context.Context, limit int) error {
+	ctx = u.validationContext(ctx)
 	tasks, err := u.repo.ListTasksByStatus(ctx, TaskStatusCallbackPending, limit)
 	if err != nil {
 		return err
@@ -1458,7 +1414,7 @@ func (u *TaskUsecase) DeliverPendingCallbacks(ctx context.Context, limit int) er
 		slog.InfoContext(ctx, "deliver pending callbacks picked", "trace_id", trace.RequestID(ctx), "count", len(tasks), "limit", limit)
 	}
 	for _, task := range tasks {
-		updatedTask, ready, err := u.repo.CompleteResultImport(ctx, task.ID, true)
+		updatedTask, ready, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, true)
 		if err != nil {
 			slog.ErrorContext(ctx, "complete result import before callback failed",
 				"trace_id", trace.RequestID(ctx),
@@ -1497,7 +1453,21 @@ func (u *TaskUsecase) DeliverPendingCallbacks(ctx context.Context, limit int) er
 	return nil
 }
 
-func (u *TaskUsecase) RetryTaskCallback(ctx context.Context, id int64, force bool) (*Task, RetryTaskCallbackOutcome, error) {
+func (u *TaskUsecase) RetryTaskCallback(ctx context.Context, id int64, force bool, ignoreRisk ...bool) (*Task, RetryTaskCallbackOutcome, error) {
+	if !taskProcessingLocked(ctx, id) {
+		var task *Task
+		var outcome RetryTaskCallbackOutcome
+		err := u.withTaskLock(ctx, id, func(ctx context.Context) error {
+			var err error
+			task, outcome, err = u.RetryTaskCallback(ctx, id, force, ignoreRisk...)
+			return err
+		})
+		return task, outcome, err
+	}
+	bypassRisk := len(ignoreRisk) > 0 && ignoreRisk[0]
+	if bypassRisk && force {
+		return nil, RetryTaskCallbackOutcome{}, ErrInvalidTaskRequest
+	}
 	task, err := u.repo.GetTask(ctx, id)
 	if err != nil {
 		return nil, RetryTaskCallbackOutcome{}, err
@@ -1507,6 +1477,18 @@ func (u *TaskUsecase) RetryTaskCallback(ctx context.Context, id int64, force boo
 		return task, RetryTaskCallbackOutcome{}, err
 	}
 	outcome := RetryTaskCallbackOutcome{Readiness: readiness}
+	if task.Status == TaskStatusReassigned {
+		return task, outcome, ErrTaskClosed
+	}
+	if !readiness.RiskStatsReady || (readiness.RiskCount > 0 && !bypassRisk && !AllowsRiskCallback(ctx, task.ProviderCode)) {
+		outcome.Readiness.Ready = false
+		outcome.Readiness.ForceRequired = false
+		outcome.Readiness.Reason = "结果风险统计未完成"
+		if readiness.RiskStatsReady {
+			outcome.Readiness.Reason = "结果存在风险，请使用页面强制回调"
+		}
+		return task, outcome, nil
+	}
 	if !readiness.Ready && !force {
 		return task, outcome, nil
 	}
@@ -1517,11 +1499,15 @@ func (u *TaskUsecase) RetryTaskCallback(ctx context.Context, id int64, force boo
 		taskForCallback.FailedCount = readiness.FailedCount
 		task = &taskForCallback
 	}
-	delivered, err := u.deliverTaskCallback(ctx, task, force && !readiness.Ready)
+	ctx = context.WithValue(ctx, manualCallbackKey{}, true)
+	delivered, err := u.deliverTaskCallback(ctx, task, force && !readiness.Ready, bypassRisk)
 	if err != nil {
 		return task, outcome, err
 	}
 	outcome.Delivered = delivered
+	if bypassRisk {
+		_ = u.repo.AddEvent(ctx, task.ID, EventType("BUSINESS_CALLBACK_RISK_FORCED"), map[string]any{"riskCount": task.RiskCount, "riskSummary": task.RiskSummary, "delivered": delivered})
+	}
 	updated, err := u.repo.GetTask(ctx, id)
 	if err != nil {
 		return task, outcome, nil
@@ -1530,10 +1516,19 @@ func (u *TaskUsecase) RetryTaskCallback(ctx context.Context, id int64, force boo
 }
 
 // ForceImportCallback fetches the provider's latest status and result files,
-// force-imports them (marking empty answers as failed), then delivers a
+// imports unseen files with quality validation, then delivers a
 // callback using only the currently imported results. It must NOT change the
 // task status or callback_sent_at, and must not block subsequent imports.
 func (u *TaskUsecase) ForceImportCallback(ctx context.Context, input ForceImportCallbackInput) (ForceImportCallbackOutcome, error) {
+	if !taskProcessingLocked(ctx, input.TaskID) {
+		var out ForceImportCallbackOutcome
+		err := u.withTaskLock(ctx, input.TaskID, func(ctx context.Context) error {
+			var err error
+			out, err = u.ForceImportCallback(ctx, input)
+			return err
+		})
+		return out, err
+	}
 	outcome := ForceImportCallbackOutcome{
 		TaskStatusUnchanged: true,
 	}
@@ -1555,6 +1550,13 @@ func (u *TaskUsecase) ForceImportCallback(ctx context.Context, input ForceImport
 	allItems, err := u.repo.ListTaskItemResults(ctx, task.ID)
 	if err != nil {
 		return outcome, err
+	}
+	for _, item := range allItems {
+		if item.ParseStatus != "" && (item.AnswerValidation.Status != ValidationPass && !(AllowsRiskCallback(ctx, task.ProviderCode) && (item.AnswerValidation.Status == ValidationRisk || item.AnswerValidation.Status == ValidationInvalid))) {
+			outcome.Rejected = true
+			_ = u.repo.AddEvent(ctx, task.ID, EventForceImportCallback, map[string]any{"reason": "结果存在风险或尚未校验，请完成导入后使用页面强制回调", "delivered": false})
+			return outcome, nil
+		}
 	}
 	successItems := successfulResultItems(allItems)
 	outcome.SuccessCount = len(successItems)
@@ -1664,6 +1666,11 @@ func (u *TaskUsecase) refreshForcedCallbackResults(ctx context.Context, task *Ta
 	}
 	outcome.ImportedFileCount = importedFileCount
 	outcome.RowCount = rowCount
+	if repo, ok := u.repo.(interface {
+		RefreshTaskValidation(context.Context, int64) error
+	}); ok {
+		return repo.RefreshTaskValidation(ctx, task.ID)
+	}
 	return nil
 }
 
@@ -1693,9 +1700,7 @@ func (u *TaskUsecase) forceImportCallbackEventPayload(reason string, outcome For
 }
 
 // forceImportProviderFiles imports the provider's latest result files without
-// calling CompleteResultImport (so task status is not changed). Empty-answer
-// items are marked as FAILED. It returns the imported file count and total row
-// count.
+// changing the task status. Content quality is validated and aggregated separately.
 func (u *TaskUsecase) forceImportProviderFiles(ctx context.Context, task *Task, fileURLs []string) (int, int, error) {
 	storedFiles, externalURLs, missingObjectKeys, err := u.matchProviderOwnOSSFiles(ctx, task, fileURLs, true)
 	if err != nil {
@@ -1752,6 +1757,13 @@ func (u *TaskUsecase) forceImportProviderFiles(ctx context.Context, task *Task, 
 }
 
 func (u *TaskUsecase) forceImportStoredFile(ctx context.Context, task *Task, file ResultFileInput) (int, bool, error) {
+	imported, err := u.resultFileImported(ctx, task.ID, file)
+	if err != nil {
+		return 0, false, err
+	}
+	if imported {
+		return 0, false, nil
+	}
 	if file.SourceType == "" {
 		file.SourceType = "OSS_UPLOAD"
 	}
@@ -1766,10 +1778,10 @@ func (u *TaskUsecase) forceImportStoredFile(ctx context.Context, task *Task, fil
 	if err != nil {
 		return 0, false, fmt.Errorf("parse result: %w", err)
 	}
-	markEmptyAnswerFailed(parsed)
 	file.Checksum = checksum(content)
 	file.ExternalBatchID = task.ProviderExternalBatchID
 	file.NotifyCallback = false
+	u.validateParsedResult(ctx, parsed)
 	if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
 		return 0, false, err
 	}
@@ -1777,6 +1789,13 @@ func (u *TaskUsecase) forceImportStoredFile(ctx context.Context, task *Task, fil
 }
 
 func (u *TaskUsecase) forceImportExternalFile(ctx context.Context, task *Task, fileURL string) (int, bool, error) {
+	imported, checkErr := u.resultFileImported(ctx, task.ID, ResultFileInput{FileURL: fileURL})
+	if checkErr != nil {
+		return 0, false, checkErr
+	}
+	if imported {
+		return 0, false, nil
+	}
 	provider, ok := u.providers.Get(task.ProviderCode)
 	if !ok {
 		return 0, false, ErrProviderNotFound
@@ -1790,7 +1809,6 @@ func (u *TaskUsecase) forceImportExternalFile(ctx context.Context, task *Task, f
 	if err != nil {
 		return 0, false, err
 	}
-	markEmptyAnswerFailed(parsed)
 	file := ResultFileInput{
 		SourceType:      "PROVIDER_FILE",
 		FileURL:         fileURL,
@@ -1799,24 +1817,44 @@ func (u *TaskUsecase) forceImportExternalFile(ctx context.Context, task *Task, f
 		ExternalBatchID: task.ProviderExternalBatchID,
 		NotifyCallback:  false,
 	}
+	u.validateParsedResult(ctx, parsed)
 	if err := u.repo.MarkResultImported(ctx, task.ID, file, *parsed); err != nil {
 		return 0, false, err
 	}
 	return parsed.RowCount, true, nil
 }
 
-// markEmptyAnswerFailed sets parse_status to FAILED for item results whose
-// answer text is empty, so they are counted as failures in forced callbacks.
-func markEmptyAnswerFailed(parsed *ParsedResult) {
-	for i := range parsed.ItemResults {
-		if strings.TrimSpace(parsed.ItemResults[i].AnswerText) == "" {
-			parsed.ItemResults[i].ParseStatus = "FAILED"
-			parsed.ItemResults[i].ParseError = "empty answer"
-		}
-	}
-}
+type manualCallbackKey struct{}
 
-func (u *TaskUsecase) deliverTaskCallback(ctx context.Context, task *Task, successOnly bool) (bool, error) {
+func (u *TaskUsecase) deliverTaskCallback(ctx context.Context, task *Task, successOnly bool, ignoreRisk ...bool) (bool, error) {
+	if !taskProcessingLocked(ctx, task.ID) {
+		var sent bool
+		err := u.withTaskLock(ctx, task.ID, func(ctx context.Context) error {
+			var err error
+			sent, err = u.deliverTaskCallback(ctx, task, successOnly, ignoreRisk...)
+			return err
+		})
+		return sent, err
+	}
+	current, err := u.repo.GetTask(ctx, task.ID)
+	if err != nil {
+		return false, err
+	}
+	if current.Status == TaskStatusReassigned {
+		return false, ErrTaskClosed
+	}
+	bypassRisk := len(ignoreRisk) > 0 && ignoreRisk[0]
+	if current.RiskStatsUpdatedAt == nil || (current.RiskCount > 0 && !bypassRisk && !AllowsRiskCallback(ctx, current.ProviderCode)) {
+		return false, nil
+	}
+	manual, _ := ctx.Value(manualCallbackKey{}).(bool)
+	if !manual && current.Status != TaskStatusCallbackPending {
+		return false, nil
+	}
+	if successOnly {
+		current.TotalCount, current.SuccessCount, current.FailedCount = task.TotalCount, task.SuccessCount, task.FailedCount
+	}
+	task = current
 	startedAt := time.Now()
 	callbackExternalBatchID := taskCallbackExternalBatchID(task)
 	resultURL := u.resultURL(callbackExternalBatchID)
@@ -1841,12 +1879,7 @@ func (u *TaskUsecase) deliverTaskCallback(ctx context.Context, task *Task, succe
 		}
 		payload.ResultItems = items
 	} else {
-		slog.WarnContext(ctx, "list callback result items failed",
-			"trace_id", trace.RequestID(ctx),
-			"task_id", task.ID,
-			"batch_no", task.BatchNo,
-			"error", err,
-		)
+		return false, err
 	}
 	result, err := u.callback.Deliver(ctx, task, payload)
 	payloadBytes, _ := json.Marshal(payload)

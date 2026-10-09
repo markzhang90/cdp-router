@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Layout, Menu, message } from "antd";
-import { ClipboardList, LogOut, RefreshCcw, Server, UserRoundCog } from "lucide-react";
+import { ClipboardList, ShieldCheck, LogOut, RefreshCcw, Server, UserRoundCog } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMe, logout } from "../api/client";
 import { getCSRFToken, getStoredUser, setSession } from "../api/session";
@@ -10,7 +10,7 @@ export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState<AdminUser | null>(getStoredUser());
-  const selectedKey = location.pathname.startsWith("/platform-users")
+  const selectedKey = location.pathname.startsWith("/validation-rules") ? "validation-rules" : location.pathname.startsWith("/platform-users")
     ? "platform-users"
     : location.pathname.startsWith("/providers")
       ? "providers"
@@ -64,6 +64,7 @@ export function AdminLayout() {
               icon: <ClipboardList size={17} />,
               label: "任务"
             },
+            { key: "validation-rules", icon: <ShieldCheck size={17} />, label: "数据校验规则" },
             {
               key: "providers",
               icon: <Server size={17} />,
@@ -75,7 +76,7 @@ export function AdminLayout() {
               label: "接入方"
             }
           ]}
-          onClick={({ key }) => navigate(key === "platform-users" ? "/platform-users" : key === "providers" ? "/providers" : "/tasks")}
+          onClick={({ key }) => navigate(`/${key}`)}
         />
       </Layout.Sider>
       <Layout>

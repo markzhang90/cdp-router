@@ -327,6 +327,9 @@ func (s *AdminService) CheckTaskResult(c *gin.Context) {
 }
 
 func (s *AdminService) RetryTaskCallback(c *gin.Context) {
+	if !requireAdminWrite(c, false) {
+		return
+	}
 	session, ok := adminSessionFromContext(c)
 	if !ok {
 		errorJSON(c, http.StatusUnauthorized, biz.ErrAdminUnauthorized)
@@ -343,14 +346,26 @@ func (s *AdminService) RetryTaskCallback(c *gin.Context) {
 		errorJSON(c, http.StatusBadRequest, err)
 		return
 	}
-	task, outcome, err := s.tasks.RetryTaskCallback(c.Request.Context(), id, req.Force)
+	if req.IgnoreRisk {
+		intent, _ := json.Marshal(map[string]any{"request": json.RawMessage(defaultJSON(raw)), "ignoreRisk": true})
+		if err := s.repo.AddAuditLog(c.Request.Context(), biz.AdminAuditLog{
+			UserID: session.User.UserID, Username: session.User.Username, Role: session.User.Role,
+			Action: "REQUEST_RISK_CALLBACK", ResourceType: "TASK", ResourceID: strconv.FormatInt(id, 10),
+			RequestID: trace.RequestID(c.Request.Context()), Payload: intent,
+		}); err != nil {
+			writeBizError(c, err)
+			return
+		}
+	}
+	task, outcome, err := s.tasks.RetryTaskCallback(c.Request.Context(), id, req.Force, req.IgnoreRisk)
 	if err != nil {
 		writeBizError(c, err)
 		return
 	}
 	payload, _ := json.Marshal(map[string]any{
-		"request":       json.RawMessage(defaultJSON(raw)),
-		"force":         req.Force,
+		"request":    json.RawMessage(defaultJSON(raw)),
+		"force":      req.Force,
+		"ignoreRisk": req.IgnoreRisk, "riskCount": outcome.Readiness.RiskCount, "riskSummary": json.RawMessage(task.RiskSummary),
 		"delivered":     outcome.Delivered,
 		"ready":         outcome.Readiness.Ready,
 		"forceRequired": outcome.Readiness.ForceRequired,
@@ -372,6 +387,7 @@ func (s *AdminService) RetryTaskCallback(c *gin.Context) {
 		Status:  0,
 		Message: retryCallbackMessage(outcome),
 		Data: &adminv1.RetryTaskCallbackData{
+			RiskCount: int32(outcome.Readiness.RiskCount), RiskStatsReady: outcome.Readiness.RiskStatsReady,
 			TaskId:        task.ID,
 			BatchNo:       task.BatchNo,
 			TaskStatus:    string(task.Status),
@@ -389,6 +405,9 @@ func (s *AdminService) RetryTaskCallback(c *gin.Context) {
 }
 
 func (s *AdminService) ForceImportCallback(c *gin.Context) {
+	if !requireAdminWrite(c, false) {
+		return
+	}
 	session, ok := adminSessionFromContext(c)
 	if !ok {
 		errorJSON(c, http.StatusUnauthorized, biz.ErrAdminUnauthorized)
@@ -1034,13 +1053,16 @@ func parseTaskFilter(c *gin.Context) (biz.AdminTaskFilter, error) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", c.DefaultQuery("page_size", "20")))
 	createdFrom, err := parseOptionalTime(c.Query("createdFrom"))
 	if err != nil {
-		return biz.AdminTaskFilter{}, err
+		return biz.AdminTaskFilter{
+			HasRisk: c.Query("hasRisk") == "true" || c.Query("hasRisk") == "1"}, err
 	}
 	createdTo, err := parseOptionalTime(c.Query("createdTo"))
 	if err != nil {
-		return biz.AdminTaskFilter{}, err
+		return biz.AdminTaskFilter{
+			HasRisk: c.Query("hasRisk") == "true" || c.Query("hasRisk") == "1"}, err
 	}
 	return biz.AdminTaskFilter{
+		HasRisk:      c.Query("hasRisk") == "true" || c.Query("hasRisk") == "1",
 		TaskName:     c.Query("taskName"),
 		BatchNo:      c.Query("batchNo"),
 		Source:       c.Query("source"),
@@ -1351,6 +1373,7 @@ func adminUserProto(user biz.AdminUser) *adminv1.AdminUser {
 func adminTaskSummaryProto(task biz.AdminTaskSummary) *adminv1.AdminTaskSummary {
 	durationSeconds, durationText := taskExecutionDuration(task)
 	return &adminv1.AdminTaskSummary{
+		RiskCount: int32(task.RiskCount), InvalidAnswerCount: int32(task.InvalidAnswerCount), RiskSummaryJson: string(defaultJSON(task.RiskSummary)), RiskStatsUpdatedAt: formatOptionalTime(task.RiskStatsUpdatedAt),
 		TaskId:                   task.TaskID,
 		TaskName:                 task.TaskName,
 		BatchNo:                  task.BatchNo,
@@ -1652,6 +1675,7 @@ func providerDailyMetricsProto(items []biz.AdminProviderDailyMetric) []*adminv1.
 
 func adminTaskItemProto(item biz.AdminTaskItem) *adminv1.AdminTaskItem {
 	return &adminv1.AdminTaskItem{
+		ValidationStatus: item.AnswerValidation.Status, RiskItems: answerRisksProto(item.RiskItems), ValidationRuleVersion: item.RuleVersion, ValidatedAt: formatTime(item.ValidatedAt),
 		TaskItemId:               item.TaskItemID,
 		ItemId:                   item.ItemID,
 		PlatformCode:             item.PlatformCode,

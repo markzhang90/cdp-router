@@ -22,6 +22,10 @@ export interface MeData {
 }
 
 export interface TaskSummary {
+  riskCount: number;
+  invalidAnswerCount: number;
+  riskSummaryJson: string;
+  riskStatsUpdatedAt: string;
   taskId: number;
   taskName: string;
   batchNo: string;
@@ -56,6 +60,7 @@ export interface TaskListData {
 }
 
 export interface TaskListQuery {
+  hasRisk?: boolean;
   taskName?: string;
   batchNo?: string;
   source?: string;
@@ -69,6 +74,10 @@ export interface TaskListQuery {
 }
 
 export interface TaskItem {
+  validationStatus: string;
+  riskItems: AnswerRisk[];
+  validationRuleVersion: string;
+  validatedAt: string;
   taskItemId: number;
   itemId: string;
   platformCode: string;
@@ -166,6 +175,8 @@ export interface CheckResultData {
 }
 
 export interface RetryCallbackData {
+  riskCount: number;
+  riskStatsReady: boolean;
   taskId: number;
   batchNo: string;
   taskStatus: string;
@@ -425,4 +436,20 @@ export interface DispatchRulePayload {
   labels?: string[];
   providerCodes: string[];
   enabled: boolean;
+}
+
+export interface AnswerRisk {
+  code: string;
+  message: string;
+  actualLength: number;
+  minLength: number;
+  matchedKeywords: string[];
+}
+export interface ValidationRules {
+  riskCallbackAllowedProviderCodes: string[];
+  version: string;
+  keywords: string[];
+  updatedAt: string;
+  updatedBy: string;
+  refreshIntervalSeconds: number;
 }

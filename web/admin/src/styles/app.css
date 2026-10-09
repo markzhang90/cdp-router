@@ -1008,3 +1008,12 @@ textarea {
     display: none;
   }
 }
+
+.validation-rules-page > .ant-card,
+.validation-rules-page > .ant-alert {
+  margin-bottom: 16px;
+}
+.validation-rules-editor { width: 100%; }
+.validation-rule-keyword { overflow-wrap: anywhere; }
+.task-risk-alert { margin-bottom: 16px; }
+.answer-risk-details { max-height: 200px; overflow: auto; }

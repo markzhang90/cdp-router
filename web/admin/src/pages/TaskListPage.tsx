@@ -9,6 +9,7 @@ import { checkTaskResult, deleteTask, listPlatformUsers, listProviders, listTask
 import { PageHeader } from "../components/PageHeader";
 import { TaskStatusTag } from "../components/StatusTag";
 import { TaskProgressBar } from "../components/TaskProgressBar";
+import { TaskRiskSummary } from "../components/AnswerRiskTags";
 import { TaskResultStats } from "../components/TaskResultStats";
 import type { PlatformUser, Provider, TaskListQuery, TaskSummary } from "../types/admin";
 import { compactText, formatDateTime, positiveID } from "../utils/format";
@@ -23,6 +24,7 @@ type TaskListFormValues = {
   platformCode?: string;
   providerCode?: string;
   resultStatus?: string;
+  hasRisk?: string;
   createdRange?: [Dayjs, Dayjs];
 };
 
@@ -47,6 +49,7 @@ function readCachedTaskListQuery(): TaskListQuery {
       platformCode: cleanCachedText(value.platformCode),
       providerCode: cleanCachedText(value.providerCode),
       resultStatus: cleanCachedText(value.resultStatus),
+      hasRisk: value.hasRisk === true,
       createdFrom: cleanCachedText(value.createdFrom),
       createdTo: cleanCachedText(value.createdTo),
       page: cleanCachedNumber(value.page, 1),
@@ -74,6 +77,7 @@ function taskListFormValues(query: TaskListQuery): TaskListFormValues {
     platformCode: query.platformCode,
     providerCode: query.providerCode,
     resultStatus: query.resultStatus,
+    hasRisk: query.hasRisk ? "true" : undefined,
     createdRange: createdFrom?.isValid() && createdTo?.isValid() ? [createdFrom, createdTo] : undefined
   };
 }
@@ -90,7 +94,11 @@ function DispatchLabelPill({ label }: { label: string }) {
 }
 
 function canReassignTask(task: TaskSummary): boolean {
-  return !CLOSED_REASSIGN_STATUSES.has(task.status?.trim().toUpperCase() ?? "");
+  return (
+    !CLOSED_REASSIGN_STATUSES.has(task.status?.trim().toUpperCase() ?? "") &&
+    positiveID(task.reassignedFromTaskId) === 0 &&
+    positiveID(task.reassignedToTaskId) === 0
+  );
 }
 
 function isReassignedTask(task: TaskSummary): boolean {
@@ -159,6 +167,7 @@ export function TaskListPage() {
       platformCode: values.platformCode,
       providerCode: values.providerCode,
       resultStatus: values.resultStatus,
+      hasRisk: values.hasRisk === "true",
       createdFrom: range?.[0] ? String((range[0] as { toISOString: () => string }).toISOString()) : undefined,
       createdTo: range?.[1] ? String((range[1] as { toISOString: () => string }).toISOString()) : undefined,
       page: 1,
@@ -260,6 +269,7 @@ export function TaskListPage() {
 
   const columns = useMemo<ColumnsType<TaskSummary>>(
     () => [
+      { title: "内容风险", key: "risks", width: 190, render: (_, task) => <TaskRiskSummary task={task} /> },
       {
         title: "任务名称",
         dataIndex: "taskName",
@@ -496,6 +506,7 @@ export function TaskListPage() {
               options={providerOptions}
             />
           </Form.Item>
+          <Form.Item name="hasRisk"><Select placeholder="内容风险" allowClear options={[{ value: "true", label: "有风险" }]} /></Form.Item>
           <Form.Item name="resultStatus">
             <Select
               allowClear

@@ -34,6 +34,9 @@ func TestTaskTotalCountUsesPersistedItemCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if cfg.Postgres.Host != "127.0.0.1" && cfg.Postgres.Host != "localhost" && cfg.Postgres.Host != "::1" {
+		t.Fatal("repository tests require loopback PostgreSQL")
+	}
 	if err := EnsureDatabase(ctx, cfg.Postgres); err != nil {
 		t.Fatal(err)
 	}
@@ -677,6 +680,16 @@ values ($1,$2,$3,'ROUND_ROBIN',true,$4)
 	if resolved.ID != target.ID {
 		t.Fatalf("resolved task id=%d, want target id=%d", resolved.ID, target.ID)
 	}
+	if _, err := repo.CreateReassignedTask(ctx, biz.ReassignTaskRecordInput{
+		SourceBatchNo:  sourceBatchNo,
+		TargetBatchNo:  sourceBatchNo + "-REASSIGN-duplicate",
+		TargetJobID:    "job-duplicate-" + platformCode,
+		ProviderCode:   "vendor_c",
+		Reason:         "duplicate",
+		OperatorUserID: "tester",
+	}, "https://gateway.example.com"); !errors.Is(err, biz.ErrTaskClosed) {
+		t.Fatalf("duplicate reassign err=%v, want task closed", err)
+	}
 	if err := repo.MarkTaskReassigned(ctx, source.ID, target.ID, map[string]any{"reason": "test"}); err != nil {
 		t.Fatal(err)
 	}
@@ -685,7 +698,7 @@ values ($1,$2,$3,'ROUND_ROBIN',true,$4)
 	}
 }
 
-func TestCreateReassignedTaskInheritsOriginalCallbackIdentifiersWhenSourceIsReassignedTask(t *testing.T) {
+func TestCreateReassignedTaskRejectsReassignedTargetAsSource(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -735,7 +748,7 @@ values ($1,$2,$3,'ROUND_ROBIN',true,$4)
 			firstTarget.CallbackBatchNo, firstTarget.CallbackExternalBatchID, sourceBatchNo, source.JobID)
 	}
 
-	secondTarget, err := repo.CreateReassignedTask(ctx, biz.ReassignTaskRecordInput{
+	_, err = repo.CreateReassignedTask(ctx, biz.ReassignTaskRecordInput{
 		SourceBatchNo:  firstTarget.BatchNo,
 		TargetBatchNo:  sourceBatchNo + "-REASSIGN-second",
 		TargetJobID:    "job-second-" + platformCode,
@@ -743,36 +756,8 @@ values ($1,$2,$3,'ROUND_ROBIN',true,$4)
 		Reason:         "second",
 		OperatorUserID: "tester",
 	}, "https://gateway.example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if secondTarget.ReassignedFromTaskID != firstTarget.ID {
-		t.Fatalf("second reassigned_from_task_id=%d, want %d", secondTarget.ReassignedFromTaskID, firstTarget.ID)
-	}
-	if secondTarget.CallbackBatchNo != sourceBatchNo {
-		t.Fatalf("second callback_batch_no=%q, want original %q", secondTarget.CallbackBatchNo, sourceBatchNo)
-	}
-	if secondTarget.CallbackExternalBatchID != source.JobID {
-		t.Fatalf("second callback_external_batch_id=%q, want original %q", secondTarget.CallbackExternalBatchID, source.JobID)
-	}
-
-	var payload []byte
-	if err := db.QueryRow(ctx, `
-select payload from cdp_task_events
-where task_id=$1 and event_type=$2
-order by id desc limit 1
-`, firstTarget.ID, biz.EventTaskReassignRequested).Scan(&payload); err != nil {
-		t.Fatal(err)
-	}
-	var event struct {
-		OriginalBatchNo         string `json:"originalBatchNo"`
-		CallbackExternalBatchID string `json:"callbackExternalBatchId"`
-	}
-	if err := json.Unmarshal(payload, &event); err != nil {
-		t.Fatal(err)
-	}
-	if event.OriginalBatchNo != sourceBatchNo || event.CallbackExternalBatchID != source.JobID {
-		t.Fatalf("second reassign event=%+v, want original identifiers", event)
+	if !errors.Is(err, biz.ErrTaskClosed) {
+		t.Fatalf("reassign target as source err=%v, want task closed", err)
 	}
 }
 
@@ -781,6 +766,9 @@ func openTaskRepoTestDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if cfg.Postgres.Host != "127.0.0.1" && cfg.Postgres.Host != "localhost" && cfg.Postgres.Host != "::1" {
+		t.Fatal("repository tests require loopback PostgreSQL")
 	}
 	if err := EnsureDatabase(ctx, cfg.Postgres); err != nil {
 		t.Fatal(err)
@@ -817,6 +805,10 @@ func cleanupTaskRepoTestPlatformUser(t *testing.T, platformCode string) {
 	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
 	if err != nil {
 		t.Logf("cleanup config load failed: %v", err)
+		return
+	}
+	if cfg.Postgres.Host != "127.0.0.1" && cfg.Postgres.Host != "localhost" && cfg.Postgres.Host != "::1" {
+		t.Log("refusing non-loopback repository test cleanup")
 		return
 	}
 	db, err := Open(ctx, cfg.Postgres)

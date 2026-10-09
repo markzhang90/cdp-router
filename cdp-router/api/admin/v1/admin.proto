@@ -27,6 +27,16 @@ service AdminAPI {
     };
   }
 
+  rpc UpdateProviderValidationRule(UpdateProviderValidationRuleRequest) returns (ResultValidationRulesResponse) {
+    option (google.api.http) = { put: "/api/admin/v1/result-validation-rules/providers/{provider_code}" body: "*" };
+  }
+  rpc GetResultValidationRules(GetResultValidationRulesRequest) returns (ResultValidationRulesResponse) {
+    option (google.api.http) = { get: "/api/admin/v1/result-validation-rules" };
+  }
+  rpc UpdateResultValidationRules(UpdateResultValidationRulesRequest) returns (ResultValidationRulesResponse) {
+    option (google.api.http) = { put: "/api/admin/v1/result-validation-rules" body: "*" };
+  }
+
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse) {
     option (google.api.http) = {
       get: "/api/admin/v1/tasks"
@@ -197,6 +207,7 @@ message ListTasksRequest {
   string platform_code = 8 [json_name = "platformCode"];
   string task_name = 9 [json_name = "taskName"];
   string provider_code = 10 [json_name = "providerCode"];
+  bool has_risk = 11 [json_name = "hasRisk"];
 }
 
 message ListTasksResponse {
@@ -237,6 +248,10 @@ message AdminTaskSummary {
   int32 result_success_count = 22 [json_name = "resultSuccessCount"];
   int32 result_failed_count = 23 [json_name = "resultFailedCount"];
   int32 result_missing_count = 24 [json_name = "resultMissingCount"];
+  int32 risk_count = 25 [json_name = "riskCount"];
+  int32 invalid_answer_count = 26 [json_name = "invalidAnswerCount"];
+  string risk_summary_json = 27 [json_name = "riskSummaryJson"];
+  string risk_stats_updated_at = 28 [json_name = "riskStatsUpdatedAt"];
 }
 
 message GetTaskDetailRequest {
@@ -308,6 +323,10 @@ message AdminTaskItem {
   string parse_status = 17 [json_name = "parseStatus"];
   string parse_error = 18 [json_name = "parseError"];
   string result_imported_at = 19 [json_name = "resultImportedAt"];
+  string validation_status = 20 [json_name = "validationStatus"];
+  repeated AnswerRisk risk_items = 21 [json_name = "riskItems"];
+  string validation_rule_version = 22 [json_name = "validationRuleVersion"];
+  string validated_at = 23 [json_name = "validatedAt"];
 }
 
 message ResultFile {
@@ -368,6 +387,7 @@ message CheckTaskResultData {
 message RetryTaskCallbackRequest {
   int64 id = 1;
   bool force = 2;
+  bool ignore_risk = 3 [json_name = "ignoreRisk"];
 }
 
 message RetryTaskCallbackResponse {
@@ -389,6 +409,8 @@ message RetryTaskCallbackData {
   int32 failed_count = 10 [json_name = "failedCount"];
   int32 imported_count = 11 [json_name = "importedCount"];
   int32 task_item_count = 12 [json_name = "taskItemCount"];
+  int32 risk_count = 13 [json_name = "riskCount"];
+  bool risk_stats_ready = 14 [json_name = "riskStatsReady"];
 }
 
 message ForceImportCallbackRequest {
@@ -738,4 +760,39 @@ message UpdatePlatformUserResponse {
   int32 status = 1;
   string message = 2;
   PlatformUser data = 3;
+}
+
+message AnswerRisk {
+  string code = 1;
+  string message = 2;
+  int32 actual_length = 3 [json_name = "actualLength"];
+  int32 min_length = 4 [json_name = "minLength"];
+  repeated string matched_keywords = 5 [json_name = "matchedKeywords"];
+}
+message UpdateProviderValidationRuleRequest {
+ string expected_version = 1 [json_name = "expectedVersion"];
+ string provider_code = 2 [json_name = "providerCode"];
+ reserved 3;
+ reserved "enabled";
+ optional bool risk_interception_enabled = 4 [json_name = "riskInterceptionEnabled"];
+}
+message GetResultValidationRulesRequest {}
+message UpdateResultValidationRulesRequest {
+  string expected_version = 1 [json_name = "expectedVersion"];
+  repeated string keywords = 2;
+}
+message ResultValidationRulesResponse {
+  int32 status = 1;
+  string message = 2;
+  ResultValidationRulesData data = 3;
+}
+message ResultValidationRulesData {
+  string version = 1;
+  repeated string keywords = 2;
+  string updated_at = 3 [json_name = "updatedAt"];
+  string updated_by = 4 [json_name = "updatedBy"];
+  int32 refresh_interval_seconds = 5 [json_name = "refreshIntervalSeconds"];
+  reserved 6;
+  reserved "disabled_provider_codes";
+  repeated string risk_callback_allowed_provider_codes = 7 [json_name = "riskCallbackAllowedProviderCodes"];
 }

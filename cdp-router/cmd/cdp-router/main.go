@@ -91,6 +91,11 @@ func main() {
 	}
 
 	repo := data.NewTaskRepo(db)
+	validationRules := biz.NewValidationRuleCache(repo, cfg.ResultValidation.KeywordRefreshInterval)
+	if err := validationRules.Refresh(ctx); err != nil {
+		slog.WarnContext(ctx, "initial validation keyword load failed; retaining current version", "error", err)
+	}
+	go validationRules.Run(ctx)
 	platformUsers := data.NewPlatformUserRepo(db)
 	if err := platformUsers.SyncFromConfig(ctx, cfg.PlatformUsers); err != nil {
 		slog.Error("sync platform users failed", "error", err)
@@ -100,6 +105,7 @@ func main() {
 	parser := cleaner.NewExcelParser()
 	callbackClient := callback.NewClient(cfg.Callback.Timeout, cfg.Callback.UploadTimeout, cfg.PlatformUsers, store, cfg.OSS.PublicHost, cfg.OSS.Host)
 	usecase := biz.NewTaskUsecase(repo, providers, providers, store, parser, callbackClient, biz.TaskUsecaseOptions{
+		ValidationRules:         validationRules,
 		PublicBaseURL:           cfg.Server.PublicBaseURL,
 		OSSUploadDir:            cfg.OSS.UploadDir,
 		OSSPublicHosts:          []string{cfg.OSS.PublicHost, cfg.OSS.Host},

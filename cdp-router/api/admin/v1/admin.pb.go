@@ -554,6 +554,7 @@ type ListTasksRequest struct {
 	PlatformCode  string                 `protobuf:"bytes,8,opt,name=platform_code,json=platformCode,proto3" json:"platform_code,omitempty"`
 	TaskName      string                 `protobuf:"bytes,9,opt,name=task_name,json=taskName,proto3" json:"task_name,omitempty"`
 	ProviderCode  string                 `protobuf:"bytes,10,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
+	HasRisk       bool                   `protobuf:"varint,11,opt,name=has_risk,json=hasRisk,proto3" json:"has_risk,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -656,6 +657,13 @@ func (x *ListTasksRequest) GetProviderCode() string {
 		return x.ProviderCode
 	}
 	return ""
+}
+
+func (x *ListTasksRequest) GetHasRisk() bool {
+	if x != nil {
+		return x.HasRisk
+	}
+	return false
 }
 
 type ListTasksResponse struct {
@@ -812,6 +820,10 @@ type AdminTaskSummary struct {
 	ResultSuccessCount       int32                  `protobuf:"varint,22,opt,name=result_success_count,json=resultSuccessCount,proto3" json:"result_success_count,omitempty"`
 	ResultFailedCount        int32                  `protobuf:"varint,23,opt,name=result_failed_count,json=resultFailedCount,proto3" json:"result_failed_count,omitempty"`
 	ResultMissingCount       int32                  `protobuf:"varint,24,opt,name=result_missing_count,json=resultMissingCount,proto3" json:"result_missing_count,omitempty"`
+	RiskCount                int32                  `protobuf:"varint,25,opt,name=risk_count,json=riskCount,proto3" json:"risk_count,omitempty"`
+	InvalidAnswerCount       int32                  `protobuf:"varint,26,opt,name=invalid_answer_count,json=invalidAnswerCount,proto3" json:"invalid_answer_count,omitempty"`
+	RiskSummaryJson          string                 `protobuf:"bytes,27,opt,name=risk_summary_json,json=riskSummaryJson,proto3" json:"risk_summary_json,omitempty"`
+	RiskStatsUpdatedAt       string                 `protobuf:"bytes,28,opt,name=risk_stats_updated_at,json=riskStatsUpdatedAt,proto3" json:"risk_stats_updated_at,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -1012,6 +1024,34 @@ func (x *AdminTaskSummary) GetResultMissingCount() int32 {
 		return x.ResultMissingCount
 	}
 	return 0
+}
+
+func (x *AdminTaskSummary) GetRiskCount() int32 {
+	if x != nil {
+		return x.RiskCount
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetInvalidAnswerCount() int32 {
+	if x != nil {
+		return x.InvalidAnswerCount
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetRiskSummaryJson() string {
+	if x != nil {
+		return x.RiskSummaryJson
+	}
+	return ""
+}
+
+func (x *AdminTaskSummary) GetRiskStatsUpdatedAt() string {
+	if x != nil {
+		return x.RiskStatsUpdatedAt
+	}
+	return ""
 }
 
 type GetTaskDetailRequest struct {
@@ -1499,6 +1539,10 @@ type AdminTaskItem struct {
 	ParseStatus              string                 `protobuf:"bytes,17,opt,name=parse_status,json=parseStatus,proto3" json:"parse_status,omitempty"`
 	ParseError               string                 `protobuf:"bytes,18,opt,name=parse_error,json=parseError,proto3" json:"parse_error,omitempty"`
 	ResultImportedAt         string                 `protobuf:"bytes,19,opt,name=result_imported_at,json=resultImportedAt,proto3" json:"result_imported_at,omitempty"`
+	ValidationStatus         string                 `protobuf:"bytes,20,opt,name=validation_status,json=validationStatus,proto3" json:"validation_status,omitempty"`
+	RiskItems                []*AnswerRisk          `protobuf:"bytes,21,rep,name=risk_items,json=riskItems,proto3" json:"risk_items,omitempty"`
+	ValidationRuleVersion    string                 `protobuf:"bytes,22,opt,name=validation_rule_version,json=validationRuleVersion,proto3" json:"validation_rule_version,omitempty"`
+	ValidatedAt              string                 `protobuf:"bytes,23,opt,name=validated_at,json=validatedAt,proto3" json:"validated_at,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -1662,6 +1706,34 @@ func (x *AdminTaskItem) GetParseError() string {
 func (x *AdminTaskItem) GetResultImportedAt() string {
 	if x != nil {
 		return x.ResultImportedAt
+	}
+	return ""
+}
+
+func (x *AdminTaskItem) GetValidationStatus() string {
+	if x != nil {
+		return x.ValidationStatus
+	}
+	return ""
+}
+
+func (x *AdminTaskItem) GetRiskItems() []*AnswerRisk {
+	if x != nil {
+		return x.RiskItems
+	}
+	return nil
+}
+
+func (x *AdminTaskItem) GetValidationRuleVersion() string {
+	if x != nil {
+		return x.ValidationRuleVersion
+	}
+	return ""
+}
+
+func (x *AdminTaskItem) GetValidatedAt() string {
+	if x != nil {
+		return x.ValidatedAt
 	}
 	return ""
 }
@@ -2182,6 +2254,7 @@ type RetryTaskCallbackRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Force         bool                   `protobuf:"varint,2,opt,name=force,proto3" json:"force,omitempty"`
+	IgnoreRisk    bool                   `protobuf:"varint,3,opt,name=ignore_risk,json=ignoreRisk,proto3" json:"ignore_risk,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2226,6 +2299,13 @@ func (x *RetryTaskCallbackRequest) GetId() int64 {
 func (x *RetryTaskCallbackRequest) GetForce() bool {
 	if x != nil {
 		return x.Force
+	}
+	return false
+}
+
+func (x *RetryTaskCallbackRequest) GetIgnoreRisk() bool {
+	if x != nil {
+		return x.IgnoreRisk
 	}
 	return false
 }
@@ -2291,21 +2371,23 @@ func (x *RetryTaskCallbackResponse) GetData() *RetryTaskCallbackData {
 }
 
 type RetryTaskCallbackData struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	BatchNo       string                 `protobuf:"bytes,2,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
-	TaskStatus    string                 `protobuf:"bytes,3,opt,name=task_status,json=taskStatus,proto3" json:"task_status,omitempty"`
-	Delivered     bool                   `protobuf:"varint,4,opt,name=delivered,proto3" json:"delivered,omitempty"`
-	Ready         bool                   `protobuf:"varint,5,opt,name=ready,proto3" json:"ready,omitempty"`
-	ForceRequired bool                   `protobuf:"varint,6,opt,name=force_required,json=forceRequired,proto3" json:"force_required,omitempty"`
-	Reason        string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
-	TotalCount    int32                  `protobuf:"varint,8,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
-	SuccessCount  int32                  `protobuf:"varint,9,opt,name=success_count,json=successCount,proto3" json:"success_count,omitempty"`
-	FailedCount   int32                  `protobuf:"varint,10,opt,name=failed_count,json=failedCount,proto3" json:"failed_count,omitempty"`
-	ImportedCount int32                  `protobuf:"varint,11,opt,name=imported_count,json=importedCount,proto3" json:"imported_count,omitempty"`
-	TaskItemCount int32                  `protobuf:"varint,12,opt,name=task_item_count,json=taskItemCount,proto3" json:"task_item_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TaskId         int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	BatchNo        string                 `protobuf:"bytes,2,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
+	TaskStatus     string                 `protobuf:"bytes,3,opt,name=task_status,json=taskStatus,proto3" json:"task_status,omitempty"`
+	Delivered      bool                   `protobuf:"varint,4,opt,name=delivered,proto3" json:"delivered,omitempty"`
+	Ready          bool                   `protobuf:"varint,5,opt,name=ready,proto3" json:"ready,omitempty"`
+	ForceRequired  bool                   `protobuf:"varint,6,opt,name=force_required,json=forceRequired,proto3" json:"force_required,omitempty"`
+	Reason         string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	TotalCount     int32                  `protobuf:"varint,8,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
+	SuccessCount   int32                  `protobuf:"varint,9,opt,name=success_count,json=successCount,proto3" json:"success_count,omitempty"`
+	FailedCount    int32                  `protobuf:"varint,10,opt,name=failed_count,json=failedCount,proto3" json:"failed_count,omitempty"`
+	ImportedCount  int32                  `protobuf:"varint,11,opt,name=imported_count,json=importedCount,proto3" json:"imported_count,omitempty"`
+	TaskItemCount  int32                  `protobuf:"varint,12,opt,name=task_item_count,json=taskItemCount,proto3" json:"task_item_count,omitempty"`
+	RiskCount      int32                  `protobuf:"varint,13,opt,name=risk_count,json=riskCount,proto3" json:"risk_count,omitempty"`
+	RiskStatsReady bool                   `protobuf:"varint,14,opt,name=risk_stats_ready,json=riskStatsReady,proto3" json:"risk_stats_ready,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RetryTaskCallbackData) Reset() {
@@ -2420,6 +2502,20 @@ func (x *RetryTaskCallbackData) GetTaskItemCount() int32 {
 		return x.TaskItemCount
 	}
 	return 0
+}
+
+func (x *RetryTaskCallbackData) GetRiskCount() int32 {
+	if x != nil {
+		return x.RiskCount
+	}
+	return 0
+}
+
+func (x *RetryTaskCallbackData) GetRiskStatsReady() bool {
+	if x != nil {
+		return x.RiskStatsReady
+	}
+	return false
 }
 
 type ForceImportCallbackRequest struct {
@@ -5770,6 +5866,374 @@ func (x *UpdatePlatformUserResponse) GetData() *PlatformUser {
 	return nil
 }
 
+type AnswerRisk struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Code            string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Message         string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	ActualLength    int32                  `protobuf:"varint,3,opt,name=actual_length,json=actualLength,proto3" json:"actual_length,omitempty"`
+	MinLength       int32                  `protobuf:"varint,4,opt,name=min_length,json=minLength,proto3" json:"min_length,omitempty"`
+	MatchedKeywords []string               `protobuf:"bytes,5,rep,name=matched_keywords,json=matchedKeywords,proto3" json:"matched_keywords,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AnswerRisk) Reset() {
+	*x = AnswerRisk{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnswerRisk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnswerRisk) ProtoMessage() {}
+
+func (x *AnswerRisk) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnswerRisk.ProtoReflect.Descriptor instead.
+func (*AnswerRisk) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{75}
+}
+
+func (x *AnswerRisk) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *AnswerRisk) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *AnswerRisk) GetActualLength() int32 {
+	if x != nil {
+		return x.ActualLength
+	}
+	return 0
+}
+
+func (x *AnswerRisk) GetMinLength() int32 {
+	if x != nil {
+		return x.MinLength
+	}
+	return 0
+}
+
+func (x *AnswerRisk) GetMatchedKeywords() []string {
+	if x != nil {
+		return x.MatchedKeywords
+	}
+	return nil
+}
+
+type UpdateProviderValidationRuleRequest struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	ExpectedVersion         string                 `protobuf:"bytes,1,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	ProviderCode            string                 `protobuf:"bytes,2,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
+	RiskInterceptionEnabled *bool                  `protobuf:"varint,4,opt,name=risk_interception_enabled,json=riskInterceptionEnabled,proto3,oneof" json:"risk_interception_enabled,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *UpdateProviderValidationRuleRequest) Reset() {
+	*x = UpdateProviderValidationRuleRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateProviderValidationRuleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateProviderValidationRuleRequest) ProtoMessage() {}
+
+func (x *UpdateProviderValidationRuleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateProviderValidationRuleRequest.ProtoReflect.Descriptor instead.
+func (*UpdateProviderValidationRuleRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{76}
+}
+
+func (x *UpdateProviderValidationRuleRequest) GetExpectedVersion() string {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return ""
+}
+
+func (x *UpdateProviderValidationRuleRequest) GetProviderCode() string {
+	if x != nil {
+		return x.ProviderCode
+	}
+	return ""
+}
+
+func (x *UpdateProviderValidationRuleRequest) GetRiskInterceptionEnabled() bool {
+	if x != nil && x.RiskInterceptionEnabled != nil {
+		return *x.RiskInterceptionEnabled
+	}
+	return false
+}
+
+type GetResultValidationRulesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetResultValidationRulesRequest) Reset() {
+	*x = GetResultValidationRulesRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[77]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetResultValidationRulesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetResultValidationRulesRequest) ProtoMessage() {}
+
+func (x *GetResultValidationRulesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[77]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetResultValidationRulesRequest.ProtoReflect.Descriptor instead.
+func (*GetResultValidationRulesRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{77}
+}
+
+type UpdateResultValidationRulesRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ExpectedVersion string                 `protobuf:"bytes,1,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	Keywords        []string               `protobuf:"bytes,2,rep,name=keywords,proto3" json:"keywords,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateResultValidationRulesRequest) Reset() {
+	*x = UpdateResultValidationRulesRequest{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateResultValidationRulesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateResultValidationRulesRequest) ProtoMessage() {}
+
+func (x *UpdateResultValidationRulesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateResultValidationRulesRequest.ProtoReflect.Descriptor instead.
+func (*UpdateResultValidationRulesRequest) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{78}
+}
+
+func (x *UpdateResultValidationRulesRequest) GetExpectedVersion() string {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return ""
+}
+
+func (x *UpdateResultValidationRulesRequest) GetKeywords() []string {
+	if x != nil {
+		return x.Keywords
+	}
+	return nil
+}
+
+type ResultValidationRulesResponse struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Status        int32                      `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	Message       string                     `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Data          *ResultValidationRulesData `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResultValidationRulesResponse) Reset() {
+	*x = ResultValidationRulesResponse{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[79]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResultValidationRulesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResultValidationRulesResponse) ProtoMessage() {}
+
+func (x *ResultValidationRulesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[79]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResultValidationRulesResponse.ProtoReflect.Descriptor instead.
+func (*ResultValidationRulesResponse) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{79}
+}
+
+func (x *ResultValidationRulesResponse) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *ResultValidationRulesResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ResultValidationRulesResponse) GetData() *ResultValidationRulesData {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ResultValidationRulesData struct {
+	state                            protoimpl.MessageState `protogen:"open.v1"`
+	Version                          string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Keywords                         []string               `protobuf:"bytes,2,rep,name=keywords,proto3" json:"keywords,omitempty"`
+	UpdatedAt                        string                 `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	UpdatedBy                        string                 `protobuf:"bytes,4,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
+	RefreshIntervalSeconds           int32                  `protobuf:"varint,5,opt,name=refresh_interval_seconds,json=refreshIntervalSeconds,proto3" json:"refresh_interval_seconds,omitempty"`
+	RiskCallbackAllowedProviderCodes []string               `protobuf:"bytes,7,rep,name=risk_callback_allowed_provider_codes,json=riskCallbackAllowedProviderCodes,proto3" json:"risk_callback_allowed_provider_codes,omitempty"`
+	unknownFields                    protoimpl.UnknownFields
+	sizeCache                        protoimpl.SizeCache
+}
+
+func (x *ResultValidationRulesData) Reset() {
+	*x = ResultValidationRulesData{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[80]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResultValidationRulesData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResultValidationRulesData) ProtoMessage() {}
+
+func (x *ResultValidationRulesData) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[80]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResultValidationRulesData.ProtoReflect.Descriptor instead.
+func (*ResultValidationRulesData) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{80}
+}
+
+func (x *ResultValidationRulesData) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *ResultValidationRulesData) GetKeywords() []string {
+	if x != nil {
+		return x.Keywords
+	}
+	return nil
+}
+
+func (x *ResultValidationRulesData) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *ResultValidationRulesData) GetUpdatedBy() string {
+	if x != nil {
+		return x.UpdatedBy
+	}
+	return ""
+}
+
+func (x *ResultValidationRulesData) GetRefreshIntervalSeconds() int32 {
+	if x != nil {
+		return x.RefreshIntervalSeconds
+	}
+	return 0
+}
+
+func (x *ResultValidationRulesData) GetRiskCallbackAllowedProviderCodes() []string {
+	if x != nil {
+		return x.RiskCallbackAllowedProviderCodes
+	}
+	return nil
+}
+
 var File_api_admin_v1_admin_proto protoreflect.FileDescriptor
 
 const file_api_admin_v1_admin_proto_rawDesc = "" +
@@ -5808,7 +6272,7 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\"\x1b\n" +
 	"\tEmptyData\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok\"\xc4\x02\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"\xdf\x02\n" +
 	"\x10ListTasksRequest\x12\x19\n" +
 	"\bbatch_no\x18\x01 \x01(\tR\abatchNo\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12#\n" +
@@ -5821,7 +6285,8 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\rplatform_code\x18\b \x01(\tR\fplatformCode\x12\x1b\n" +
 	"\ttask_name\x18\t \x01(\tR\btaskName\x12#\n" +
 	"\rprovider_code\x18\n" +
-	" \x01(\tR\fproviderCode\"u\n" +
+	" \x01(\tR\fproviderCode\x12\x19\n" +
+	"\bhas_risk\x18\v \x01(\bR\ahasRisk\"u\n" +
 	"\x11ListTasksResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12.\n" +
@@ -5830,7 +6295,7 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x05tasks\x18\x01 \x03(\v2\x1e.api.admin.v1.AdminTaskSummaryR\x05tasks\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x12\n" +
 	"\x04page\x18\x03 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xbd\a\n" +
+	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xed\b\n" +
 	"\x10AdminTaskSummary\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x1b\n" +
 	"\ttask_name\x18\x02 \x01(\tR\btaskName\x12\x19\n" +
@@ -5858,7 +6323,12 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x15reassigned_to_task_id\x18\x15 \x01(\x03R\x12reassignedToTaskId\x120\n" +
 	"\x14result_success_count\x18\x16 \x01(\x05R\x12resultSuccessCount\x12.\n" +
 	"\x13result_failed_count\x18\x17 \x01(\x05R\x11resultFailedCount\x120\n" +
-	"\x14result_missing_count\x18\x18 \x01(\x05R\x12resultMissingCount\"\xf3\x01\n" +
+	"\x14result_missing_count\x18\x18 \x01(\x05R\x12resultMissingCount\x12\x1d\n" +
+	"\n" +
+	"risk_count\x18\x19 \x01(\x05R\triskCount\x120\n" +
+	"\x14invalid_answer_count\x18\x1a \x01(\x05R\x12invalidAnswerCount\x12*\n" +
+	"\x11risk_summary_json\x18\x1b \x01(\tR\x0friskSummaryJson\x121\n" +
+	"\x15risk_stats_updated_at\x18\x1c \x01(\tR\x12riskStatsUpdatedAt\"\xf3\x01\n" +
 	"\x14GetTaskDetailRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1b\n" +
 	"\titem_page\x18\x02 \x01(\x05R\bitemPage\x12$\n" +
@@ -5903,7 +6373,7 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"eventTotal\x12\x1d\n" +
 	"\n" +
 	"event_page\x18\r \x01(\x05R\teventPage\x12&\n" +
-	"\x0fevent_page_size\x18\x0e \x01(\x05R\reventPageSize\"\xca\x05\n" +
+	"\x0fevent_page_size\x18\x0e \x01(\x05R\reventPageSize\"\x8b\a\n" +
 	"\rAdminTaskItem\x12 \n" +
 	"\ftask_item_id\x18\x01 \x01(\x03R\n" +
 	"taskItemId\x12\x17\n" +
@@ -5927,7 +6397,12 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\fparse_status\x18\x11 \x01(\tR\vparseStatus\x12\x1f\n" +
 	"\vparse_error\x18\x12 \x01(\tR\n" +
 	"parseError\x12,\n" +
-	"\x12result_imported_at\x18\x13 \x01(\tR\x10resultImportedAt\"\xc7\x02\n" +
+	"\x12result_imported_at\x18\x13 \x01(\tR\x10resultImportedAt\x12+\n" +
+	"\x11validation_status\x18\x14 \x01(\tR\x10validationStatus\x127\n" +
+	"\n" +
+	"risk_items\x18\x15 \x03(\v2\x18.api.admin.v1.AnswerRiskR\triskItems\x126\n" +
+	"\x17validation_rule_version\x18\x16 \x01(\tR\x15validationRuleVersion\x12!\n" +
+	"\fvalidated_at\x18\x17 \x01(\tR\vvalidatedAt\"\xc7\x02\n" +
 	"\n" +
 	"ResultFile\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1f\n" +
@@ -5985,14 +6460,16 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\n" +
 	"file_count\x18\x05 \x01(\x05R\tfileCount\x12\x1b\n" +
 	"\trow_count\x18\x06 \x01(\x05R\browCount\x12\x10\n" +
-	"\x03msg\x18\a \x01(\tR\x03msg\"@\n" +
+	"\x03msg\x18\a \x01(\tR\x03msg\"a\n" +
 	"\x18RetryTaskCallbackRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x14\n" +
-	"\x05force\x18\x02 \x01(\bR\x05force\"\x86\x01\n" +
+	"\x05force\x18\x02 \x01(\bR\x05force\x12\x1f\n" +
+	"\vignore_risk\x18\x03 \x01(\bR\n" +
+	"ignoreRisk\"\x86\x01\n" +
 	"\x19RetryTaskCallbackResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x127\n" +
-	"\x04data\x18\x03 \x01(\v2#.api.admin.v1.RetryTaskCallbackDataR\x04data\"\x97\x03\n" +
+	"\x04data\x18\x03 \x01(\v2#.api.admin.v1.RetryTaskCallbackDataR\x04data\"\xe0\x03\n" +
 	"\x15RetryTaskCallbackData\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x19\n" +
 	"\bbatch_no\x18\x02 \x01(\tR\abatchNo\x12\x1f\n" +
@@ -6008,7 +6485,10 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\ffailed_count\x18\n" +
 	" \x01(\x05R\vfailedCount\x12%\n" +
 	"\x0eimported_count\x18\v \x01(\x05R\rimportedCount\x12&\n" +
-	"\x0ftask_item_count\x18\f \x01(\x05R\rtaskItemCount\"D\n" +
+	"\x0ftask_item_count\x18\f \x01(\x05R\rtaskItemCount\x12\x1d\n" +
+	"\n" +
+	"risk_count\x18\r \x01(\x05R\triskCount\x12(\n" +
+	"\x10risk_stats_ready\x18\x0e \x01(\bR\x0eriskStatsReady\"D\n" +
 	"\x1aForceImportCallbackRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x8a\x01\n" +
@@ -6292,11 +6772,44 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x1aUpdatePlatformUserResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12.\n" +
-	"\x04data\x18\x03 \x01(\v2\x1a.api.admin.v1.PlatformUserR\x04data2\xdd\x15\n" +
+	"\x04data\x18\x03 \x01(\v2\x1a.api.admin.v1.PlatformUserR\x04data\"\xa9\x01\n" +
+	"\n" +
+	"AnswerRisk\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12#\n" +
+	"\ractual_length\x18\x03 \x01(\x05R\factualLength\x12\x1d\n" +
+	"\n" +
+	"min_length\x18\x04 \x01(\x05R\tminLength\x12)\n" +
+	"\x10matched_keywords\x18\x05 \x03(\tR\x0fmatchedKeywords\"\xe3\x01\n" +
+	"#UpdateProviderValidationRuleRequest\x12)\n" +
+	"\x10expected_version\x18\x01 \x01(\tR\x0fexpectedVersion\x12#\n" +
+	"\rprovider_code\x18\x02 \x01(\tR\fproviderCode\x12?\n" +
+	"\x19risk_interception_enabled\x18\x04 \x01(\bH\x00R\x17riskInterceptionEnabled\x88\x01\x01B\x1c\n" +
+	"\x1a_risk_interception_enabledJ\x04\b\x03\x10\x04R\aenabled\"!\n" +
+	"\x1fGetResultValidationRulesRequest\"k\n" +
+	"\"UpdateResultValidationRulesRequest\x12)\n" +
+	"\x10expected_version\x18\x01 \x01(\tR\x0fexpectedVersion\x12\x1a\n" +
+	"\bkeywords\x18\x02 \x03(\tR\bkeywords\"\x8e\x01\n" +
+	"\x1dResultValidationRulesResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12;\n" +
+	"\x04data\x18\x03 \x01(\v2'.api.admin.v1.ResultValidationRulesDataR\x04data\"\xb8\x02\n" +
+	"\x19ResultValidationRulesData\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1a\n" +
+	"\bkeywords\x18\x02 \x03(\tR\bkeywords\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x03 \x01(\tR\tupdatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_by\x18\x04 \x01(\tR\tupdatedBy\x128\n" +
+	"\x18refresh_interval_seconds\x18\x05 \x01(\x05R\x16refreshIntervalSeconds\x12N\n" +
+	"$risk_callback_allowed_provider_codes\x18\a \x03(\tR riskCallbackAllowedProviderCodesJ\x04\b\x06\x10\aR\x17disabled_provider_codes2\x83\x1a\n" +
 	"\bAdminAPI\x12`\n" +
 	"\x05Login\x12\x1a.api.admin.v1.LoginRequest\x1a\x1b.api.admin.v1.LoginResponse\"\x1e\x82\xd3\xe4\x93\x02\x18:\x01*\"\x13/api/admin/v1/login\x12d\n" +
 	"\x06Logout\x12\x1b.api.admin.v1.LogoutRequest\x1a\x1c.api.admin.v1.LogoutResponse\"\x1f\x82\xd3\xe4\x93\x02\x19:\x01*\"\x14/api/admin/v1/logout\x12Q\n" +
-	"\x02Me\x12\x17.api.admin.v1.MeRequest\x1a\x18.api.admin.v1.MeResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/admin/v1/me\x12i\n" +
+	"\x02Me\x12\x17.api.admin.v1.MeRequest\x1a\x18.api.admin.v1.MeResponse\"\x18\x82\xd3\xe4\x93\x02\x12\x12\x10/api/admin/v1/me\x12\xca\x01\n" +
+	"\x1cUpdateProviderValidationRule\x121.api.admin.v1.UpdateProviderValidationRuleRequest\x1a+.api.admin.v1.ResultValidationRulesResponse\"J\x82\xd3\xe4\x93\x02D:\x01*\x1a?/api/admin/v1/result-validation-rules/providers/{provider_code}\x12\xa5\x01\n" +
+	"\x18GetResultValidationRules\x12-.api.admin.v1.GetResultValidationRulesRequest\x1a+.api.admin.v1.ResultValidationRulesResponse\"-\x82\xd3\xe4\x93\x02'\x12%/api/admin/v1/result-validation-rules\x12\xae\x01\n" +
+	"\x1bUpdateResultValidationRules\x120.api.admin.v1.UpdateResultValidationRulesRequest\x1a+.api.admin.v1.ResultValidationRulesResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\x1a%/api/admin/v1/result-validation-rules\x12i\n" +
 	"\tListTasks\x12\x1e.api.admin.v1.ListTasksRequest\x1a\x1f.api.admin.v1.ListTasksResponse\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/admin/v1/tasks\x12z\n" +
 	"\rGetTaskDetail\x12\".api.admin.v1.GetTaskDetailRequest\x1a#.api.admin.v1.GetTaskDetailResponse\" \x82\xd3\xe4\x93\x02\x1a\x12\x18/api/admin/v1/tasks/{id}\x12\x90\x01\n" +
 	"\x0fExportTaskItems\x12$.api.admin.v1.ExportTaskItemsRequest\x1a%.api.admin.v1.ExportTaskItemsResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/api/admin/v1/tasks/{id}/items-export\x12\x90\x01\n" +
@@ -6328,7 +6841,7 @@ func file_api_admin_v1_admin_proto_rawDescGZIP() []byte {
 	return file_api_admin_v1_admin_proto_rawDescData
 }
 
-var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 75)
+var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 81)
 var file_api_admin_v1_admin_proto_goTypes = []any{
 	(*LoginRequest)(nil),                             // 0: api.admin.v1.LoginRequest
 	(*LoginResponse)(nil),                            // 1: api.admin.v1.LoginResponse
@@ -6405,6 +6918,12 @@ var file_api_admin_v1_admin_proto_goTypes = []any{
 	(*CreatePlatformUserResponse)(nil),               // 72: api.admin.v1.CreatePlatformUserResponse
 	(*UpdatePlatformUserRequest)(nil),                // 73: api.admin.v1.UpdatePlatformUserRequest
 	(*UpdatePlatformUserResponse)(nil),               // 74: api.admin.v1.UpdatePlatformUserResponse
+	(*AnswerRisk)(nil),                               // 75: api.admin.v1.AnswerRisk
+	(*UpdateProviderValidationRuleRequest)(nil),      // 76: api.admin.v1.UpdateProviderValidationRuleRequest
+	(*GetResultValidationRulesRequest)(nil),          // 77: api.admin.v1.GetResultValidationRulesRequest
+	(*UpdateResultValidationRulesRequest)(nil),       // 78: api.admin.v1.UpdateResultValidationRulesRequest
+	(*ResultValidationRulesResponse)(nil),            // 79: api.admin.v1.ResultValidationRulesResponse
+	(*ResultValidationRulesData)(nil),                // 80: api.admin.v1.ResultValidationRulesData
 }
 var file_api_admin_v1_admin_proto_depIdxs = []int32{
 	2,  // 0: api.admin.v1.LoginResponse.data:type_name -> api.admin.v1.LoginData
@@ -6421,86 +6940,94 @@ var file_api_admin_v1_admin_proto_depIdxs = []int32{
 	21, // 11: api.admin.v1.TaskDetailData.files:type_name -> api.admin.v1.ResultFile
 	22, // 12: api.admin.v1.TaskDetailData.events:type_name -> api.admin.v1.TaskEvent
 	23, // 13: api.admin.v1.TaskDetailData.callbacks:type_name -> api.admin.v1.TaskCallback
-	26, // 14: api.admin.v1.CheckTaskResultResponse.data:type_name -> api.admin.v1.CheckTaskResultData
-	29, // 15: api.admin.v1.RetryTaskCallbackResponse.data:type_name -> api.admin.v1.RetryTaskCallbackData
-	32, // 16: api.admin.v1.ForceImportCallbackResponse.data:type_name -> api.admin.v1.ForceImportCallbackData
-	35, // 17: api.admin.v1.ReassignTaskResponse.data:type_name -> api.admin.v1.ReassignTaskData
-	9,  // 18: api.admin.v1.DeleteTaskResponse.data:type_name -> api.admin.v1.EmptyData
-	40, // 19: api.admin.v1.ListProvidersResponse.data:type_name -> api.admin.v1.ProviderListData
-	41, // 20: api.admin.v1.ProviderListData.providers:type_name -> api.admin.v1.Provider
-	44, // 21: api.admin.v1.GetDispatchOptionsResponse.data:type_name -> api.admin.v1.DispatchOptionsData
-	45, // 22: api.admin.v1.DispatchOptionsData.strategies:type_name -> api.admin.v1.DispatchStrategyOption
-	41, // 23: api.admin.v1.DispatchOptionsData.providers:type_name -> api.admin.v1.Provider
-	48, // 24: api.admin.v1.GetProviderMetricsResponse.data:type_name -> api.admin.v1.ProviderMetricsData
-	41, // 25: api.admin.v1.ProviderMetricsData.provider:type_name -> api.admin.v1.Provider
-	49, // 26: api.admin.v1.ProviderMetricsData.summary:type_name -> api.admin.v1.ProviderMetricsSummary
-	70, // 27: api.admin.v1.ProviderMetricsData.daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
-	51, // 28: api.admin.v1.PlatformUser.dispatch_profile:type_name -> api.admin.v1.DispatchProfile
-	53, // 29: api.admin.v1.DispatchProfile.rules:type_name -> api.admin.v1.DispatchRule
-	54, // 30: api.admin.v1.DispatchProfileInput.rules:type_name -> api.admin.v1.DispatchRuleInput
-	50, // 31: api.admin.v1.PlatformUserListData.users:type_name -> api.admin.v1.PlatformUser
-	56, // 32: api.admin.v1.ListPlatformUsersResponse.data:type_name -> api.admin.v1.PlatformUserListData
-	50, // 33: api.admin.v1.GetPlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	64, // 34: api.admin.v1.GetPlatformUserMetricsResponse.data:type_name -> api.admin.v1.PlatformUserMetricsData
-	18, // 35: api.admin.v1.ExportPlatformUserReconciliationResponse.data:type_name -> api.admin.v1.ExportTaskItemsData
-	50, // 36: api.admin.v1.PlatformUserMetricsData.user:type_name -> api.admin.v1.PlatformUser
-	65, // 37: api.admin.v1.PlatformUserMetricsData.task_metrics:type_name -> api.admin.v1.PlatformTaskMetrics
-	66, // 38: api.admin.v1.PlatformUserMetricsData.question_metrics:type_name -> api.admin.v1.PlatformQuestionMetrics
-	67, // 39: api.admin.v1.PlatformUserMetricsData.result_metrics:type_name -> api.admin.v1.PlatformResultMetrics
-	68, // 40: api.admin.v1.PlatformUserMetricsData.callback_metrics:type_name -> api.admin.v1.PlatformCallbackMetrics
-	69, // 41: api.admin.v1.PlatformUserMetricsData.status_breakdown:type_name -> api.admin.v1.MetricBreakdown
-	69, // 42: api.admin.v1.PlatformUserMetricsData.failure_reasons:type_name -> api.admin.v1.MetricBreakdown
-	13, // 43: api.admin.v1.PlatformUserMetricsData.recent_tasks:type_name -> api.admin.v1.AdminTaskSummary
-	70, // 44: api.admin.v1.PlatformUserMetricsData.provider_daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
-	52, // 45: api.admin.v1.CreatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
-	50, // 46: api.admin.v1.CreatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	52, // 47: api.admin.v1.UpdatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
-	50, // 48: api.admin.v1.UpdatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	0,  // 49: api.admin.v1.AdminAPI.Login:input_type -> api.admin.v1.LoginRequest
-	3,  // 50: api.admin.v1.AdminAPI.Logout:input_type -> api.admin.v1.LogoutRequest
-	5,  // 51: api.admin.v1.AdminAPI.Me:input_type -> api.admin.v1.MeRequest
-	10, // 52: api.admin.v1.AdminAPI.ListTasks:input_type -> api.admin.v1.ListTasksRequest
-	14, // 53: api.admin.v1.AdminAPI.GetTaskDetail:input_type -> api.admin.v1.GetTaskDetailRequest
-	16, // 54: api.admin.v1.AdminAPI.ExportTaskItems:input_type -> api.admin.v1.ExportTaskItemsRequest
-	24, // 55: api.admin.v1.AdminAPI.CheckTaskResult:input_type -> api.admin.v1.CheckTaskResultRequest
-	27, // 56: api.admin.v1.AdminAPI.RetryTaskCallback:input_type -> api.admin.v1.RetryTaskCallbackRequest
-	30, // 57: api.admin.v1.AdminAPI.ForceImportCallback:input_type -> api.admin.v1.ForceImportCallbackRequest
-	33, // 58: api.admin.v1.AdminAPI.ReassignTask:input_type -> api.admin.v1.ReassignTaskRequest
-	36, // 59: api.admin.v1.AdminAPI.DeleteTask:input_type -> api.admin.v1.DeleteTaskRequest
-	38, // 60: api.admin.v1.AdminAPI.ListProviders:input_type -> api.admin.v1.ListProvidersRequest
-	42, // 61: api.admin.v1.AdminAPI.GetDispatchOptions:input_type -> api.admin.v1.GetDispatchOptionsRequest
-	46, // 62: api.admin.v1.AdminAPI.GetProviderMetrics:input_type -> api.admin.v1.GetProviderMetricsRequest
-	55, // 63: api.admin.v1.AdminAPI.ListPlatformUsers:input_type -> api.admin.v1.ListPlatformUsersRequest
-	58, // 64: api.admin.v1.AdminAPI.GetPlatformUser:input_type -> api.admin.v1.GetPlatformUserRequest
-	60, // 65: api.admin.v1.AdminAPI.GetPlatformUserMetrics:input_type -> api.admin.v1.GetPlatformUserMetricsRequest
-	62, // 66: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:input_type -> api.admin.v1.ExportPlatformUserReconciliationRequest
-	71, // 67: api.admin.v1.AdminAPI.CreatePlatformUser:input_type -> api.admin.v1.CreatePlatformUserRequest
-	73, // 68: api.admin.v1.AdminAPI.UpdatePlatformUser:input_type -> api.admin.v1.UpdatePlatformUserRequest
-	1,  // 69: api.admin.v1.AdminAPI.Login:output_type -> api.admin.v1.LoginResponse
-	4,  // 70: api.admin.v1.AdminAPI.Logout:output_type -> api.admin.v1.LogoutResponse
-	6,  // 71: api.admin.v1.AdminAPI.Me:output_type -> api.admin.v1.MeResponse
-	11, // 72: api.admin.v1.AdminAPI.ListTasks:output_type -> api.admin.v1.ListTasksResponse
-	15, // 73: api.admin.v1.AdminAPI.GetTaskDetail:output_type -> api.admin.v1.GetTaskDetailResponse
-	17, // 74: api.admin.v1.AdminAPI.ExportTaskItems:output_type -> api.admin.v1.ExportTaskItemsResponse
-	25, // 75: api.admin.v1.AdminAPI.CheckTaskResult:output_type -> api.admin.v1.CheckTaskResultResponse
-	28, // 76: api.admin.v1.AdminAPI.RetryTaskCallback:output_type -> api.admin.v1.RetryTaskCallbackResponse
-	31, // 77: api.admin.v1.AdminAPI.ForceImportCallback:output_type -> api.admin.v1.ForceImportCallbackResponse
-	34, // 78: api.admin.v1.AdminAPI.ReassignTask:output_type -> api.admin.v1.ReassignTaskResponse
-	37, // 79: api.admin.v1.AdminAPI.DeleteTask:output_type -> api.admin.v1.DeleteTaskResponse
-	39, // 80: api.admin.v1.AdminAPI.ListProviders:output_type -> api.admin.v1.ListProvidersResponse
-	43, // 81: api.admin.v1.AdminAPI.GetDispatchOptions:output_type -> api.admin.v1.GetDispatchOptionsResponse
-	47, // 82: api.admin.v1.AdminAPI.GetProviderMetrics:output_type -> api.admin.v1.GetProviderMetricsResponse
-	57, // 83: api.admin.v1.AdminAPI.ListPlatformUsers:output_type -> api.admin.v1.ListPlatformUsersResponse
-	59, // 84: api.admin.v1.AdminAPI.GetPlatformUser:output_type -> api.admin.v1.GetPlatformUserResponse
-	61, // 85: api.admin.v1.AdminAPI.GetPlatformUserMetrics:output_type -> api.admin.v1.GetPlatformUserMetricsResponse
-	63, // 86: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:output_type -> api.admin.v1.ExportPlatformUserReconciliationResponse
-	72, // 87: api.admin.v1.AdminAPI.CreatePlatformUser:output_type -> api.admin.v1.CreatePlatformUserResponse
-	74, // 88: api.admin.v1.AdminAPI.UpdatePlatformUser:output_type -> api.admin.v1.UpdatePlatformUserResponse
-	69, // [69:89] is the sub-list for method output_type
-	49, // [49:69] is the sub-list for method input_type
-	49, // [49:49] is the sub-list for extension type_name
-	49, // [49:49] is the sub-list for extension extendee
-	0,  // [0:49] is the sub-list for field type_name
+	75, // 14: api.admin.v1.AdminTaskItem.risk_items:type_name -> api.admin.v1.AnswerRisk
+	26, // 15: api.admin.v1.CheckTaskResultResponse.data:type_name -> api.admin.v1.CheckTaskResultData
+	29, // 16: api.admin.v1.RetryTaskCallbackResponse.data:type_name -> api.admin.v1.RetryTaskCallbackData
+	32, // 17: api.admin.v1.ForceImportCallbackResponse.data:type_name -> api.admin.v1.ForceImportCallbackData
+	35, // 18: api.admin.v1.ReassignTaskResponse.data:type_name -> api.admin.v1.ReassignTaskData
+	9,  // 19: api.admin.v1.DeleteTaskResponse.data:type_name -> api.admin.v1.EmptyData
+	40, // 20: api.admin.v1.ListProvidersResponse.data:type_name -> api.admin.v1.ProviderListData
+	41, // 21: api.admin.v1.ProviderListData.providers:type_name -> api.admin.v1.Provider
+	44, // 22: api.admin.v1.GetDispatchOptionsResponse.data:type_name -> api.admin.v1.DispatchOptionsData
+	45, // 23: api.admin.v1.DispatchOptionsData.strategies:type_name -> api.admin.v1.DispatchStrategyOption
+	41, // 24: api.admin.v1.DispatchOptionsData.providers:type_name -> api.admin.v1.Provider
+	48, // 25: api.admin.v1.GetProviderMetricsResponse.data:type_name -> api.admin.v1.ProviderMetricsData
+	41, // 26: api.admin.v1.ProviderMetricsData.provider:type_name -> api.admin.v1.Provider
+	49, // 27: api.admin.v1.ProviderMetricsData.summary:type_name -> api.admin.v1.ProviderMetricsSummary
+	70, // 28: api.admin.v1.ProviderMetricsData.daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
+	51, // 29: api.admin.v1.PlatformUser.dispatch_profile:type_name -> api.admin.v1.DispatchProfile
+	53, // 30: api.admin.v1.DispatchProfile.rules:type_name -> api.admin.v1.DispatchRule
+	54, // 31: api.admin.v1.DispatchProfileInput.rules:type_name -> api.admin.v1.DispatchRuleInput
+	50, // 32: api.admin.v1.PlatformUserListData.users:type_name -> api.admin.v1.PlatformUser
+	56, // 33: api.admin.v1.ListPlatformUsersResponse.data:type_name -> api.admin.v1.PlatformUserListData
+	50, // 34: api.admin.v1.GetPlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	64, // 35: api.admin.v1.GetPlatformUserMetricsResponse.data:type_name -> api.admin.v1.PlatformUserMetricsData
+	18, // 36: api.admin.v1.ExportPlatformUserReconciliationResponse.data:type_name -> api.admin.v1.ExportTaskItemsData
+	50, // 37: api.admin.v1.PlatformUserMetricsData.user:type_name -> api.admin.v1.PlatformUser
+	65, // 38: api.admin.v1.PlatformUserMetricsData.task_metrics:type_name -> api.admin.v1.PlatformTaskMetrics
+	66, // 39: api.admin.v1.PlatformUserMetricsData.question_metrics:type_name -> api.admin.v1.PlatformQuestionMetrics
+	67, // 40: api.admin.v1.PlatformUserMetricsData.result_metrics:type_name -> api.admin.v1.PlatformResultMetrics
+	68, // 41: api.admin.v1.PlatformUserMetricsData.callback_metrics:type_name -> api.admin.v1.PlatformCallbackMetrics
+	69, // 42: api.admin.v1.PlatformUserMetricsData.status_breakdown:type_name -> api.admin.v1.MetricBreakdown
+	69, // 43: api.admin.v1.PlatformUserMetricsData.failure_reasons:type_name -> api.admin.v1.MetricBreakdown
+	13, // 44: api.admin.v1.PlatformUserMetricsData.recent_tasks:type_name -> api.admin.v1.AdminTaskSummary
+	70, // 45: api.admin.v1.PlatformUserMetricsData.provider_daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
+	52, // 46: api.admin.v1.CreatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
+	50, // 47: api.admin.v1.CreatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	52, // 48: api.admin.v1.UpdatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
+	50, // 49: api.admin.v1.UpdatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	80, // 50: api.admin.v1.ResultValidationRulesResponse.data:type_name -> api.admin.v1.ResultValidationRulesData
+	0,  // 51: api.admin.v1.AdminAPI.Login:input_type -> api.admin.v1.LoginRequest
+	3,  // 52: api.admin.v1.AdminAPI.Logout:input_type -> api.admin.v1.LogoutRequest
+	5,  // 53: api.admin.v1.AdminAPI.Me:input_type -> api.admin.v1.MeRequest
+	76, // 54: api.admin.v1.AdminAPI.UpdateProviderValidationRule:input_type -> api.admin.v1.UpdateProviderValidationRuleRequest
+	77, // 55: api.admin.v1.AdminAPI.GetResultValidationRules:input_type -> api.admin.v1.GetResultValidationRulesRequest
+	78, // 56: api.admin.v1.AdminAPI.UpdateResultValidationRules:input_type -> api.admin.v1.UpdateResultValidationRulesRequest
+	10, // 57: api.admin.v1.AdminAPI.ListTasks:input_type -> api.admin.v1.ListTasksRequest
+	14, // 58: api.admin.v1.AdminAPI.GetTaskDetail:input_type -> api.admin.v1.GetTaskDetailRequest
+	16, // 59: api.admin.v1.AdminAPI.ExportTaskItems:input_type -> api.admin.v1.ExportTaskItemsRequest
+	24, // 60: api.admin.v1.AdminAPI.CheckTaskResult:input_type -> api.admin.v1.CheckTaskResultRequest
+	27, // 61: api.admin.v1.AdminAPI.RetryTaskCallback:input_type -> api.admin.v1.RetryTaskCallbackRequest
+	30, // 62: api.admin.v1.AdminAPI.ForceImportCallback:input_type -> api.admin.v1.ForceImportCallbackRequest
+	33, // 63: api.admin.v1.AdminAPI.ReassignTask:input_type -> api.admin.v1.ReassignTaskRequest
+	36, // 64: api.admin.v1.AdminAPI.DeleteTask:input_type -> api.admin.v1.DeleteTaskRequest
+	38, // 65: api.admin.v1.AdminAPI.ListProviders:input_type -> api.admin.v1.ListProvidersRequest
+	42, // 66: api.admin.v1.AdminAPI.GetDispatchOptions:input_type -> api.admin.v1.GetDispatchOptionsRequest
+	46, // 67: api.admin.v1.AdminAPI.GetProviderMetrics:input_type -> api.admin.v1.GetProviderMetricsRequest
+	55, // 68: api.admin.v1.AdminAPI.ListPlatformUsers:input_type -> api.admin.v1.ListPlatformUsersRequest
+	58, // 69: api.admin.v1.AdminAPI.GetPlatformUser:input_type -> api.admin.v1.GetPlatformUserRequest
+	60, // 70: api.admin.v1.AdminAPI.GetPlatformUserMetrics:input_type -> api.admin.v1.GetPlatformUserMetricsRequest
+	62, // 71: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:input_type -> api.admin.v1.ExportPlatformUserReconciliationRequest
+	71, // 72: api.admin.v1.AdminAPI.CreatePlatformUser:input_type -> api.admin.v1.CreatePlatformUserRequest
+	73, // 73: api.admin.v1.AdminAPI.UpdatePlatformUser:input_type -> api.admin.v1.UpdatePlatformUserRequest
+	1,  // 74: api.admin.v1.AdminAPI.Login:output_type -> api.admin.v1.LoginResponse
+	4,  // 75: api.admin.v1.AdminAPI.Logout:output_type -> api.admin.v1.LogoutResponse
+	6,  // 76: api.admin.v1.AdminAPI.Me:output_type -> api.admin.v1.MeResponse
+	79, // 77: api.admin.v1.AdminAPI.UpdateProviderValidationRule:output_type -> api.admin.v1.ResultValidationRulesResponse
+	79, // 78: api.admin.v1.AdminAPI.GetResultValidationRules:output_type -> api.admin.v1.ResultValidationRulesResponse
+	79, // 79: api.admin.v1.AdminAPI.UpdateResultValidationRules:output_type -> api.admin.v1.ResultValidationRulesResponse
+	11, // 80: api.admin.v1.AdminAPI.ListTasks:output_type -> api.admin.v1.ListTasksResponse
+	15, // 81: api.admin.v1.AdminAPI.GetTaskDetail:output_type -> api.admin.v1.GetTaskDetailResponse
+	17, // 82: api.admin.v1.AdminAPI.ExportTaskItems:output_type -> api.admin.v1.ExportTaskItemsResponse
+	25, // 83: api.admin.v1.AdminAPI.CheckTaskResult:output_type -> api.admin.v1.CheckTaskResultResponse
+	28, // 84: api.admin.v1.AdminAPI.RetryTaskCallback:output_type -> api.admin.v1.RetryTaskCallbackResponse
+	31, // 85: api.admin.v1.AdminAPI.ForceImportCallback:output_type -> api.admin.v1.ForceImportCallbackResponse
+	34, // 86: api.admin.v1.AdminAPI.ReassignTask:output_type -> api.admin.v1.ReassignTaskResponse
+	37, // 87: api.admin.v1.AdminAPI.DeleteTask:output_type -> api.admin.v1.DeleteTaskResponse
+	39, // 88: api.admin.v1.AdminAPI.ListProviders:output_type -> api.admin.v1.ListProvidersResponse
+	43, // 89: api.admin.v1.AdminAPI.GetDispatchOptions:output_type -> api.admin.v1.GetDispatchOptionsResponse
+	47, // 90: api.admin.v1.AdminAPI.GetProviderMetrics:output_type -> api.admin.v1.GetProviderMetricsResponse
+	57, // 91: api.admin.v1.AdminAPI.ListPlatformUsers:output_type -> api.admin.v1.ListPlatformUsersResponse
+	59, // 92: api.admin.v1.AdminAPI.GetPlatformUser:output_type -> api.admin.v1.GetPlatformUserResponse
+	61, // 93: api.admin.v1.AdminAPI.GetPlatformUserMetrics:output_type -> api.admin.v1.GetPlatformUserMetricsResponse
+	63, // 94: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:output_type -> api.admin.v1.ExportPlatformUserReconciliationResponse
+	72, // 95: api.admin.v1.AdminAPI.CreatePlatformUser:output_type -> api.admin.v1.CreatePlatformUserResponse
+	74, // 96: api.admin.v1.AdminAPI.UpdatePlatformUser:output_type -> api.admin.v1.UpdatePlatformUserResponse
+	74, // [74:97] is the sub-list for method output_type
+	51, // [51:74] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_api_admin_v1_admin_proto_init() }
@@ -6508,13 +7035,14 @@ func file_api_admin_v1_admin_proto_init() {
 	if File_api_admin_v1_admin_proto != nil {
 		return
 	}
+	file_api_admin_v1_admin_proto_msgTypes[76].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_admin_v1_admin_proto_rawDesc), len(file_api_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   75,
+			NumMessages:   81,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

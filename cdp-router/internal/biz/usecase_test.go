@@ -58,7 +58,7 @@ func TestMatchStoredProviderFilesReportsMissingObjectKeys(t *testing.T) {
 	}
 }
 
-func TestMatchStoredProviderFilesSkipsSuccessUnlessForce(t *testing.T) {
+func TestMatchStoredProviderFilesSkipsSuccessEvenWithForce(t *testing.T) {
 	task := &Task{ProviderExternalBatchID: "external-1"}
 	dbFiles := []ResultFileInput{
 		{SourceType: "OSS_UPLOAD", ObjectKey: "cdp-router/q2a/mpzdata/batch/a.xlsx", FileName: "a.xlsx", ParseStatus: "SUCCESS"},
@@ -77,8 +77,8 @@ func TestMatchStoredProviderFilesSkipsSuccessUnlessForce(t *testing.T) {
 	if len(missing) != 0 {
 		t.Fatalf("missing=%v, want none", missing)
 	}
-	if len(matched) != 1 {
-		t.Fatalf("matched=%d, want 1 with force", len(matched))
+	if len(matched) != 0 {
+		t.Fatalf("matched=%d, want 0 with force", len(matched))
 	}
 }
 
@@ -123,7 +123,7 @@ func TestForcedCallbackProgressCountsTreatSuccessAsFinalForItem(t *testing.T) {
 	}
 }
 
-func TestForceImportCallbackDeliversOnlySuccessfulItems(t *testing.T) {
+func TestForceImportCallbackRejectsContentRisks(t *testing.T) {
 	ctx := context.Background()
 	task := &Task{
 		ID:                      100,
@@ -153,37 +153,20 @@ func TestForceImportCallbackDeliversOnlySuccessfulItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !outcome.Delivered || outcome.Rejected {
-		t.Fatalf("outcome delivered=%v rejected=%v, want delivered", outcome.Delivered, outcome.Rejected)
+	if outcome.Delivered || !outcome.Rejected || repo.forcedDone || repo.markCallbackDoneCalled {
+		t.Fatalf("risky partial import must not deliver: %+v", outcome)
 	}
-	if outcome.SuccessCount != 1 || outcome.FailedCount != 1 || outcome.UnfinishedCount != 1 {
-		t.Fatalf("counts success=%d failed=%d unfinished=%d, want 1/1/1", outcome.SuccessCount, outcome.FailedCount, outcome.UnfinishedCount)
+	if repo.markedResult.ItemResults[1].ParseStatus != "SUCCESS" || repo.markedResult.ItemResults[1].Status != ValidationInvalid {
+		t.Fatal("empty answer must retain parse status and have INVALID quality")
 	}
-	if callback.payload.Counts.Total != 1 || callback.payload.Counts.Success != 1 || callback.payload.Counts.Failed != 0 {
-		t.Fatalf("callback counts=%+v, want submit only one successful result", callback.payload.Counts)
-	}
-	if len(callback.payload.Items) != 1 || callback.payload.Items[0].ItemID != "item-success" {
-		t.Fatalf("callback items=%+v, want only successful item", callback.payload.Items)
-	}
-	if len(callback.payload.ResultItems) != 1 || callback.payload.ResultItems[0].ParseStatus != "SUCCESS" {
-		t.Fatalf("yangshi result items=%+v, want only success", callback.payload.ResultItems)
-	}
-	if !repo.forcedDone || repo.markCallbackDoneCalled {
-		t.Fatalf("forcedDone=%v markCallbackDoneCalled=%v, want forced callback recorder only", repo.forcedDone, repo.markCallbackDoneCalled)
-	}
-	if repo.markedResult.ItemResults[1].ParseStatus != "FAILED" {
-		t.Fatalf("empty answer parse status=%q, want FAILED", repo.markedResult.ItemResults[1].ParseStatus)
-	}
-	if len(repo.eventTypes) == 0 || repo.eventTypes[len(repo.eventTypes)-1] != EventForceImportCallback {
-		t.Fatalf("events=%v, want FORCE_IMPORT_CALLBACK", repo.eventTypes)
-	}
+
 }
 
 func TestDeliverTaskCallbackUsesOriginalIdentifiersForReassignedTask(t *testing.T) {
 	ctx := context.Background()
 	callback := &captureCallbackClient{}
 	usecase := NewTaskUsecase(
-		callbackPayloadRepo{},
+		&callbackPayloadRepo{},
 		nil,
 		nil,
 		nil,
@@ -205,6 +188,9 @@ func TestDeliverTaskCallbackUsesOriginalIdentifiersForReassignedTask(t *testing.
 		Status:                  TaskStatusCallbackPending,
 	}
 
+	now := time.Now()
+	task.RiskStatsUpdatedAt = &now
+	usecase.repo.(*callbackPayloadRepo).task = task
 	delivered, err := usecase.deliverTaskCallback(ctx, task, false)
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +302,7 @@ func TestProviderCallbackReconcilesAndImportsFilesWhenTaskNotDone(t *testing.T) 
 	}
 }
 
-func TestProviderCallbackSkipsReconcileWhenTaskDone(t *testing.T) {
+func TestProviderCallbackReconcilesLateFilesWhenTaskDone(t *testing.T) {
 	ctx := context.Background()
 	task := &Task{
 		ID:                      12,
@@ -353,8 +339,8 @@ func TestProviderCallbackSkipsReconcileWhenTaskDone(t *testing.T) {
 	if updated.Status != TaskStatusDone {
 		t.Fatalf("updated status=%s, want %s", updated.Status, TaskStatusDone)
 	}
-	if provider.completionCalls != 0 {
-		t.Fatalf("completion calls=%d, want 0", provider.completionCalls)
+	if provider.completionCalls != 1 {
+		t.Fatalf("completion calls=%d, want 1", provider.completionCalls)
 	}
 	if repo.markImportedCalls != 0 {
 		t.Fatalf("mark imported calls=%d, want 0", repo.markImportedCalls)
@@ -407,8 +393,8 @@ func TestProviderCallbackImportsPendingFilesWhenTaskAlreadyImported(t *testing.T
 	if updated.Status != TaskStatusCallbackPending {
 		t.Fatalf("updated status=%s, want %s", updated.Status, TaskStatusCallbackPending)
 	}
-	if provider.completionCalls != 0 {
-		t.Fatalf("completion calls=%d, want 0", provider.completionCalls)
+	if provider.completionCalls != 1 {
+		t.Fatalf("completion calls=%d, want 1", provider.completionCalls)
 	}
 	if repo.markImportedCalls != 1 {
 		t.Fatalf("mark imported calls=%d, want 1", repo.markImportedCalls)
@@ -476,8 +462,8 @@ func TestManualSyncReconcilesFilesWhenTaskDone(t *testing.T) {
 	if outcome.Task.Status != TaskStatusDone {
 		t.Fatalf("updated status=%s, want %s", outcome.Task.Status, TaskStatusDone)
 	}
-	if repo.markImportedCalls != 1 {
-		t.Fatalf("mark imported calls=%d, want 1", repo.markImportedCalls)
+	if repo.markImportedCalls != 0 {
+		t.Fatalf("mark imported calls=%d, want 0 for successful old file", repo.markImportedCalls)
 	}
 	if provider.statusCalls != 1 {
 		t.Fatalf("status calls=%d, want 1", provider.statusCalls)
@@ -806,6 +792,7 @@ func (unsupportedTaskRepo) AddEvent(ctx context.Context, taskID int64, eventType
 }
 
 type callbackPayloadRepo struct {
+	task *Task
 	unsupportedTaskRepo
 }
 
@@ -870,8 +857,8 @@ func (r *forceImportCallbackRepo) MarkResultImported(ctx context.Context, taskID
 
 func (r *forceImportCallbackRepo) ListTaskItemResults(ctx context.Context, taskID int64) ([]TaskItemResultView, error) {
 	return []TaskItemResultView{
-		{ItemID: "item-success", Seq: 1, ParseStatus: r.markedResult.ItemResults[0].ParseStatus, AnswerText: r.markedResult.ItemResults[0].AnswerText},
-		{ItemID: "item-empty", Seq: 1, ParseStatus: r.markedResult.ItemResults[1].ParseStatus, ParseError: r.markedResult.ItemResults[1].ParseError},
+		{ItemID: "item-success", Seq: 1, AnswerValidation: r.markedResult.ItemResults[0].AnswerValidation, ParseStatus: r.markedResult.ItemResults[0].ParseStatus, AnswerText: r.markedResult.ItemResults[0].AnswerText},
+		{ItemID: "item-empty", Seq: 1, AnswerValidation: r.markedResult.ItemResults[1].AnswerValidation, ParseStatus: r.markedResult.ItemResults[1].ParseStatus, ParseError: r.markedResult.ItemResults[1].ParseError},
 		{ItemID: "item-unfinished", Seq: 1, ParseStatus: ""},
 	}, nil
 }
@@ -969,4 +956,20 @@ func (p forceImportCallbackParser) Parse(ctx context.Context, fileName string, c
 			},
 		},
 	}, nil
+}
+
+func (r *callbackPayloadRepo) GetTask(ctx context.Context, id int64) (*Task, error) {
+	return cloneTask(r.task), nil
+}
+func (r *callbackReconcileRepo) ListTaskResultFiles(ctx context.Context, id int64) ([]CallbackResultFile, error) {
+	var files []CallbackResultFile
+	for _, f := range r.importedFiles {
+		files = append(files, CallbackResultFile{ObjectKey: f.ObjectKey, FileURL: f.FileURL})
+	}
+	for _, f := range r.uploaded {
+		if f.ParseStatus == "SUCCESS" {
+			files = append(files, CallbackResultFile{ObjectKey: f.ObjectKey, FileURL: f.FileURL})
+		}
+	}
+	return files, nil
 }

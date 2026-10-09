@@ -300,7 +300,7 @@ openapi:
 - `batch_no`：业务批次号，作为任务幂等键和业务方查询/回调关联键。
 - `platform_user_id`、`platform_code`：接入方归属，来自 `platform_users`。
 - `dispatch_profile_id`、`dispatch_profile_code`、`dispatch_strategy`：创建任务时使用的调度审计信息；历史任务允许为空。
-- `status`：当前实现使用 `CREATED`、`SUBMITTED`、`PROVIDER_DONE`、`RESULT_IMPORTED`、`CALLBACK_PENDING`、`DONE`、`FAILED`、`REASSIGNED`。`REASSIGNED` 只用于被转派的原任务，属于 closed 终态，不再进入后续状态流转。
+- `status`：当前实现使用 `CREATED`、`SUBMITTED`、`PROVIDER_DONE`、`RESULT_IMPORTED`、`CALLBACK_PENDING`、`DONE`、`FAILED`、`REASSIGNED`。`REASSIGNED` 只用于被转派的原任务，属于 closed 终态，不再进入后续状态流转；统计报表、供应商/接入方 metrics 和每日聚合不计入 `REASSIGNED` 原任务，只统计继续执行的新转派任务。
 - `reassigned_from_task_id`：转派新任务关联的原任务 ID；普通任务为空。
 - `callback_batch_no`、`callback_external_batch_id`：转派新任务回调业务方时使用的原始批次号和原始 externalBatchId；普通任务为空并回退使用自身 `batch_no/job_id`。
 - `provider_request`、`provider_response`、`raw_request`：保留必要输入输出，方便审计和排障；供应商提交失败时当前只写事件和 `last_error`，成功提交后写入 provider 请求/响应。
@@ -436,6 +436,14 @@ openapi:
 ## 7. 数据库设计草案
 
 数据库使用 PostgreSQL，数据库名为 `cdp-admin`。结果数据必须按 batch 幂等入库。当前按无历史数据处理，第一版不保留补偿获取 attempts 表。
+
+### 查询与写入性能约定
+
+- 常规任务查询和 worker 扫描不加载 `result_payload`；完整 payload 保留在数据库，按需通过独立仓储方法读取。对外任务响应和结构化结果接口契约不变。
+- 后台任务列表先按筛选条件和 `created_at DESC, id DESC` 取当页任务，再聚合明细；成功/失败按 item 维度一次聚合，成功优先于失败。详情先分页轮次、状态等窄字段，再加载回答、引用等大字段；保留缺失轮次和错误优先排序。
+- 任务名搜索仅在模式不可能匹配空字符串时增加 `task_name <> ''`，命中现有部分 GIN 索引，同时保留已有 LIKE 通配符语义。
+- 完成导入时锁定任务，在一次结果统计后决定回调就绪状态；相同状态、计数和导入时间不再重复 UPDATE。已有 CALLBACK_PENDING/DONE 状态处理语义保持不变。进度同步跳过没有变化的 item。
+- 本轮优化不调整 API、状态枚举或调度周期，不删除历史结果、不在线增删索引。索引维护候选及观测依据见 `docs/database-performance-review-2026-09-30.md`。
 
 ```sql
 create table cdp_tasks (
@@ -1043,7 +1051,7 @@ POST /api/admin/v1/tasks/{id}/retry-callback
 - `GET /api/admin/v1/tasks/{id}`：任务详情，展示任务、问答完成情况、结构化结果、结果文件、业务方回调记录和事件。回调记录来自 `cdp_task_callbacks`，包含目标地址、请求 payload、HTTP 响应状态、响应体、错误信息和创建/更新时间。
 - `POST /api/admin/v1/tasks/{id}/check-result`：检查结果，默认 `force=true`、`notifyCallback=true`，复用主动查询供应商进度和结果重入链路。
 - `POST /api/admin/v1/tasks/{id}/retry-callback`：按单个任务重新触发业务方完成通知，写入新的 `cdp_task_callbacks` 记录并刷新任务详情中的回调结果。
-- `POST /api/admin/v1/tasks/reassign`：按原始 `batchNo` 和目标 `providerCode` 手动转派任务。仅允许转派尚未进入 `CALLBACK_PENDING`、`DONE`、`REASSIGNED` 的任务；转派成功后原任务标记 `REASSIGNED`，新任务按普通任务链路继续流转。
+- `POST /api/admin/v1/tasks/reassign`：按原始 `batchNo` 和目标 `providerCode` 手动转派任务。仅允许转派尚未进入 `CALLBACK_PENDING`、`DONE`、`REASSIGNED` 的原始任务；已经转派过的源任务、以及由转派产生的新任务，都不允许再次转派。转派成功后原任务标记 `REASSIGNED`，新任务按普通任务链路继续流转。
 - `DELETE /api/admin/v1/tasks/{id}`：仅允许软删除供应商提交失败的失败任务，即任务状态为 `FAILED` 且存在 `PROVIDER_SUBMIT_FAILED` 事件；只写入 `cdp_tasks.deleted_at/deleted_by` 并从后台列表和详情隐藏，任务记录、事件、明细、结果文件记录、结果行和回调记录必须保留，同时写入后台审计日志。`batch_no` 唯一性只约束未删除任务，软删除后允许同批次重新提交。
 - `GET /api/admin/v1/providers`：供应商列表，只读展示配置加载后的供应商编码、名称、启用状态、结果模式、QPS、并发、OSS 前缀和接口配置状态，不返回 token。
 - `GET /api/admin/v1/dispatch-options`：返回后台可选调度策略和可下发 provider 列表。provider 必须在配置中启用，并具备提交 URL 和鉴权 token/API key。
@@ -1108,7 +1116,7 @@ import worker / manual refetch
 - counts 完成时，主动调用一次供应商 `files_url` 获取最终文件列表，以供应商 `files_url` 为准 upsert `cdp_task_result_files` 待导入记录，然后标记 `PROVIDER_DONE`。
 - `files_url` 返回本项目 OSS URL 时，网关只解析 URL path 得到 object key，并调用 `ObjectExists/HeadObject` 做轻量存在性检查；检查缺失只记录事件，不阻断 `PROVIDER_DONE`。
 - `files_url` 返回外部 URL 时，网关只登记 `file_url`，不下载；worker 后续按待导入记录下载解析。
-- 供应商完成回调支持重入补录：只要任务尚未进入 `CALLBACK_PENDING` 或业务方回调成功的 `DONE` 状态，后续再次收到 provider callback 时都可以重新校对供应商 `files_url` 并登记新增或仍为 `PENDING` 的结果文件。已经 `CALLBACK_PENDING`/`DONE` 的任务只记录供应商回调信息，不重复登记文件，不回退任务状态，也不重复自动回调。
+- 供应商完成回调支持重入补录：只要任务尚未进入 `CALLBACK_PENDING` 或业务方回调成功的 `DONE` 状态，后续再次收到 provider callback 时都可以重新校对供应商 `files_url` 并登记新增或仍为 `PENDING` 的结果文件。已经 `CALLBACK_PENDING`/`DONE` 的任务仍可登记真正的新文件并处理；成功旧文件跳过，DONE 保持终态且不重复自动回调。
 - 后台任务列表和详情的“执行耗时”不使用 `updated_at`；按 `created_at -> provider_finished_at` 展示供应商完成确认耗时。`provider_finished_at` 在真实供应商回调成功，或手动检查供应商状态且数量校验通过、任务改为 `PROVIDER_DONE` 时写入；已有值不覆盖。
 - 校对结果写入任务事件 `PROVIDER_FILES_FETCHED`，payload 记录 `triggerType=PROVIDER_CALLBACK_RECONCILE`、`fileCount`、`externalBatchId`、待导入文件数、OSS 缺失数量、与本地已登记上传文件的差异数量。
 - 如果 `files_url` 暂未返回文件，网关保留已登记的 OSS 上传文件作为兜底导入来源，并在事件中体现文件列表为空，方便排障。
@@ -1145,6 +1153,45 @@ CREATED -> SUBMITTED -> PROVIDER_DONE -> RESULT_IMPORTED -> CALLBACK_PENDING -> 
 
 - 默认 provider：完成回调后使用已登记的 OSS 上传文件。
 - `mpzdata`/`liuandata` provider：完成回调时先调用 `files_url` 校对完成文件列表并登记待导入文件；worker 导入时优先消费待导入记录，空列表时回退 OSS 上传记录。
+
+### 8.5.2 回答质量校验与风险回调控制
+
+供应商级开关（2026-10-09）：所有供应商导入的回答始终执行长度、关键词、引用数三条校验；问题文本不参与校验。页面开关改为“风险拦截”，默认开启：开启时风险任务禁止自动回调，需人工明确强制回调；关闭时允许带风险自动回调，但回答风险及任务统计必须完整保存和展示。此开关不绕过导入完整性、数量、任务状态、失败重试上限等其他条件。切换在启动加载/定时刷新成功后，对尚未回调的任务也生效，DONE 不重复发送；正在执行的操作复用已取得的快照。
+
+配置保存 `risk_callback_allowed_provider_codes`（风险拦截关闭的供应商），从旧 `disabled_provider_codes` 一次迁移，保留现有开关方向；所有供应商恢复执行 Validator。GET/PUT 规则响应使用 `riskCallbackAllowedProviderCodes`；供应商 PUT 路径保持 `/api/admin/v1/result-validation-rules/providers/{providerCode}`，请求改为必须显式提供 `riskInterceptionEnabled` 与 `expectedVersion`，旧 enabled 字段不再接受，避免旧页面按停用校验的理解操作。仅 admin 写入，Session/CSRF、乐观锁和事务审计不变；开关与关键词共享定时刷新快照，失败保留最近成功版本。
+
+调度候选查询、导入完成状态决策、发送前检查、人工回调与原强制导入入口共同遵守风险策略。biz 把内存配置快照放在操作 context 中，data 通过只读访问器获得允许带风险回调的供应商清单，批量 SQL 在 LIMIT 前过滤，防止被拦截任务占满候选批次；不逐条查询配置数据库。发送前再次检查风险统计完整性及该操作的策略，人工 ignoreRisk 仅针对本次发送，不持久化放行。
+
+不再生成 SKIPPED。旧 SKIPPED 的统计完成标记在迁移中失效，worker 在正常导入前从本地已保存回答补校验（包括 DONE 的历史展示，但 DONE 不重新回调），随后重新聚合；不下载、不重复导入旧文件。补校验前视为统计未完成，不允许回调。UNKNOWN 仍沿用显式初始化工具，初始化同时兼容旧 SKIPPED。
+
+```mermaid
+flowchart TD
+  A[后台维护关键词 / 供应商风险拦截] --> B[版本检查 + 保存配置 + 审计]
+  B --> C[启动加载 / 定时刷新内存快照]
+  D[所有供应商回答导入] --> E[长度 / 关键词 / 引用数校验]
+  C --> E
+  E --> F[逐条保存回答和全部风险]
+  F --> G[聚合任务风险 / 校验导入完整性]
+  G --> H{存在风险且该供应商开启风险拦截?}
+  C --> H
+  H -->|是| I[等待人工强制回调]
+  H -->|否| J[满足其他回调条件后自动发送]
+```
+
+详细流程和数据链路图见 `docs/result-validation-design.md`。所有结果导入在每条回答保存前调用 biz 的 `ValidateAnswer`：正文少于 20 个 Unicode 字母/数字或命中关键词为 INVALID，溯源引用数 `reference_count <= 0` 为 RISK，`reference_count > 0` 通过引用校验；引用数由解析器按当前回答轮次的引用条数计算，不额外检查标题、来源或 URL 内容。保留回答原文与全部风险项，parse_status 仍表示解析状态。
+
+- 回答结果保存 validation_status、risk_items、validation_rule_version、validated_at；任务保存 risk_count（有风险的回答轮次数）、invalid_answer_count、risk_summary、risk_stats_updated_at。
+- 文件导入结束后，锁任务并按 DB 当前回答全量聚合本任务的风险；统计与完成导入的决策同事务提交，尚未汇总或未校验的结果不得自动发送。
+- 风险拦截开启且 risk_count > 0 的任务完成导入但自动回调跳过。风险拦截开启时仅 Admin 页面显式强制回调能忽略风险，成功按正常回调推进 DONE；失败后如仍开启拦截，脚本不得自动重试有风险任务，不清除风险、不向上游增加人工字段。
+- Admin `retry-callback` 新增 ignore_risk，独立于已有 force 数量例外；保留导入完整性、Session、CSRF、角色校验和审计。原 force-import-callback 遵循供应商风险拦截策略，不接受人工 ignoreRisk 参数。
+- 后台 `/admin/validation-rules` 管理关键词，API 为 GET/PUT `/api/admin/v1/result-validation-rules`。保存配置及版本并审计；服务启动主动加载一次，之后按 result_validation.keyword_refresh_interval_seconds（默认 60 秒）刷新。使用最近一次加载成功的只读内存清单，获取失败保留旧清单，不暂停导入。仅从未成功加载时使用标记为本地默认版本的空词表。每轮导入复用一个规则快照，不逐条查库，不自动重检历史结果。
+- 相同文件成功导入后所有入口均跳过；新文件按 task_item_id + seq 覆盖当前回答及风险，汇总可以增减，风险归零后未回调任务恢复自动流程。原文件保留；没有可靠源版本的同 key 覆盖需供应商使用新文件标识。轮次按现有文件顺序映射，局部补轮次需稳定标识。
+- 新文件通知允许为 CALLBACK_PENDING/DONE 登记待处理文件；DONE 更新结果不重复自动回调，REASSIGNED 仍关闭。任务级锁串行化导入和发送，防止重复及竞态发送。
+- 后台列表展示风险汇总和风险筛选，详情逐轮标记。新增事件 RESULT_VALIDATED、BUSINESS_CALLBACK_RISK_FORCED；保持原有导入数量、公开 result URL 和上游回调/Excel 协议。
+
+侧边栏使用“数据校验规则”入口，路由为 `/admin/validation-rules`。页面展示当前关键词清单，支持按行批量添加、逐条删除和清空清单；添加/删除先修改草稿，点击“保存关键词”后通过现有 PUT API 整体保存，清空保存需二次确认。仅 admin 可修改，其他角色只读；继续使用已有 CSRF、版本冲突检查和配置修改审计。前端验收执行类型检查及构建，再由用户验证页面。
+
+历史 UNKNOWN 回答通过一次性 `cmd/validate-existing-results` 预览及 `-apply` 初始化，仅处理未完成任务并记录 `RESULT_VALIDATION_INITIALIZED` 事件；不下载文件、不重检已有结论、不直接回调。
 
 ### 8.6 结果存储幂等和可重入
 
@@ -1684,6 +1731,7 @@ Tracing backend <- OpenTelemetry spans
 - Admin E2E：启动真实 Gin server 和静态后台页面，使用真实测试数据库验证登录、任务查询、重试回调、调度配置编辑和审计日志。
 - 下游契约测试：使用本地 mock HTTP server 模拟供应商，但本服务内的持久化必须是真实 DB；HTTP/API E2E 不允许使用 in-memory store、fake repo 或 mock store 替代数据库。
 - Harness 架构：测试 harness 负责连接真实 Postgres、执行 migration、装配真实 Gin handler/server、注册本地 mock provider HTTP server，并通过 HTTP 请求驱动业务链路。涉及后台登录/Session 的 E2E 还必须使用真实 Redis。mock 只允许存在于下游 provider 边界，不能替代本服务内部 repo 或持久层。
+- E2E 配置只接受 loopback PostgreSQL/Redis；每个测试创建独立 PostgreSQL 数据库并执行迁移，结束后清理。OSS 使用本地 HTTP 边界和真实临时文件持久化，provider、业务回调使用本地 HTTP server；不得复用运行配置中的线上 OSS 凭据或供应商地址。
 - refetch E2E：验证 `refetch-result` 可重复执行，按 batch 幂等 upsert 结果文件和结果行，不产生重复数据。
 - 任务 E2E 不纳入 `scripts/check.sh` 的默认日常检查链路，需要时通过 `make e2e-test` 单独执行。
 - 压测：`wrk`/`vegeta` 覆盖创建任务、查询任务、后台列表和 provider 出站限流。

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/GitMarkZhang/cdp-router/internal/biz"
 	"github.com/jackc/pgx/v5"
@@ -66,36 +67,11 @@ const adminTaskSummarySelectSQL = `
   ` + adminTaskSubmitFailedSQL + `,
   ` + adminTaskDispatchLabelsSQL + `,
   coalesce(t.reassigned_from_task_id,0),
-  ` + adminTaskReassignedToTaskIDSQL
-const adminTaskProgressJoinSQL = `
+  ` + adminTaskReassignedToTaskIDSQL + `,t.risk_count,t.invalid_answer_count,t.risk_summary,t.risk_stats_updated_at`
+
+var adminTaskProgressJoinSQL = `
 left join lateral (
-  select
-    count(*)::int as item_count,
-    count(*) filter (where ti.status=2)::int as provider_done_count,
-    count(*) filter (
-      where exists (
-        select 1
-        from cdp_task_item_results tir
-        where tir.task_item_id=ti.id
-          and tir.parse_status='SUCCESS'
-      )
-    )::int as result_success_count,
-    count(*) filter (
-      where not exists (
-        select 1
-        from cdp_task_item_results tir
-        where tir.task_item_id=ti.id
-          and tir.parse_status='SUCCESS'
-      )
-      and exists (
-        select 1
-        from cdp_task_item_results tir
-        where tir.task_item_id=ti.id
-          and tir.parse_status <> 'SUCCESS'
-      )
-    )::int as result_failed_count
-  from cdp_task_items ti
-  where ti.task_id=t.id
+` + taskItemStatsSQL("t.id") + `
 ) admin_task_item_progress on true
 left join lateral (
   select
@@ -195,13 +171,22 @@ func (r *AdminRepo) ListTasks(ctx context.Context, filter biz.AdminTaskFilter) (
 	offset := (filter.Page - 1) * filter.PageSize
 	queryArgs := append(append([]any{}, args...), limit, offset)
 	rows, err := r.db.Query(ctx, `
+with page_tasks as materialized (
+  select t.id, t.batch_no, t.task_name, t.source, t.platform_code,
+    t.external_batch_id, t.provider_code, t.status, t.provider_response,
+    t.total_count, t.success_count, t.failed_count, t.result_imported_at,
+    t.created_at, t.updated_at, t.provider_finished_at, t.reassigned_from_task_id,
+ t.risk_count,t.invalid_answer_count,t.risk_summary,t.risk_stats_updated_at
+  from cdp_tasks t
+`+where+`
+  order by t.created_at desc, t.id desc
+  limit $`+strconv.Itoa(len(args)+1)+` offset $`+strconv.Itoa(len(args)+2)+`
+)
 select
 `+adminTaskSummarySelectSQL+`
-from cdp_tasks t
+from page_tasks t
 `+adminTaskProgressJoinSQL+`
-`+where+`
-order by t.created_at desc
-limit $`+strconv.Itoa(len(args)+1)+` offset $`+strconv.Itoa(len(args)+2), queryArgs...)
+order by t.created_at desc, t.id desc`, queryArgs...)
 	if err != nil {
 		return biz.AdminTaskList{}, err
 	}
@@ -686,7 +671,7 @@ select coalesce(sum(expected_count), 0)
 from (
   select greatest(coalesce(max(tir.seq), 0), 1) as expected_count
   from cdp_task_items ti
-  left join cdp_task_item_results tir on tir.task_item_id=ti.id
+  left join cdp_task_item_results tir on tir.task_id=$1 and tir.task_item_id=ti.id
   where ti.task_id=$1
   group by ti.id
 ) item_bounds
@@ -695,23 +680,46 @@ from (
 	}
 	offset := (filter.Page - 1) * filter.PageSize
 	rows, err := r.db.Query(ctx, `
-with item_bounds as (
-  select ti.*, greatest(coalesce(max(tir.seq), 0), 1) as expected_count
+with result_statuses as materialized (
+  select task_item_id, seq, parse_status
+  from cdp_task_item_results where task_id=$1
+),
+item_bounds as (
+  select ti.id, ti.status, ti.result_status,
+    greatest(coalesce(max(tir.seq), 0), 1) as expected_count
   from cdp_task_items ti
-  left join cdp_task_item_results tir on tir.task_item_id=ti.id
+  left join result_statuses tir on tir.task_item_id=ti.id
   where ti.task_id=$1
   group by ti.id
 ),
 expanded as (
-  select ti.*, expected.seq as result_seq
+  select ti.id, ti.status, expected.seq as result_seq,
+    case
+      when tir.parse_status='SUCCESS' then 'IMPORTED'
+      when tir.parse_status is not null then tir.parse_status
+      when ti.result_status='IMPORTED' then 'PENDING'
+      else ti.result_status
+    end as result_status
   from item_bounds ti
   cross join lateral generate_series(1, ti.expected_count) as expected(seq)
+  left join result_statuses tir on tir.task_item_id=ti.id and tir.seq=expected.seq
+),
+page_items as materialized (
+  select id, result_seq, result_status,
+    case
+      when result_status in ('FAILED','PARSE_FAILED','ERROR') then 0
+      when result_status <> 'IMPORTED' or status <> 2 then 1
+      else 2
+    end as priority
+  from expanded
+  order by priority, id, result_seq
+  limit $2 offset $3
 )
 select
 	  ti.id,
 	  ti.item_id,
 	  ti.platform_code,
-	  ti.result_seq,
+	  page.result_seq,
 	  ti.question,
 	  ti.status,
 	  case
@@ -731,18 +739,12 @@ select
 	  coalesce(tir.reference_count,0),
 	  coalesce(tir.parse_status,''),
 	  coalesce(tir.parse_error,''),
-	  coalesce(tir.updated_at, ti.result_imported_at)
-from expanded ti
-left join cdp_task_item_results tir on tir.task_item_id=ti.id and tir.seq=ti.result_seq
-order by
-	  case
-	    when (case when tir.parse_status='SUCCESS' then 'IMPORTED' when tir.parse_status is not null then tir.parse_status when ti.result_status='IMPORTED' then 'PENDING' else ti.result_status end) in ('FAILED','PARSE_FAILED','ERROR') then 0
-	    when (case when tir.parse_status='SUCCESS' then 'IMPORTED' when tir.parse_status is not null then tir.parse_status when ti.result_status='IMPORTED' then 'PENDING' else ti.result_status end) <> 'IMPORTED' or ti.status <> 2 then 1
-	    else 2
-	  end asc,
-	  ti.id asc,
-	  ti.result_seq asc
-limit $2 offset $3
+	  coalesce(tir.updated_at, ti.result_imported_at),
+ coalesce(tir.validation_status,'UNKNOWN'),coalesce(tir.risk_items,'[]'::jsonb),coalesce(tir.validation_rule_version,''),tir.validated_at
+from page_items page
+join cdp_task_items ti on ti.id=page.id and ti.task_id=$1
+left join cdp_task_item_results tir on tir.task_id=$1 and tir.task_item_id=page.id and tir.seq=page.result_seq
+order by page.priority, page.id, page.result_seq
 	`, taskID, filter.PageSize, offset)
 	if err != nil {
 		return nil, 0, err
@@ -753,6 +755,8 @@ limit $2 offset $3
 		var item biz.AdminTaskItem
 		var generatedAt sql.NullTime
 		var resultImportedAt sql.NullTime
+		var validatedAt *time.Time
+		var riskJSON []byte
 		if err := rows.Scan(
 			&item.TaskItemID,
 			&item.ItemID,
@@ -773,6 +777,7 @@ limit $2 offset $3
 			&item.ParseStatus,
 			&item.ParseError,
 			&resultImportedAt,
+			&item.AnswerValidation.Status, &riskJSON, &item.RuleVersion, &validatedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -781,6 +786,12 @@ limit $2 offset $3
 		}
 		if resultImportedAt.Valid {
 			item.ResultImportedAt = resultImportedAt.Time
+		}
+		if err := json.Unmarshal(riskJSON, &item.RiskItems); err != nil {
+			return nil, 0, err
+		}
+		if validatedAt != nil {
+			item.ValidatedAt = *validatedAt
 		}
 		items = append(items, item)
 	}
@@ -792,7 +803,7 @@ func (r *AdminRepo) listAllTaskItems(ctx context.Context, taskID int64) ([]biz.A
 with item_bounds as (
   select ti.*, greatest(coalesce(max(tir.seq), 0), 1) as expected_count
   from cdp_task_items ti
-  left join cdp_task_item_results tir on tir.task_item_id=ti.id
+  left join cdp_task_item_results tir on tir.task_id=$1 and tir.task_item_id=ti.id
   where ti.task_id=$1
   group by ti.id
 ),
@@ -825,9 +836,10 @@ select
 	  coalesce(tir.reference_count,0),
 	  coalesce(tir.parse_status,''),
 	  coalesce(tir.parse_error,''),
-	  coalesce(tir.updated_at, ti.result_imported_at)
+	  coalesce(tir.updated_at, ti.result_imported_at),
+ coalesce(tir.validation_status,'UNKNOWN'),coalesce(tir.risk_items,'[]'::jsonb),coalesce(tir.validation_rule_version,''),tir.validated_at
 from expanded ti
-left join cdp_task_item_results tir on tir.task_item_id=ti.id and tir.seq=ti.result_seq
+left join cdp_task_item_results tir on tir.task_id=$1 and tir.task_item_id=ti.id and tir.seq=ti.result_seq
 order by
 	  case
 	    when (case when tir.parse_status='SUCCESS' then 'IMPORTED' when tir.parse_status is not null then tir.parse_status when ti.result_status='IMPORTED' then 'PENDING' else ti.result_status end) in ('FAILED','PARSE_FAILED','ERROR') then 0
@@ -846,6 +858,8 @@ order by
 		var item biz.AdminTaskItem
 		var generatedAt sql.NullTime
 		var resultImportedAt sql.NullTime
+		var validatedAt *time.Time
+		var riskJSON []byte
 		if err := rows.Scan(
 			&item.TaskItemID,
 			&item.ItemID,
@@ -866,6 +880,7 @@ order by
 			&item.ParseStatus,
 			&item.ParseError,
 			&resultImportedAt,
+			&item.AnswerValidation.Status, &riskJSON, &item.RuleVersion, &validatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -874,6 +889,12 @@ order by
 		}
 		if resultImportedAt.Valid {
 			item.ResultImportedAt = resultImportedAt.Time
+		}
+		if err := json.Unmarshal(riskJSON, &item.RiskItems); err != nil {
+			return nil, err
+		}
+		if validatedAt != nil {
+			item.ValidatedAt = *validatedAt
 		}
 		items = append(items, item)
 	}
@@ -1311,6 +1332,7 @@ func scanAdminTaskSummary(scanner interface{ Scan(dest ...any) error }) (biz.Adm
 		&summary.DispatchLabels,
 		&summary.ReassignedFromTaskID,
 		&summary.ReassignedToTaskID,
+		&summary.RiskCount, &summary.InvalidAnswerCount, &summary.RiskSummary, &summary.RiskStatsUpdatedAt,
 	); err != nil {
 		return biz.AdminTaskSummary{}, err
 	}
@@ -1441,6 +1463,9 @@ func normalizePlatformUserInput(input *biz.AdminPlatformUserInput) {
 
 func adminTaskWhere(filter biz.AdminTaskFilter) (string, []any) {
 	clauses := []string{" where t.deleted_at is null"}
+	if filter.HasRisk {
+		clauses = append(clauses, " and t.risk_count>0")
+	}
 	var args []any
 	add := func(clause string, value any) {
 		args = append(args, value)
@@ -1450,6 +1475,9 @@ func adminTaskWhere(filter biz.AdminTaskFilter) (string, []any) {
 		add(" and t.batch_no ilike '%%' || $%d || '%%'", filter.BatchNo)
 	}
 	if filter.TaskName != "" {
+		if strings.Trim(filter.TaskName, "%") != "" {
+			clauses = append(clauses, " and t.task_name <> ''")
+		}
 		add(" and t.task_name ilike '%%' || $%d || '%%'", filter.TaskName)
 	}
 	if filter.Source != "" {
@@ -1498,7 +1526,7 @@ func adminPlatformUserWhere(filter biz.AdminPlatformUserFilter) (string, []any) 
 }
 
 func adminPlatformUserMetricWhere(platformUserID int64, platformCode string, filter biz.AdminPlatformUserMetricsFilter) (string, []any) {
-	clauses := []string{" where (t.platform_user_id=$1 or t.platform_code=$2) and t.deleted_at is null"}
+	clauses := []string{" where (t.platform_user_id=$1 or t.platform_code=$2) and t.deleted_at is null and t.status <> 'REASSIGNED'"}
 	args := []any{platformUserID, platformCode}
 	add := func(clause string, value any) {
 		args = append(args, value)
@@ -1537,7 +1565,7 @@ func adminPlatformUserReconciliationWhere(platformUserID int64, platformCode str
 }
 
 func adminProviderMetricWhere(providerCode string, filter biz.AdminProviderMetricsFilter) (string, []any) {
-	clauses := []string{" where t.provider_code=$1 and t.deleted_at is null"}
+	clauses := []string{" where t.provider_code=$1 and t.deleted_at is null and t.status <> 'REASSIGNED'"}
 	args := []any{providerCode}
 	add := func(clause string, value any) {
 		args = append(args, value)

@@ -315,6 +315,77 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
+    /api/admin/v1/result-validation-rules:
+        get:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_GetResultValidationRules
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ResultValidationRulesResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+        put:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_UpdateResultValidationRules
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateResultValidationRulesRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ResultValidationRulesResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/admin/v1/result-validation-rules/providers/{providerCode}:
+        put:
+            tags:
+                - AdminAPI
+            operationId: AdminAPI_UpdateProviderValidationRule
+            parameters:
+                - name: providerCode
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateProviderValidationRuleRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ResultValidationRulesResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
     /api/admin/v1/tasks:
         get:
             tags:
@@ -363,6 +434,10 @@ paths:
                   in: query
                   schema:
                     type: string
+                - name: hasRisk
+                  in: query
+                  schema:
+                    type: boolean
             responses:
                 "200":
                     description: OK
@@ -907,6 +982,16 @@ components:
                     type: string
                 resultImportedAt:
                     type: string
+                validationStatus:
+                    type: string
+                riskItems:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AnswerRisk'
+                validationRuleVersion:
+                    type: string
+                validatedAt:
+                    type: string
         AdminTaskSummary:
             type: object
             properties:
@@ -969,6 +1054,16 @@ components:
                 resultMissingCount:
                     type: integer
                     format: int32
+                riskCount:
+                    type: integer
+                    format: int32
+                invalidAnswerCount:
+                    type: integer
+                    format: int32
+                riskSummaryJson:
+                    type: string
+                riskStatsUpdatedAt:
+                    type: string
         AdminUser:
             type: object
             properties:
@@ -978,6 +1073,23 @@ components:
                     type: string
                 role:
                     type: string
+        AnswerRisk:
+            type: object
+            properties:
+                code:
+                    type: string
+                message:
+                    type: string
+                actualLength:
+                    type: integer
+                    format: int32
+                minLength:
+                    type: integer
+                    format: int32
+                matchedKeywords:
+                    type: array
+                    items:
+                        type: string
         CheckTaskResultData:
             type: object
             properties:
@@ -2004,6 +2116,36 @@ components:
                     format: int32
                 createdAt:
                     type: string
+        ResultValidationRulesData:
+            type: object
+            properties:
+                version:
+                    type: string
+                keywords:
+                    type: array
+                    items:
+                        type: string
+                updatedAt:
+                    type: string
+                updatedBy:
+                    type: string
+                refreshIntervalSeconds:
+                    type: integer
+                    format: int32
+                riskCallbackAllowedProviderCodes:
+                    type: array
+                    items:
+                        type: string
+        ResultValidationRulesResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/ResultValidationRulesData'
         RetryTaskCallbackData:
             type: object
             properties:
@@ -2036,12 +2178,19 @@ components:
                 taskItemCount:
                     type: integer
                     format: int32
+                riskCount:
+                    type: integer
+                    format: int32
+                riskStatsReady:
+                    type: boolean
         RetryTaskCallbackRequest:
             type: object
             properties:
                 id:
                     type: string
                 force:
+                    type: boolean
+                ignoreRisk:
                     type: boolean
         RetryTaskCallbackResponse:
             type: object
@@ -2287,6 +2436,24 @@ components:
                     type: string
                 data:
                     $ref: '#/components/schemas/PlatformUser'
+        UpdateProviderValidationRuleRequest:
+            type: object
+            properties:
+                expectedVersion:
+                    type: string
+                providerCode:
+                    type: string
+                riskInterceptionEnabled:
+                    type: boolean
+        UpdateResultValidationRulesRequest:
+            type: object
+            properties:
+                expectedVersion:
+                    type: string
+                keywords:
+                    type: array
+                    items:
+                        type: string
         UploadURLData:
             type: object
             properties:

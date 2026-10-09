@@ -136,6 +136,10 @@ type DispatchRuleInput struct {
 }
 
 type Task struct {
+	RiskCount               int
+	InvalidAnswerCount      int
+	RiskSummary             json.RawMessage
+	RiskStatsUpdatedAt      *time.Time
 	ID                      int64
 	JobID                   string
 	PlatformUserID          int64
@@ -161,7 +165,7 @@ type Task struct {
 	RawRequest              json.RawMessage
 	ProviderRequest         json.RawMessage
 	ProviderResponse        json.RawMessage
-	ResultPayload           json.RawMessage
+	ResultPayload           json.RawMessage // Full retained result; omitted by ordinary repository reads.
 	ResultObjectKey         string
 	ResultFileName          string
 	ResultRowCount          int
@@ -402,6 +406,7 @@ type ResultFileInput struct {
 }
 
 type TaskItemResult struct {
+	AnswerValidation
 	ItemID               string          `json:"itemId"`
 	Seq                  int             `json:"seq"`
 	PlatformCode         string          `json:"platformCode,omitempty"`
@@ -423,6 +428,7 @@ type TaskItemResult struct {
 }
 
 type TaskItemResultView struct {
+	AnswerValidation
 	ItemID               string
 	PlatformCode         string
 	Seq                  int
@@ -443,6 +449,8 @@ type TaskItemResultView struct {
 }
 
 type CallbackReadiness struct {
+	RiskCount      int
+	RiskStatsReady bool
 	Ready          bool
 	ForceRequired  bool
 	Reason         string
