@@ -34,7 +34,8 @@ const RESULT_STATUS_META: Record<string, StatusMeta> = {
   SUCCESS: { label: "成功", tone: "done" },
   FAILED: { label: "失败", tone: "failed" },
   ERROR: { label: "错误", tone: "failed" },
-  PARSE_FAILED: { label: "解析失败", tone: "failed" }
+  PARSE_FAILED: { label: "解析失败", tone: "failed" },
+  EXECUTION_FAILED: { label: "执行失败", tone: "failed" }
 };
 
 export function TaskStatusTag({ status }: { status: string }) {

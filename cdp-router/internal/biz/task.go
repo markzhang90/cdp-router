@@ -136,6 +136,8 @@ type DispatchRuleInput struct {
 }
 
 type Task struct {
+	Device                  string
+	ExecutionMode           string
 	RiskCount               int
 	InvalidAnswerCount      int
 	RiskSummary             json.RawMessage
@@ -188,6 +190,7 @@ type TaskItem struct {
 }
 
 type CreateTaskInput struct {
+	Device         string
 	JobID          string
 	PlatformUserID int64
 	PlatformCode   string
@@ -202,6 +205,7 @@ type CreateTaskInput struct {
 }
 
 type SubmitTaskPayload struct {
+	Device       string     `json:"device,omitempty"`
 	BatchNo      string     `json:"batchNo"`
 	ProviderCode string     `json:"providerCode"`
 	BizDate      string     `json:"bizDate"`
@@ -340,6 +344,7 @@ type ReassignTaskInput struct {
 }
 
 type ReassignTaskRecordInput struct {
+	ExecutionMode  string
 	SourceBatchNo  string
 	TargetBatchNo  string
 	TargetJobID    string
@@ -520,6 +525,9 @@ type ProviderRegistry interface {
 }
 
 type ProviderSettings struct {
+	InteractionMode    string
+	SupportedDevices   []string
+	DeviceChannels     map[string][]string
 	ProviderCode       string
 	BucketPathPrefix   string
 	DailyQuestionQuota int

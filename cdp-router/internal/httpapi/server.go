@@ -11,7 +11,7 @@ type Server struct {
 	engine *gin.Engine
 }
 
-func New(taskService *service.TaskService, adminService *service.AdminService) *Server {
+func New(taskService *service.TaskService, adminService *service.AdminService, pullServices ...*service.PullService) *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery(), requestID(), accessLog())
 
@@ -23,6 +23,15 @@ func New(taskService *service.TaskService, adminService *service.AdminService) *
 	})
 	engine.GET("/api/openapi.json", openAPIJSON("openapi/openapi.yaml"))
 	serveAdminStatic(engine)
+
+	pull := &service.PullService{}
+	if len(pullServices) > 0 {
+		pull = pullServices[0]
+	}
+	engine.POST("/external/gettask", pull.GetTask)
+	engine.POST("/external/taskresult", pull.SubmitResult)
+	engine.GET("/api/v1/tasks/:id/progress", pull.Progress)
+	engine.GET("/api/v1/external-tasks/:externalBatchId/progress", pull.Progress)
 
 	engine.POST("/api/v1/tasks", taskService.CreateTask)
 	engine.GET("/api/v1/external-tasks/:externalBatchId", taskService.GetExternalTask)

@@ -696,6 +696,30 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
+    /api/v1/external-tasks/{externalBatchId}/progress:
+        get:
+            tags:
+                - PullAPI
+            operationId: PullAPI_GetExternalTaskProgress
+            parameters:
+                - name: externalBatchId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TaskProgressResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
     /api/v1/external-tasks/{externalBatchId}/result:
         get:
             tags:
@@ -762,6 +786,30 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/GetTaskResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /api/v1/tasks/{id}/progress:
+        get:
+            tags:
+                - PullAPI
+            operationId: PullAPI_GetTaskProgress
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TaskProgressResponse'
                 default:
                     description: Default error response
                     content:
@@ -906,6 +954,30 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
+    /external/gettask:
+        post:
+            tags:
+                - PullAPI
+            operationId: PullAPI_GetPullTask
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PullTaskRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PullTaskResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
     /external/oss/{providerCode}/upload-url:
         post:
             tags:
@@ -930,6 +1002,30 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/GetUploadURLResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
+    /external/taskresult:
+        post:
+            tags:
+                - PullAPI
+            operationId: PullAPI_SubmitPullResult
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PullResultRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PullResultResponse'
                 default:
                     description: Default error response
                     content:
@@ -995,6 +1091,22 @@ components:
         AdminTaskSummary:
             type: object
             properties:
+                device:
+                    type: string
+                executionMode:
+                    type: string
+                shardCount:
+                    type: integer
+                    format: int32
+                completedShardCount:
+                    type: integer
+                    format: int32
+                pendingSubmissionCount:
+                    type: integer
+                    format: int32
+                failedSubmissionCount:
+                    type: integer
+                    format: int32
                 taskId:
                     type: string
                 taskName:
@@ -1164,6 +1276,8 @@ components:
         CreateTaskRequest:
             type: object
             properties:
+                device:
+                    type: string
                 batchNo:
                     type: string
                 providerCode:
@@ -2021,6 +2135,132 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/ProviderQuestionStatus'
+        PullAnswer:
+            type: object
+            properties:
+                itemId:
+                    type: string
+                answerSeq:
+                    type: integer
+                    format: int32
+                executionStatus:
+                    type: string
+                errorCode:
+                    type: string
+                errorMessage:
+                    type: string
+                answerText:
+                    type: string
+                thinkingProcess:
+                    type: string
+                generatedAt:
+                    type: string
+                recommendedQuestions:
+                    type: array
+                    items:
+                        type: string
+                references:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/PullReference'
+                deviceId:
+                    type: string
+                recordingUrl:
+                    type: string
+        PullReference:
+            type: object
+            properties:
+                url:
+                    type: string
+                title:
+                    type: string
+                content:
+                    type: string
+                publishedAtText:
+                    type: string
+                siteName:
+                    type: string
+                authorityLevel:
+                    type: string
+                siteCategory:
+                    type: string
+                author:
+                    type: string
+                authorCategory:
+                    type: string
+                authorIdentityType:
+                    type: string
+        PullResultData:
+            type: object
+            properties:
+                submissionId:
+                    type: string
+                accepted:
+                    type: boolean
+        PullResultRequest:
+            type: object
+            properties:
+                requestId:
+                    type: string
+                batchNo:
+                    type: string
+                shardId:
+                    type: string
+                schemaVersion:
+                    type: string
+                finished:
+                    type: boolean
+                results:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/PullAnswer'
+        PullResultResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/PullResultData'
+        PullTaskData:
+            type: object
+            properties:
+                batchNo:
+                    type: string
+                shardId:
+                    type: string
+                device:
+                    type: string
+                channel:
+                    type: string
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TaskItem'
+        PullTaskRequest:
+            type: object
+            properties:
+                requestId:
+                    type: string
+                device:
+                    type: string
+                channel:
+                    type: string
+                limit:
+                    type: integer
+                    format: int32
+        PullTaskResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/PullTaskData'
         ReassignTaskData:
             type: object
             properties:
@@ -2284,6 +2524,10 @@ components:
         TaskData:
             type: object
             properties:
+                device:
+                    type: string
+                executionMode:
+                    type: string
                 taskId:
                     type: string
                 batchNo:
@@ -2409,6 +2653,54 @@ components:
                 pageSize:
                     type: integer
                     format: int32
+        TaskProgressData:
+            type: object
+            properties:
+                taskId:
+                    type: string
+                device:
+                    type: string
+                executionMode:
+                    type: string
+                status:
+                    type: string
+                total:
+                    type: integer
+                    format: int32
+                completed:
+                    type: integer
+                    format: int32
+                success:
+                    type: integer
+                    format: int32
+                failed:
+                    type: integer
+                    format: int32
+                unclaimed:
+                    type: integer
+                    format: int32
+                shards:
+                    type: integer
+                    format: int32
+                completedShards:
+                    type: integer
+                    format: int32
+                pendingSubmissions:
+                    type: integer
+                    format: int32
+                failedSubmissions:
+                    type: integer
+                    format: int32
+        TaskProgressResponse:
+            type: object
+            properties:
+                status:
+                    type: integer
+                    format: int32
+                message:
+                    type: string
+                data:
+                    $ref: '#/components/schemas/TaskProgressData'
         UpdatePlatformUserRequest:
             type: object
             properties:
@@ -2473,4 +2765,5 @@ components:
                         type: string
 tags:
     - name: AdminAPI
+    - name: PullAPI
     - name: TaskAPI

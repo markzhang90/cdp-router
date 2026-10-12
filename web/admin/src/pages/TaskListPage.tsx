@@ -269,7 +269,6 @@ export function TaskListPage() {
 
   const columns = useMemo<ColumnsType<TaskSummary>>(
     () => [
-      { title: "内容风险", key: "risks", width: 190, render: (_, task) => <TaskRiskSummary task={task} /> },
       {
         title: "任务名称",
         dataIndex: "taskName",
@@ -284,6 +283,13 @@ export function TaskListPage() {
           </div>
         )
       },
+      {
+        title: "设备 / 模式",
+        key: "executionMode",
+        width: 120,
+        render: (_, task) => `${task.device || "web"} / ${task.executionMode || "push"}`
+      },
+      { title: "内容风险", key: "risks", width: 190, render: (_, task) => <TaskRiskSummary task={task} /> },
       {
         title: "batchNo",
         dataIndex: "batchNo",

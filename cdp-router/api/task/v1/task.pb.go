@@ -108,6 +108,7 @@ func (x *TaskItem) GetWebSearch() bool {
 
 type CreateTaskRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Device        string                 `protobuf:"bytes,8,opt,name=device,proto3" json:"device,omitempty"`
 	BatchNo       string                 `protobuf:"bytes,1,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
 	ProviderCode  string                 `protobuf:"bytes,2,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
 	BizDate       string                 `protobuf:"bytes,3,opt,name=biz_date,json=bizDate,proto3" json:"biz_date,omitempty"`
@@ -147,6 +148,13 @@ func (x *CreateTaskRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateTaskRequest.ProtoReflect.Descriptor instead.
 func (*CreateTaskRequest) Descriptor() ([]byte, []int) {
 	return file_api_task_v1_task_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateTaskRequest) GetDevice() string {
+	if x != nil {
+		return x.Device
+	}
+	return ""
 }
 
 func (x *CreateTaskRequest) GetBatchNo() string {
@@ -416,6 +424,8 @@ func (x *GetTaskResponse) GetData() *TaskData {
 
 type TaskData struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Device                  string                 `protobuf:"bytes,16,opt,name=device,proto3" json:"device,omitempty"`
+	ExecutionMode           string                 `protobuf:"bytes,17,opt,name=execution_mode,json=executionMode,proto3" json:"execution_mode,omitempty"`
 	TaskId                  int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	BatchNo                 string                 `protobuf:"bytes,2,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
 	ProviderCode            string                 `protobuf:"bytes,3,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
@@ -463,6 +473,20 @@ func (x *TaskData) ProtoReflect() protoreflect.Message {
 // Deprecated: Use TaskData.ProtoReflect.Descriptor instead.
 func (*TaskData) Descriptor() ([]byte, []int) {
 	return file_api_task_v1_task_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *TaskData) GetDevice() string {
+	if x != nil {
+		return x.Device
+	}
+	return ""
+}
+
+func (x *TaskData) GetExecutionMode() string {
+	if x != nil {
+		return x.ExecutionMode
+	}
+	return ""
 }
 
 func (x *TaskData) GetTaskId() int64 {
@@ -2166,8 +2190,9 @@ const file_api_task_v1_task_proto_rawDesc = "" +
 	"\bquestion\x18\x04 \x01(\tR\bquestion\x12\x1c\n" +
 	"\tdeepthink\x18\x05 \x01(\bR\tdeepthink\x12\x1d\n" +
 	"\n" +
-	"web_search\x18\x06 \x01(\bR\twebSearch\"\xf3\x01\n" +
-	"\x11CreateTaskRequest\x12\x19\n" +
+	"web_search\x18\x06 \x01(\bR\twebSearch\"\x8b\x02\n" +
+	"\x11CreateTaskRequest\x12\x16\n" +
+	"\x06device\x18\b \x01(\tR\x06device\x12\x19\n" +
 	"\bbatch_no\x18\x01 \x01(\tR\abatchNo\x12#\n" +
 	"\rprovider_code\x18\x02 \x01(\tR\fproviderCode\x12\x19\n" +
 	"\bbiz_date\x18\x03 \x01(\tR\abizDate\x12!\n" +
@@ -2187,8 +2212,10 @@ const file_api_task_v1_task_proto_rawDesc = "" +
 	"\x0fGetTaskResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12)\n" +
-	"\x04data\x18\x03 \x01(\v2\x15.api.task.v1.TaskDataR\x04data\"\x96\x04\n" +
-	"\bTaskData\x12\x17\n" +
+	"\x04data\x18\x03 \x01(\v2\x15.api.task.v1.TaskDataR\x04data\"\xd5\x04\n" +
+	"\bTaskData\x12\x16\n" +
+	"\x06device\x18\x10 \x01(\tR\x06device\x12%\n" +
+	"\x0eexecution_mode\x18\x11 \x01(\tR\rexecutionMode\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x19\n" +
 	"\bbatch_no\x18\x02 \x01(\tR\abatchNo\x12#\n" +
 	"\rprovider_code\x18\x03 \x01(\tR\fproviderCode\x12*\n" +

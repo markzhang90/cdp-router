@@ -31,7 +31,9 @@ func NewRegistry(configs map[string]config.ProviderConfig) *Registry {
 			cfg.BucketPathPrefix = "cdp-router/q2a/" + cfg.Code
 		}
 		cfg = config.NormalizeProviderConfig(cfg)
-		providers[code] = NewHTTPProvider(cfg)
+		if cfg.InteractionMode != "pull" {
+			providers[code] = NewHTTPProvider(cfg)
+		}
 		copiedConfigs[code] = cfg
 	}
 	return &Registry{providers: providers, configs: copiedConfigs}
@@ -44,7 +46,7 @@ func (r *Registry) Get(code string) (biz.ProviderClient, bool) {
 
 func (r *Registry) Codes() []string {
 	codes := make([]string, 0, len(r.providers))
-	for code := range r.providers {
+	for code := range r.configs {
 		codes = append(codes, code)
 	}
 	return codes
@@ -298,7 +300,8 @@ func (r *Registry) GetSettings(_ context.Context, code string) (biz.ProviderSett
 		return biz.ProviderSettings{}, false
 	}
 	return biz.ProviderSettings{
-		ProviderCode:       cfg.Code,
+		ProviderCode:    cfg.Code,
+		InteractionMode: cfg.InteractionMode, SupportedDevices: cfg.SupportedDevices, DeviceChannels: cfg.DeviceChannels,
 		BucketPathPrefix:   cfg.BucketPathPrefix,
 		DailyQuestionQuota: cfg.DailyQuestionQuota,
 		Enabled:            cfg.Enabled,

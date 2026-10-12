@@ -67,7 +67,11 @@ const adminTaskSummarySelectSQL = `
   ` + adminTaskSubmitFailedSQL + `,
   ` + adminTaskDispatchLabelsSQL + `,
   coalesce(t.reassigned_from_task_id,0),
-  ` + adminTaskReassignedToTaskIDSQL + `,t.risk_count,t.invalid_answer_count,t.risk_summary,t.risk_stats_updated_at`
+  ` + adminTaskReassignedToTaskIDSQL + `,t.risk_count,t.invalid_answer_count,t.risk_summary,t.risk_stats_updated_at,t.device,t.execution_mode,
+ (select count(*) from cdp_task_shards where task_id=t.id),
+ (select count(*) from cdp_task_shards where task_id=t.id and status='COMPLETED'),
+ (select count(*) from cdp_task_result_submissions where task_id=t.id and status in ('ACCEPTED','PROCESSING','RETRY_WAIT')),
+ (select count(*) from cdp_task_result_submissions where task_id=t.id and status='FAILED')`
 
 var adminTaskProgressJoinSQL = `
 left join lateral (
@@ -134,13 +138,13 @@ left join lateral (
 left join lateral (
   select
     admin_task_progress_failure.total_count,
-    admin_task_progress_failure.completed_count,
-    admin_task_progress_failure.completed_count - admin_task_progress_failure.failed_count as success_count,
-    admin_task_progress_failure.failed_count,
+    case when t.execution_mode='pull' then coalesce(admin_task_item_progress.result_success_count,0)+coalesce(admin_task_item_progress.result_failed_count,0) else admin_task_progress_failure.completed_count end as completed_count,
+ case when t.execution_mode='pull' then coalesce(admin_task_item_progress.result_success_count,0) else admin_task_progress_failure.completed_count - admin_task_progress_failure.failed_count end as success_count,
+ case when t.execution_mode='pull' then coalesce(admin_task_item_progress.result_failed_count,0) else admin_task_progress_failure.failed_count end as failed_count,
     coalesce(admin_task_item_progress.result_success_count, 0) as result_success_count,
     coalesce(admin_task_item_progress.result_failed_count, 0) as result_failed_count,
     case
-      when t.result_imported_at is null then 0
+      when t.result_imported_at is null and t.execution_mode='push' then 0
       else greatest(
         coalesce(admin_task_item_progress.item_count, 0)
           - coalesce(admin_task_item_progress.result_success_count, 0)
@@ -176,7 +180,7 @@ with page_tasks as materialized (
     t.external_batch_id, t.provider_code, t.status, t.provider_response,
     t.total_count, t.success_count, t.failed_count, t.result_imported_at,
     t.created_at, t.updated_at, t.provider_finished_at, t.reassigned_from_task_id,
- t.risk_count,t.invalid_answer_count,t.risk_summary,t.risk_stats_updated_at
+ t.risk_count,t.invalid_answer_count,t.risk_summary,t.risk_stats_updated_at,t.device,t.execution_mode
   from cdp_tasks t
 `+where+`
   order by t.created_at desc, t.id desc
@@ -669,7 +673,7 @@ func (r *AdminRepo) listTaskItems(ctx context.Context, taskID int64, filter biz.
 	if err := r.db.QueryRow(ctx, `
 select coalesce(sum(expected_count), 0)
 from (
-  select greatest(coalesce(max(tir.seq), 0), 1) as expected_count
+  select case when (select execution_mode from cdp_tasks where id=$1)='pull' then greatest(count(tir.id),1) else greatest(coalesce(max(tir.seq), 0), 1) end as expected_count
   from cdp_task_items ti
   left join cdp_task_item_results tir on tir.task_id=$1 and tir.task_item_id=ti.id
   where ti.task_id=$1
@@ -701,7 +705,11 @@ expanded as (
       else ti.result_status
     end as result_status
   from item_bounds ti
-  cross join lateral generate_series(1, ti.expected_count) as expected(seq)
+  cross join lateral (
+ select generate_series(1,ti.expected_count) seq where (select execution_mode from cdp_tasks where id=$1)='push'
+ union all select r.seq from cdp_task_item_results r where r.task_item_id=ti.id and (select execution_mode from cdp_tasks where id=$1)='pull'
+ union all select 1 where (select execution_mode from cdp_tasks where id=$1)='pull' and not exists(select 1 from cdp_task_item_results r where r.task_item_id=ti.id)
+ ) as expected
   left join result_statuses tir on tir.task_item_id=ti.id and tir.seq=expected.seq
 ),
 page_items as materialized (
@@ -810,7 +818,11 @@ with item_bounds as (
 expanded as (
   select ti.*, expected.seq as result_seq
   from item_bounds ti
-  cross join lateral generate_series(1, ti.expected_count) as expected(seq)
+  cross join lateral (
+ select generate_series(1,ti.expected_count) seq where (select execution_mode from cdp_tasks where id=$1)='push'
+ union all select r.seq from cdp_task_item_results r where r.task_item_id=ti.id and (select execution_mode from cdp_tasks where id=$1)='pull'
+ union all select 1 where (select execution_mode from cdp_tasks where id=$1)='pull' and not exists(select 1 from cdp_task_item_results r where r.task_item_id=ti.id)
+ ) as expected
 )
 select
 	  ti.id,
@@ -1332,7 +1344,7 @@ func scanAdminTaskSummary(scanner interface{ Scan(dest ...any) error }) (biz.Adm
 		&summary.DispatchLabels,
 		&summary.ReassignedFromTaskID,
 		&summary.ReassignedToTaskID,
-		&summary.RiskCount, &summary.InvalidAnswerCount, &summary.RiskSummary, &summary.RiskStatsUpdatedAt,
+		&summary.RiskCount, &summary.InvalidAnswerCount, &summary.RiskSummary, &summary.RiskStatsUpdatedAt, &summary.Device, &summary.ExecutionMode, &summary.ShardCount, &summary.CompletedShardCount, &summary.PendingSubmissionCount, &summary.FailedSubmissionCount,
 	); err != nil {
 		return biz.AdminTaskSummary{}, err
 	}

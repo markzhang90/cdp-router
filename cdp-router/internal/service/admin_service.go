@@ -1373,6 +1373,7 @@ func adminUserProto(user biz.AdminUser) *adminv1.AdminUser {
 func adminTaskSummaryProto(task biz.AdminTaskSummary) *adminv1.AdminTaskSummary {
 	durationSeconds, durationText := taskExecutionDuration(task)
 	return &adminv1.AdminTaskSummary{
+		Device: task.Device, ExecutionMode: task.ExecutionMode, ShardCount: int32(task.ShardCount), CompletedShardCount: int32(task.CompletedShardCount), PendingSubmissionCount: int32(task.PendingSubmissionCount), FailedSubmissionCount: int32(task.FailedSubmissionCount),
 		RiskCount: int32(task.RiskCount), InvalidAnswerCount: int32(task.InvalidAnswerCount), RiskSummaryJson: string(defaultJSON(task.RiskSummary)), RiskStatsUpdatedAt: formatOptionalTime(task.RiskStatsUpdatedAt),
 		TaskId:                   task.TaskID,
 		TaskName:                 task.TaskName,

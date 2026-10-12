@@ -48,7 +48,7 @@ from answers`, taskID).Scan(&riskCount, &invalid, &unknown, &answers, &pending, 
 // A small optional repository capability keeps legacy unit-only repositories
 // independent of the persistence locking implementation.
 func (r *TaskRepo) ListTasksWithPendingResultFiles(ctx context.Context, limit int) ([]*biz.Task, error) {
-	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+` where deleted_at is null and status in ('PROVIDER_DONE','RESULT_IMPORTED','CALLBACK_PENDING','DONE')
+	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+` where execution_mode='push' and deleted_at is null and status in ('PROVIDER_DONE','RESULT_IMPORTED','CALLBACK_PENDING','DONE')
  and (exists(select 1 from cdp_task_result_files f where f.task_id=cdp_tasks.id and f.parse_status<>'SUCCESS')
  or (risk_stats_updated_at is null and exists(select 1 from cdp_task_item_results i where i.task_id=cdp_tasks.id and i.validation_status<>'UNKNOWN')))
  order by updated_at,id limit $1`, limit)

@@ -76,10 +76,16 @@ func (u *TaskUsecase) CreateTask(ctx context.Context, input CreateTaskInput) (*T
 	if input.PlatformUserID <= 0 || input.PlatformCode == "" {
 		return nil, 0, ErrPlatformUserNotFound
 	}
+	if input.Device == "" {
+		input.Device = "web"
+	}
+	if input.Device != "web" && input.Device != "mobile" {
+		return nil, 0, ErrInvalidTaskRequest
+	}
 	if input.JobID == "" {
 		input.JobID = newJobID()
 	}
-	task, err := u.repo.CreateTask(ctx, input, u.providerDispatchSettings(ctx), u.publicBaseURL)
+	task, err := u.repo.CreateTask(ctx, input, FilterProviders(u.providerDispatchSettings(ctx), input.Device, input.Items), u.publicBaseURL)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -103,14 +109,38 @@ func (u *TaskUsecase) ReassignTask(ctx context.Context, input ReassignTaskInput)
 	if input.BatchNo == "" || input.ProviderCode == "" {
 		return ReassignTaskOutcome{}, ErrInvalidTaskRequest
 	}
-	if _, ok := u.providers.Get(input.ProviderCode); !ok {
-		return ReassignTaskOutcome{}, ErrProviderNotFound
-	}
 	if !u.providerReassignEnabled(ctx, input.ProviderCode) {
+		return ReassignTaskOutcome{}, ErrProviderUnavailable
+	}
+	source, err := u.repo.GetTaskByBatchNo(ctx, input.BatchNo)
+	if err != nil {
+		return ReassignTaskOutcome{}, err
+	}
+	if !taskProcessingLocked(ctx, source.ID) {
+		var out ReassignTaskOutcome
+		err := u.withTaskLock(ctx, source.ID, func(ctx context.Context) error { var err error; out, err = u.ReassignTask(ctx, input); return err })
+		return out, err
+	}
+	items, err := u.repo.ListTaskItems(ctx, source.ID)
+	if err != nil {
+		return ReassignTaskOutcome{}, err
+	}
+	mode := "push"
+	found := false
+	for _, p := range FilterProviders(u.providerDispatchSettings(ctx), source.Device, items) {
+		if p.ProviderCode == input.ProviderCode {
+			found = true
+			if p.InteractionMode == "pull" {
+				mode = "pull"
+			}
+		}
+	}
+	if !found {
 		return ReassignTaskOutcome{}, ErrProviderUnavailable
 	}
 	target, err := u.repo.CreateReassignedTask(ctx, ReassignTaskRecordInput{
 		SourceBatchNo:  input.BatchNo,
+		ExecutionMode:  mode,
 		TargetBatchNo:  newReassignBatchNo(input.BatchNo),
 		TargetJobID:    newJobID(),
 		ProviderCode:   input.ProviderCode,
@@ -148,7 +178,7 @@ func (u *TaskUsecase) ReassignTask(ctx context.Context, input ReassignTaskInput)
 	if err := u.repo.MarkTaskReassigned(ctx, target.ReassignedFromTaskID, target.ID, payload); err != nil {
 		return ReassignTaskOutcome{Target: target, AcceptedCount: result.AcceptedCount}, err
 	}
-	source, err := u.repo.GetTask(ctx, target.ReassignedFromTaskID)
+	source, err = u.repo.GetTask(ctx, target.ReassignedFromTaskID)
 	if err != nil {
 		return ReassignTaskOutcome{Target: target, AcceptedCount: result.AcceptedCount}, nil
 	}
@@ -216,6 +246,9 @@ func (u *TaskUsecase) IssueUploadURL(ctx context.Context, providerCode, batchNo,
 	if err != nil {
 		return nil, err
 	}
+	if task.ExecutionMode == "pull" {
+		return nil, ErrInvalidTaskRequest
+	}
 	if task.ProviderCode != providerCode {
 		return nil, ErrProviderNotFound
 	}
@@ -270,6 +303,9 @@ func (u *TaskUsecase) CreateTemporaryDownloadFile(ctx context.Context, fileName 
 
 func (u *TaskUsecase) HandleProviderCallback(ctx context.Context, input ProviderCallbackInput) (*Task, error) {
 	receivedTask, lookupErr := u.repo.ResolveProviderTask(ctx, input.ProviderCode, input.BatchNo)
+	if lookupErr == ErrInvalidTaskRequest {
+		return nil, lookupErr
+	}
 	if lookupErr == nil && !taskProcessingLocked(ctx, receivedTask.ID) {
 		var task *Task
 		err := u.withTaskLock(ctx, receivedTask.ID, func(ctx context.Context) error {
@@ -1083,6 +1119,9 @@ func (u *TaskUsecase) GetProviderStatus(ctx context.Context, id int64) (Provider
 	if err != nil {
 		return ProviderStatusResult{}, err
 	}
+	if task.ExecutionMode == "pull" {
+		return ProviderStatusResult{}, ErrInvalidTaskRequest
+	}
 	if task.ProviderExternalBatchID == "" {
 		return ProviderStatusResult{}, fmt.Errorf("%w: external batch id is empty", ErrInvalidTaskRequest)
 	}
@@ -1109,6 +1148,9 @@ func (u *TaskUsecase) GetProviderResultFiles(ctx context.Context, id int64) (Pro
 	if err != nil {
 		return ProviderFilesResult{}, err
 	}
+	if task.ExecutionMode == "pull" {
+		return ProviderFilesResult{}, ErrInvalidTaskRequest
+	}
 	result, err := u.fetchProviderResultFiles(ctx, task)
 	if err != nil {
 		return ProviderFilesResult{}, err
@@ -1124,6 +1166,9 @@ func (u *TaskUsecase) RefetchProviderResults(ctx context.Context, id int64, forc
 	task, err := u.repo.GetTask(ctx, id)
 	if err != nil {
 		return nil, 0, 0, err
+	}
+	if task.ExecutionMode == "pull" {
+		return nil, 0, 0, ErrInvalidTaskRequest
 	}
 	fileCount, rowCount, err := u.importProviderFiles(ctx, task, force, notifyCallback)
 	if err != nil {
@@ -1149,6 +1194,9 @@ func (u *TaskUsecase) SyncProviderResult(ctx context.Context, id int64, force bo
 	task, err := u.repo.GetTask(ctx, id)
 	if err != nil {
 		return SyncProviderResultOutcome{}, err
+	}
+	if task.ExecutionMode == "pull" {
+		return SyncProviderResultOutcome{}, ErrInvalidTaskRequest
 	}
 	expectedCount, err := u.taskItemCount(ctx, task.ID)
 	if err != nil {
@@ -1414,6 +1462,12 @@ func (u *TaskUsecase) DeliverPendingCallbacks(ctx context.Context, limit int) er
 		slog.InfoContext(ctx, "deliver pending callbacks picked", "trace_id", trace.RequestID(ctx), "count", len(tasks), "limit", limit)
 	}
 	for _, task := range tasks {
+		if task.ExecutionMode == "pull" {
+			if _, err := u.deliverTaskCallback(ctx, task, false); err != nil {
+				slog.ErrorContext(ctx, "deliver pull callback failed", "task_id", task.ID, "error", err)
+			}
+			continue
+		}
 		updatedTask, ready, err := u.repo.CompleteResultImport(u.validationContext(ctx), task.ID, true)
 		if err != nil {
 			slog.ErrorContext(ctx, "complete result import before callback failed",
@@ -1535,6 +1589,9 @@ func (u *TaskUsecase) ForceImportCallback(ctx context.Context, input ForceImport
 	task, err := u.repo.GetTask(ctx, input.TaskID)
 	if err != nil {
 		return outcome, err
+	}
+	if task.ExecutionMode == "pull" {
+		return outcome, ErrInvalidTaskRequest
 	}
 	outcome.Task = task
 	taskItemCount, err := u.taskItemCount(ctx, task.ID)
@@ -1843,6 +1900,15 @@ func (u *TaskUsecase) deliverTaskCallback(ctx context.Context, task *Task, succe
 	if current.Status == TaskStatusReassigned {
 		return false, ErrTaskClosed
 	}
+	if current.ExecutionMode == "pull" {
+		readiness, err := u.repo.GetCallbackReadiness(ctx, current.ID)
+		if err != nil {
+			return false, err
+		}
+		if !readiness.Ready {
+			return false, nil
+		}
+	}
 	bypassRisk := len(ignoreRisk) > 0 && ignoreRisk[0]
 	if current.RiskStatsUpdatedAt == nil || (current.RiskCount > 0 && !bypassRisk && !AllowsRiskCallback(ctx, current.ProviderCode)) {
 		return false, nil
@@ -2053,6 +2119,9 @@ func (u *TaskUsecase) submitOne(ctx context.Context, task *Task) (SubmitResult, 
 }
 
 func (u *TaskUsecase) submitOneWithBatchNo(ctx context.Context, task *Task, batchNo string) (SubmitResult, error) {
+	if task.ExecutionMode == "pull" {
+		return SubmitResult{AcceptedCount: task.TotalCount}, nil
+	}
 	preparedTask, err := u.repo.PrepareTaskForSubmit(ctx, task.ID, u.providerDispatchSettings(ctx), u.publicBaseURL)
 	if err != nil {
 		return SubmitResult{}, err
@@ -2088,6 +2157,9 @@ func (u *TaskUsecase) submitOneWithBatchNo(ctx context.Context, task *Task, batc
 		BizDate:      task.BizDate.Format("2006-01-02"),
 		CallbackURL:  task.ProviderCallbackURL,
 		Items:        items,
+	}
+	if task.Device == "mobile" {
+		payload.Device = "mobile"
 	}
 	payload = adaptCustomerSubmitRequest(task, payload)
 	providerRequest, _ := json.Marshal(payload)

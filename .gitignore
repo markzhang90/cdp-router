@@ -12,7 +12,8 @@
 !.env.example
 
 # Project configuration files with environment-specific secrets
-cdp-router/configs/
+cdp-router/configs/*
+!cdp-router/configs/mobile-pull.example.conf
 cdp-router/deploy/*.conf
 cdp-router/deploy/.env
 cdp-router/deploy/*.env

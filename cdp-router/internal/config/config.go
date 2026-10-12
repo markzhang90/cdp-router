@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/ini.v1"
@@ -32,11 +34,12 @@ type ResultValidationConfig struct {
 }
 
 type ServerConfig struct {
-	Host          string
-	Port          int
-	Debug         bool
-	PublicBaseURL string
-	WorkerEnabled bool
+	Host                  string
+	Port                  int
+	Debug                 bool
+	PublicBaseURL         string
+	WorkerEnabled         bool
+	PullWorkerConcurrency int
 }
 
 func (c ServerConfig) Addr() string {
@@ -104,6 +107,11 @@ type OSSConfig struct {
 }
 
 type ProviderConfig struct {
+	InteractionMode    string
+	SupportedDevices   []string
+	DeviceChannels     map[string][]string
+	PullMaxItems       int
+	PullMaxBodyBytes   int64
 	Code               string
 	DisplayName        string
 	CompanyName        string
@@ -123,6 +131,20 @@ type ProviderConfig struct {
 }
 
 func NormalizeProviderConfig(cfg ProviderConfig) ProviderConfig {
+	cfg.InteractionMode = strings.ToLower(strings.TrimSpace(cfg.InteractionMode))
+	if cfg.InteractionMode == "" {
+		cfg.InteractionMode = "push"
+	}
+	if len(cfg.SupportedDevices) == 0 {
+		cfg.SupportedDevices = []string{"web"}
+	}
+	if cfg.PullMaxItems <= 0 {
+		cfg.PullMaxItems = 1000
+	}
+	if cfg.PullMaxBodyBytes <= 0 {
+		cfg.PullMaxBodyBytes = 8 << 20
+	}
+
 	if cfg.Timeout <= 0 || cfg.Timeout > ProviderRequestTimeout {
 		cfg.Timeout = ProviderRequestTimeout
 	}
@@ -206,11 +228,12 @@ func Load(path string) (*Config, error) {
 
 	server := f.Section("server")
 	cfg.Server = ServerConfig{
-		Host:          server.Key("host").MustString("0.0.0.0"),
-		Port:          server.Key("port").MustInt(8080),
-		Debug:         server.Key("debug").MustBool(false),
-		PublicBaseURL: server.Key("public_base_url").MustString("http://127.0.0.1:8080"),
-		WorkerEnabled: server.Key("worker_enabled").MustBool(true),
+		Host:                  server.Key("host").MustString("0.0.0.0"),
+		Port:                  server.Key("port").MustInt(8080),
+		Debug:                 server.Key("debug").MustBool(false),
+		PublicBaseURL:         server.Key("public_base_url").MustString("http://127.0.0.1:8080"),
+		WorkerEnabled:         server.Key("worker_enabled").MustBool(true),
+		PullWorkerConcurrency: server.Key("pull_worker_concurrency").MustInt(2),
 	}
 
 	pg := f.Section("postgres")
@@ -265,7 +288,18 @@ func Load(path string) (*Config, error) {
 		}
 		code := section.Key("code").MustString(name[len(prefix):])
 		timeoutSeconds := section.Key("timeout_seconds").MustInt(int(ProviderRequestTimeout / time.Second))
+		var channels map[string][]string
+		if raw := section.Key("device_channels").String(); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &channels); err != nil {
+				return nil, fmt.Errorf("providers.%s.device_channels: %w", code, err)
+			}
+		}
 		cfg.Provider[code] = NormalizeProviderConfig(ProviderConfig{
+			InteractionMode:    section.Key("interaction_mode").String(),
+			SupportedDevices:   section.Key("supported_devices").Strings(","),
+			DeviceChannels:     channels,
+			PullMaxItems:       section.Key("pull_max_items").MustInt(1000),
+			PullMaxBodyBytes:   section.Key("pull_max_body_bytes").MustInt64(8 << 20),
 			Code:               code,
 			DisplayName:        section.Key("display_name").MustString(code),
 			CompanyName:        section.Key("company_name").String(),
@@ -376,8 +410,34 @@ func (c *Config) Validate() error {
 	if c.OSS.TempObjectRetentionDays <= 0 {
 		return fmt.Errorf("oss.temporary_object_retention_days must be positive")
 	}
+	if c.Server.PullWorkerConcurrency < 1 || c.Server.PullWorkerConcurrency > 32 {
+		return fmt.Errorf("server.pull_worker_concurrency must be between 1 and 32")
+	}
 	for code, provider := range c.Provider {
 		if !provider.Enabled {
+			continue
+		}
+		provider = NormalizeProviderConfig(provider)
+		if provider.InteractionMode != "push" && provider.InteractionMode != "pull" {
+			return fmt.Errorf("providers.%s invalid interaction_mode", code)
+		}
+		for _, device := range provider.SupportedDevices {
+			if device != "web" && device != "mobile" {
+				return fmt.Errorf("providers.%s invalid supported device", code)
+			}
+			if device == "mobile" && len(provider.DeviceChannels[device]) == 0 {
+				return fmt.Errorf("providers.%s mobile channels required", code)
+			}
+		}
+		if provider.InteractionMode == "pull" {
+			if provider.Token == "" || provider.QPSLimit <= 0 || provider.ConcurrencyLimit <= 0 {
+				return fmt.Errorf("providers.%s pull token and positive limits required", code)
+			}
+			for other, candidate := range c.Provider {
+				if other != code && (candidate.Token == provider.Token || candidate.APIKey == provider.Token) {
+					return fmt.Errorf("providers.%s pull token must be unique", code)
+				}
+			}
 			continue
 		}
 		if provider.SubmitURL == "" {

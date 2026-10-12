@@ -22,6 +22,12 @@ import (
 // Each E2E gets a migrated real local database. OSS uses a local HTTP boundary
 // backed by files; no provider, callback, or object request uses production config.
 func loadLocalE2EConfig(t *testing.T) (*config.Config, error) {
+	return loadLocalReplayConfig(t, "", "")
+}
+
+// Retaining data is opt-in for the curl replay, and restricted to the local dev
+// database. Regular E2E tests always keep their isolated database and cleanup.
+func loadLocalReplayConfig(t *testing.T, retainedDatabase, objectDir string) (*config.Config, error) {
 	t.Helper()
 	cfg, err := config.Load(filepath.Join("..", "..", "configs", "cdp-router.conf"))
 	if err != nil {
@@ -34,24 +40,37 @@ func loadLocalE2EConfig(t *testing.T) (*config.Config, error) {
 	if err != nil || (host != "127.0.0.1" && host != "localhost" && host != "::1") {
 		return nil, fmt.Errorf("E2E requires loopback Redis")
 	}
-	cfg.Postgres.Database = fmt.Sprintf("cdp_e2e_%d", time.Now().UnixNano())
+	if retainedDatabase != "" && retainedDatabase != "dev" {
+		return nil, fmt.Errorf("retained curl replay only supports the local dev database")
+	}
+	cfg.Postgres.Database = retainedDatabase
+	if cfg.Postgres.Database == "" {
+		cfg.Postgres.Database = fmt.Sprintf("cdp_e2e_%d", time.Now().UnixNano())
+	}
 	database := cfg.Postgres.Database
 	adminPG := cfg.Postgres
 	adminPG.Database = "postgres"
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		db, err := data.Open(ctx, adminPG)
-		if err != nil {
-			t.Errorf("open cleanup database: %v", err)
-			return
-		}
-		defer db.Close()
-		if _, err := db.Exec(ctx, "drop database if exists "+pgx.Identifier{database}.Sanitize()+" with (force)"); err != nil {
-			t.Errorf("drop E2E database: %v", err)
-		}
-	})
-	dir := t.TempDir()
+	if retainedDatabase == "" {
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			db, err := data.Open(ctx, adminPG)
+			if err != nil {
+				t.Errorf("open cleanup database: %v", err)
+				return
+			}
+			defer db.Close()
+			if _, err := db.Exec(ctx, "drop database if exists "+pgx.Identifier{database}.Sanitize()+" with (force)"); err != nil {
+				t.Errorf("drop E2E database: %v", err)
+			}
+		})
+	}
+	dir := objectDir
+	if dir == "" {
+		dir = t.TempDir()
+	} else if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
 	objects := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Hash object paths so untrusted object names cannot escape the temporary dir.
 		name := filepath.Join(dir, fmt.Sprintf("%x", sha256.Sum256([]byte(r.URL.Path))))

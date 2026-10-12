@@ -116,10 +116,13 @@ func main() {
 	taskService := service.NewTaskService(usecase, providers, platformUsers, cfg.OSS.Bucket)
 	adminService := service.NewAdminService(cfg.Admin, redisClient, data.NewAdminRepo(db), usecase, cfg.Provider)
 	adminService.SetOSSPublicHost(firstNonEmpty(cfg.OSS.PublicHost, cfg.OSS.Host))
-	server := httpapi.New(taskService, adminService)
+	pullUsecase := biz.NewPullUsecase(data.NewPullRepo(db), validationRules)
+	pullService := service.NewPullService(pullUsecase, taskService, cfg.Provider)
+	server := httpapi.New(taskService, adminService, pullService)
 
 	if cfg.Server.WorkerEnabled {
 		go worker.New(usecase).Run(ctx)
+		go worker.NewPull(pullUsecase, cfg.Server.PullWorkerConcurrency).Run(ctx)
 	}
 
 	httpServer := &http.Server{

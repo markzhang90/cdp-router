@@ -796,6 +796,12 @@ func (x *TaskListData) GetPageSize() int32 {
 
 type AdminTaskSummary struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Device                   string                 `protobuf:"bytes,29,opt,name=device,proto3" json:"device,omitempty"`
+	ExecutionMode            string                 `protobuf:"bytes,30,opt,name=execution_mode,json=executionMode,proto3" json:"execution_mode,omitempty"`
+	ShardCount               int32                  `protobuf:"varint,31,opt,name=shard_count,json=shardCount,proto3" json:"shard_count,omitempty"`
+	CompletedShardCount      int32                  `protobuf:"varint,32,opt,name=completed_shard_count,json=completedShardCount,proto3" json:"completed_shard_count,omitempty"`
+	PendingSubmissionCount   int32                  `protobuf:"varint,33,opt,name=pending_submission_count,json=pendingSubmissionCount,proto3" json:"pending_submission_count,omitempty"`
+	FailedSubmissionCount    int32                  `protobuf:"varint,34,opt,name=failed_submission_count,json=failedSubmissionCount,proto3" json:"failed_submission_count,omitempty"`
 	TaskId                   int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	TaskName                 string                 `protobuf:"bytes,2,opt,name=task_name,json=taskName,proto3" json:"task_name,omitempty"`
 	BatchNo                  string                 `protobuf:"bytes,3,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
@@ -856,6 +862,48 @@ func (x *AdminTaskSummary) ProtoReflect() protoreflect.Message {
 // Deprecated: Use AdminTaskSummary.ProtoReflect.Descriptor instead.
 func (*AdminTaskSummary) Descriptor() ([]byte, []int) {
 	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AdminTaskSummary) GetDevice() string {
+	if x != nil {
+		return x.Device
+	}
+	return ""
+}
+
+func (x *AdminTaskSummary) GetExecutionMode() string {
+	if x != nil {
+		return x.ExecutionMode
+	}
+	return ""
+}
+
+func (x *AdminTaskSummary) GetShardCount() int32 {
+	if x != nil {
+		return x.ShardCount
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetCompletedShardCount() int32 {
+	if x != nil {
+		return x.CompletedShardCount
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetPendingSubmissionCount() int32 {
+	if x != nil {
+		return x.PendingSubmissionCount
+	}
+	return 0
+}
+
+func (x *AdminTaskSummary) GetFailedSubmissionCount() int32 {
+	if x != nil {
+		return x.FailedSubmissionCount
+	}
+	return 0
 }
 
 func (x *AdminTaskSummary) GetTaskId() int64 {
@@ -6295,8 +6343,16 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x05tasks\x18\x01 \x03(\v2\x1e.api.admin.v1.AdminTaskSummaryR\x05tasks\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x12\n" +
 	"\x04page\x18\x03 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xed\b\n" +
-	"\x10AdminTaskSummary\x12\x17\n" +
+	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xf3\n" +
+	"\n" +
+	"\x10AdminTaskSummary\x12\x16\n" +
+	"\x06device\x18\x1d \x01(\tR\x06device\x12%\n" +
+	"\x0eexecution_mode\x18\x1e \x01(\tR\rexecutionMode\x12\x1f\n" +
+	"\vshard_count\x18\x1f \x01(\x05R\n" +
+	"shardCount\x122\n" +
+	"\x15completed_shard_count\x18  \x01(\x05R\x13completedShardCount\x128\n" +
+	"\x18pending_submission_count\x18! \x01(\x05R\x16pendingSubmissionCount\x126\n" +
+	"\x17failed_submission_count\x18\" \x01(\x05R\x15failedSubmissionCount\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x1b\n" +
 	"\ttask_name\x18\x02 \x01(\tR\btaskName\x12\x19\n" +
 	"\bbatch_no\x18\x03 \x01(\tR\abatchNo\x12\x16\n" +

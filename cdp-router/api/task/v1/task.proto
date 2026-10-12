@@ -83,6 +83,7 @@ message TaskItem {
 }
 
 message CreateTaskRequest {
+ string device = 8;
   string batch_no = 1 [json_name = "batchNo"];
   string provider_code = 2 [json_name = "providerCode"];
   string biz_date = 3 [json_name = "bizDate"];
@@ -114,6 +115,8 @@ message GetTaskResponse {
 }
 
 message TaskData {
+ string device = 16;
+ string execution_mode = 17;
   int64 task_id = 1 [json_name = "taskId"];
   string batch_no = 2 [json_name = "batchNo"];
   string provider_code = 3 [json_name = "providerCode"];

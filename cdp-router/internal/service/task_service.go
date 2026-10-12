@@ -81,6 +81,7 @@ func (s *TaskService) CreateTask(c *gin.Context) {
 		source = platformUser.PlatformCode
 	}
 	task, acceptedCount, err := s.tasks.CreateTask(c.Request.Context(), biz.CreateTaskInput{
+		Device:         req.Device,
 		PlatformUserID: platformUser.ID,
 		PlatformCode:   platformUser.PlatformCode,
 		BatchNo:        req.BatchNo,
@@ -135,6 +136,7 @@ func (s *TaskService) GetTask(c *gin.Context) {
 	protoJSON(c, http.StatusOK, &taskv1.GetTaskResponse{
 		Status: 0,
 		Data: &taskv1.TaskData{
+			Device: task.Device, ExecutionMode: task.ExecutionMode,
 			TaskId:                  task.ID,
 			TaskName:                task.TaskName,
 			BatchNo:                 clientBatchNo(task),
@@ -167,6 +169,7 @@ func (s *TaskService) GetExternalTask(c *gin.Context) {
 	protoJSON(c, http.StatusOK, &taskv1.GetTaskResponse{
 		Status: 0,
 		Data: &taskv1.TaskData{
+			Device: task.Device, ExecutionMode: task.ExecutionMode,
 			TaskId:                  task.ID,
 			TaskName:                task.TaskName,
 			BatchNo:                 task.BatchNo,
@@ -241,6 +244,13 @@ func (s *TaskService) GetExternalTaskResult(c *gin.Context) {
 
 func externalResultSuccessCount(task *biz.Task, items []*taskv1.ExternalTaskResultItem, successOnly bool) int32 {
 	if successOnly {
+		if task.ExecutionMode == "pull" {
+			seen := map[string]bool{}
+			for _, item := range items {
+				seen[item.ItemId] = true
+			}
+			return int32(len(seen))
+		}
 		return int32(len(items))
 	}
 	return int32(task.SuccessCount)
@@ -627,6 +637,8 @@ func protoJSON(c *gin.Context, status int, msg proto.Message) {
 
 func writeBizError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, biz.ErrPullConflict):
+		errorJSON(c, http.StatusConflict, err)
 	case errors.Is(err, biz.ErrTaskNotFound):
 		errorJSON(c, http.StatusNotFound, err)
 	case errors.Is(err, biz.ErrProviderNotFound):

@@ -12,8 +12,8 @@ func taskItemStatsSQL(taskID string) string {
 from cdp_task_items ti
 left join (
   select task_item_id,
-    bool_or(parse_status='SUCCESS') as has_success,
-    bool_or(parse_status <> 'SUCCESS') as has_failure
+    bool_or(case when source_submission_id is not null then cleaned_payload->>'executionStatus'='SUCCESS' else parse_status='SUCCESS' end) as has_success,
+    bool_or(case when source_submission_id is not null then cleaned_payload->>'executionStatus'='FAILED' else parse_status <> 'SUCCESS' end) as has_failure
   from cdp_task_item_results
   where task_id=` + taskID + `
   group by task_item_id

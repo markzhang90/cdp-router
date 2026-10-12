@@ -96,6 +96,14 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 
 	existing, err := r.scanTask(tx.QueryRow(ctx, taskSelectSQL()+` where batch_no=$1 and deleted_at is null`, input.BatchNo))
 	if err == nil {
+		device := input.Device
+		if device == "" {
+			device = "web"
+		}
+		if existing.PlatformUserID != input.PlatformUserID || existing.Device != device {
+			return nil, biz.ErrPullConflict
+		}
+
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
@@ -105,6 +113,10 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 		return nil, err
 	}
 
+	if input.Device == "" {
+		input.Device = "web"
+	}
+	providerSettings = biz.FilterProviders(providerSettings, input.Device, input.Items)
 	decision, err := r.selectDispatchProvider(ctx, tx, input.PlatformUserID, taskName, questionCount, providerSettings)
 	if err != nil {
 		return nil, err
@@ -152,6 +164,16 @@ on conflict (task_id, item_id) do nothing
 		if err != nil {
 			return nil, err
 		}
+	}
+	task.Device, task.ExecutionMode = input.Device, "push"
+	for _, p := range providerSettings {
+		if p.ProviderCode == task.ProviderCode && p.InteractionMode == "pull" {
+			task.ExecutionMode = "pull"
+			task.Status = biz.TaskStatusSubmitted
+		}
+	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set device=$2,execution_mode=$3,status=$4,submitted_at=case when $3::varchar='pull' then now() else submitted_at end where id=$1`, task.ID, task.Device, task.ExecutionMode, task.Status); err != nil {
+		return nil, err
 	}
 	dispatchPayload := taskDispatchPayload(task, decision)
 	if decision.MatchedRuleCode != "" {
@@ -297,6 +319,14 @@ returning total_count
 	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, target.ID, biz.EventTaskReassignRequested, payloadBody); err != nil {
 		return nil, err
 	}
+	target.Device = source.Device
+	target.ExecutionMode = input.ExecutionMode
+	if target.ExecutionMode == "" {
+		target.ExecutionMode = "push"
+	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set device=$2,execution_mode=$3 where id=$1`, target.ID, target.Device, target.ExecutionMode); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -345,6 +375,9 @@ func (r *TaskRepo) MarkTaskReassigned(ctx context.Context, sourceTaskID, targetT
 	if _, err := tx.Exec(ctx, `update cdp_tasks set status=$2,updated_at=now() where id=$1`, sourceTaskID, biz.TaskStatusReassigned); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `update cdp_tasks set status='SUBMITTED',submitted_at=now(),updated_at=now() where id=$1 and execution_mode='pull' and status='CREATED'`, targetTaskID); err != nil {
+		return err
+	}
 	payloadBody, _ := json.Marshal(payload)
 	if _, err := tx.Exec(ctx, `insert into cdp_task_events (task_id,event_type,payload) values ($1,$2,$3)`, sourceTaskID, biz.EventTaskReassigned, payloadBody); err != nil {
 		return err
@@ -380,6 +413,35 @@ func (r *TaskRepo) PrepareTaskForSubmit(ctx context.Context, taskID int64, provi
 			return nil, err
 		}
 	}
+	rows, err := tx.Query(ctx, `select platform_code from cdp_task_items where task_id=$1`, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	items := []biz.TaskItem{}
+	for rows.Next() {
+		var channel string
+		if err = rows.Scan(&channel); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		items = append(items, biz.TaskItem{PlatformCode: channel})
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	eligible := []biz.ProviderSettings{}
+	for _, p := range biz.FilterProviders(providerSettings, task.Device, items) {
+		mode := p.InteractionMode
+		if mode == "" {
+			mode = "push"
+		}
+		if mode == task.ExecutionMode {
+			eligible = append(eligible, p)
+		}
+	}
+	providerSettings = eligible
 	decision, err := r.selectDispatchProvider(ctx, tx, task.PlatformUserID, task.TaskName, task.TotalCount, providerSettings)
 	if err != nil {
 		return nil, err
@@ -984,6 +1046,9 @@ where id=(
 )
 `, providerCode, batchNo))
 	if err == nil {
+		if task.ExecutionMode == "pull" {
+			return nil, biz.ErrInvalidTaskRequest
+		}
 		return task, nil
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -999,11 +1064,14 @@ where id=(
 	if task.Status == biz.TaskStatusReassigned {
 		return nil, biz.ErrTaskClosed
 	}
+	if task.ExecutionMode == "pull" {
+		return nil, biz.ErrInvalidTaskRequest
+	}
 	return task, nil
 }
 
 func (r *TaskRepo) ListTasksByStatus(ctx context.Context, status biz.TaskStatus, limit int) ([]*biz.Task, error) {
-	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+` where status=$1 and deleted_at is null and ($1<>'CALLBACK_PENDING' or ((risk_count=0 or provider_code=any($3::text[])) and risk_stats_updated_at is not null)) order by created_at asc limit $2`, status, limit, biz.RiskCallbackProviderCodes(ctx))
+	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+` where status=$1 and (execution_mode='push' or $1='CALLBACK_PENDING') and deleted_at is null and (execution_mode='push' or not exists(select 1 from cdp_task_result_submissions s where s.task_id=cdp_tasks.id and s.status not in ('APPLIED','SUPERSEDED'))) and ($1<>'CALLBACK_PENDING' or ((risk_count=0 or provider_code=any($3::text[])) and risk_stats_updated_at is not null)) order by created_at asc limit $2`, status, limit, biz.RiskCallbackProviderCodes(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1021,7 +1089,7 @@ func (r *TaskRepo) ListTasksByStatus(ctx context.Context, status biz.TaskStatus,
 
 func (r *TaskRepo) ListResultImportedTasksWithProviderCallback(ctx context.Context, limit int) ([]*biz.Task, error) {
 	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+`
-where status=$1
+where status=$1 and execution_mode='push'
   and (risk_count=0 or provider_code=any($3::text[])) and risk_stats_updated_at is not null
   and coalesce(provider_response, '{}'::jsonb) ? 'providerCallback'
   and deleted_at is null
@@ -1045,7 +1113,7 @@ limit $2
 
 func (r *TaskRepo) ListSubmittedTasksForProgress(ctx context.Context, limit int, submittedBefore time.Time) ([]*biz.Task, error) {
 	rows, err := r.dbFor(ctx).Query(ctx, taskSelectSQL()+`
-where status=$1
+where status=$1 and execution_mode='push'
   and provider_external_batch_id is not null
   and deleted_at is null
   and coalesce(submitted_at, created_at) <= $2
@@ -1110,7 +1178,10 @@ with item_bounds as (
 expanded as (
   select ti.*, expected.seq as result_seq
   from item_bounds ti
-  cross join lateral generate_series(1, ti.expected_count) as expected(seq)
+  cross join lateral (
+ select generate_series(1,ti.expected_count) seq where (select execution_mode from cdp_tasks where id=$1)='push'
+ union all select r.seq from cdp_task_item_results r where r.task_item_id=ti.id and (select execution_mode from cdp_tasks where id=$1)='pull'
+ ) as expected
 )
 select
 	  ti.item_id,
@@ -1171,6 +1242,13 @@ order by ti.id asc, ti.result_seq asc
 
 func (r *TaskRepo) GetCallbackReadiness(ctx context.Context, taskID int64) (biz.CallbackReadiness, error) {
 	var readiness biz.CallbackReadiness
+	var mode string
+	if err := r.dbFor(ctx).QueryRow(ctx, `select execution_mode from cdp_tasks where id=$1`, taskID).Scan(&mode); err != nil {
+		return readiness, err
+	}
+	if mode == "pull" {
+		return (&PullRepo{tasks: r}).callbackReadiness(ctx, taskID)
+	}
 	var status string
 	if err := r.dbFor(ctx).QueryRow(ctx, `
 select t.status,
@@ -1306,7 +1384,7 @@ func (r *TaskRepo) FailSubmittedOlderThan(ctx context.Context, cutoff time.Time,
 with picked as (
   select id
   from cdp_tasks
-  where status=$1
+  where status=$1 and execution_mode='push'
     and deleted_at is null
     and coalesce(submitted_at, created_at) < $2
 	  order by coalesce(submitted_at, created_at) asc, id asc
@@ -2165,7 +2243,7 @@ coalesce(reassigned_from_task_id,0),coalesce(callback_batch_no,''),coalesce(call
 coalesce(dispatch_profile_id,0),coalesce(dispatch_profile_code,''),coalesce(dispatch_strategy,''),biz_date,coalesce(quota_date,biz_date),status,
 coalesce(callback_url,''),coalesce(provider_callback_url,''),raw_request,coalesce(provider_request,'{}'::jsonb),
 coalesce(provider_response,'{}'::jsonb),coalesce(result_object_key,''),
-coalesce(result_file_name,''),result_row_count,total_count,success_count,failed_count,coalesce(last_error,''),created_at,updated_at,risk_count,invalid_answer_count,risk_summary,risk_stats_updated_at from cdp_tasks`
+coalesce(result_file_name,''),result_row_count,total_count,success_count,failed_count,coalesce(last_error,''),created_at,updated_at,risk_count,invalid_answer_count,risk_summary,risk_stats_updated_at,device,execution_mode from cdp_tasks`
 }
 
 func (r *TaskRepo) scanTask(scanner taskScanner) (*biz.Task, error) {
@@ -2176,7 +2254,7 @@ func (r *TaskRepo) scanTask(scanner taskScanner) (*biz.Task, error) {
 		&task.DispatchProfileID, &task.DispatchProfileCode, &task.DispatchStrategy, &task.BizDate,
 		&task.QuotaDate, &task.Status, &task.CallbackURL, &task.ProviderCallbackURL, &task.RawRequest, &task.ProviderRequest, &task.ProviderResponse,
 		&task.ResultObjectKey, &task.ResultFileName, &task.ResultRowCount, &task.TotalCount, &task.SuccessCount,
-		&task.FailedCount, &task.LastError, &task.CreatedAt, &task.UpdatedAt, &task.RiskCount, &task.InvalidAnswerCount, &task.RiskSummary, &task.RiskStatsUpdatedAt); err != nil {
+		&task.FailedCount, &task.LastError, &task.CreatedAt, &task.UpdatedAt, &task.RiskCount, &task.InvalidAnswerCount, &task.RiskSummary, &task.RiskStatsUpdatedAt, &task.Device, &task.ExecutionMode); err != nil {
 		return nil, err
 	}
 	return &task, nil

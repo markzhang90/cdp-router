@@ -65,33 +65,39 @@ type AdminTaskDetailFilter struct {
 }
 
 type AdminTaskSummary struct {
-	RiskCount            int
-	InvalidAnswerCount   int
-	RiskSummary          json.RawMessage
-	RiskStatsUpdatedAt   *time.Time
-	TaskID               int64
-	TaskName             string
-	BatchNo              string
-	Source               string
-	PlatformCode         string
-	ExternalBatchID      string
-	ProviderCode         string
-	Status               TaskStatus
-	QuestionCount        int
-	CompletedCount       int
-	SuccessCount         int
-	FailedCount          int
-	ResultSuccessCount   int
-	ResultFailedCount    int
-	ResultMissingCount   int
-	Progress             float64
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	ExecutionEndedAt     time.Time
-	SubmitFailed         bool
-	DispatchLabels       []string
-	ReassignedFromTaskID int64
-	ReassignedToTaskID   int64
+	Device                 string
+	ExecutionMode          string
+	ShardCount             int
+	CompletedShardCount    int
+	PendingSubmissionCount int
+	FailedSubmissionCount  int
+	RiskCount              int
+	InvalidAnswerCount     int
+	RiskSummary            json.RawMessage
+	RiskStatsUpdatedAt     *time.Time
+	TaskID                 int64
+	TaskName               string
+	BatchNo                string
+	Source                 string
+	PlatformCode           string
+	ExternalBatchID        string
+	ProviderCode           string
+	Status                 TaskStatus
+	QuestionCount          int
+	CompletedCount         int
+	SuccessCount           int
+	FailedCount            int
+	ResultSuccessCount     int
+	ResultFailedCount      int
+	ResultMissingCount     int
+	Progress               float64
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	ExecutionEndedAt       time.Time
+	SubmitFailed           bool
+	DispatchLabels         []string
+	ReassignedFromTaskID   int64
+	ReassignedToTaskID     int64
 }
 
 type AdminTaskDetail struct {

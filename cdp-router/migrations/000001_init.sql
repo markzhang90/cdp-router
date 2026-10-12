@@ -1,3 +1,8 @@
+-- Single-instance startup migration; replay-safe and atomic per file.
+begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 create table if not exists platform_users (
   id bigserial primary key,
   platform_code varchar(64) not null,
@@ -93,17 +98,6 @@ create table if not exists cdp_tasks (
   unique (batch_no)
 );
 
-create index if not exists idx_cdp_tasks_status_created_at on cdp_tasks(status, created_at);
-create index if not exists idx_cdp_tasks_provider_created_at on cdp_tasks(provider_code, created_at);
-create index if not exists idx_cdp_tasks_external_batch_id on cdp_tasks(external_batch_id) where external_batch_id is not null;
-create index if not exists idx_cdp_tasks_status_updated_at on cdp_tasks(status, updated_at);
-create index if not exists idx_cdp_tasks_provider_status_created_at on cdp_tasks(provider_code, status, created_at);
-create index if not exists idx_cdp_tasks_submitted_progress
-  on cdp_tasks(status, submitted_at, id)
-  where provider_external_batch_id is not null;
-create index if not exists idx_cdp_tasks_status_due_at
-  on cdp_tasks(status, (coalesce(submitted_at, created_at)), id);
-
 alter table cdp_tasks add column if not exists job_id varchar(64);
 alter table cdp_tasks add column if not exists platform_user_id bigint;
 alter table cdp_tasks add column if not exists platform_code varchar(64);
@@ -111,7 +105,21 @@ alter table cdp_tasks add column if not exists task_name varchar(255) not null d
 alter table cdp_tasks alter column task_name set default '';
 update cdp_tasks set task_name = '' where task_name is null;
 alter table cdp_tasks alter column task_name set not null;
-alter table cdp_tasks add column if not exists provider_external_batch_id varchar(128);
+-- This is a one-time legacy conversion, not a startup repair of every NULL.
+-- The column must exist before any index references it.
+do $$
+begin
+  if not exists (
+    select 1 from pg_attribute
+    where attrelid='cdp_tasks'::regclass and attname='provider_external_batch_id' and not attisdropped
+  ) then
+    alter table cdp_tasks add column provider_external_batch_id varchar(128);
+    update cdp_tasks set provider_external_batch_id=external_batch_id
+    where nullif(external_batch_id,'') is not null
+      and external_batch_id is distinct from job_id
+      and left(external_batch_id,4)<>'job_';
+  end if;
+end $$;
 alter table cdp_tasks add column if not exists reassigned_from_task_id bigint;
 alter table cdp_tasks add column if not exists callback_batch_no varchar(128);
 alter table cdp_tasks add column if not exists callback_external_batch_id varchar(128);
@@ -124,8 +132,19 @@ alter table cdp_tasks add column if not exists source varchar(128);
 alter table cdp_tasks add column if not exists deleted_at timestamptz;
 alter table cdp_tasks add column if not exists deleted_by varchar(128);
 update cdp_tasks set source = gateway_code where source is null and gateway_code is not null;
-update cdp_tasks set provider_external_batch_id = external_batch_id where provider_external_batch_id is null and external_batch_id is not null;
 update cdp_tasks set job_id = 'job_' || id::text where job_id is null;
+
+create index if not exists idx_cdp_tasks_status_created_at on cdp_tasks(status, created_at);
+create index if not exists idx_cdp_tasks_provider_created_at on cdp_tasks(provider_code, created_at);
+create index if not exists idx_cdp_tasks_external_batch_id on cdp_tasks(external_batch_id) where external_batch_id is not null;
+create index if not exists idx_cdp_tasks_status_updated_at on cdp_tasks(status, updated_at);
+create index if not exists idx_cdp_tasks_provider_status_created_at on cdp_tasks(provider_code, status, created_at);
+create index if not exists idx_cdp_tasks_submitted_progress
+  on cdp_tasks(status, submitted_at, id)
+  where provider_external_batch_id is not null;
+create index if not exists idx_cdp_tasks_status_due_at
+  on cdp_tasks(status, (coalesce(submitted_at, created_at)), id);
+
 
 create unique index if not exists idx_cdp_tasks_job_id on cdp_tasks(job_id) where job_id is not null;
 alter table cdp_tasks drop constraint if exists cdp_tasks_batch_no_key;
@@ -172,8 +191,7 @@ alter table cdp_task_items add column if not exists status int not null default 
 alter table cdp_task_items add column if not exists result_status varchar(32) not null default 'PENDING';
 alter table cdp_task_items add column if not exists result_imported_at timestamptz;
 alter table cdp_task_items add column if not exists updated_at timestamptz not null default now();
-alter table cdp_task_items drop column if exists result_data;
-alter table cdp_task_items drop column if exists result_row_count;
+-- Retain obsolete item columns for historical data; archive separately.
 
 create index if not exists idx_cdp_task_items_question_id on cdp_task_items(task_id, question_id);
 create index if not exists idx_cdp_task_items_task_status on cdp_task_items(task_id, status);
@@ -248,7 +266,7 @@ where default_provider_code is not null
   and default_provider_code <> ''
 on conflict (platform_user_id) do nothing;
 
-drop table if exists cdp_result_fetch_attempts;
+-- Retain the legacy fetch-attempt table; startup must not delete historical data.
 
 create table if not exists cdp_task_result_files (
   id bigserial primary key,
@@ -372,13 +390,13 @@ begin
     select conrelid::regclass::text as table_name, conname
     from pg_constraint
     where contype = 'f'
-      and conrelid::regclass::text in (
-        'cdp_task_items',
-        'cdp_task_events',
-        'cdp_task_result_files',
-        'cdp_task_item_results',
-        'cdp_task_result_rows',
-        'cdp_task_callbacks'
+      and conrelid in (
+        'cdp_task_items'::regclass,
+        'cdp_task_events'::regclass,
+        'cdp_task_result_files'::regclass,
+        'cdp_task_item_results'::regclass,
+        'cdp_task_result_rows'::regclass,
+        'cdp_task_callbacks'::regclass
       )
   loop
     execute format('alter table %s drop constraint if exists %I', constraint_record.table_name, constraint_record.conname);
@@ -403,3 +421,5 @@ create index if not exists idx_cdp_admin_audit_logs_resource
 
 create index if not exists idx_cdp_admin_audit_logs_user
   on cdp_admin_audit_logs(user_id, created_at);
+
+commit;

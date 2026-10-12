@@ -1735,3 +1735,23 @@ Tracing backend <- OpenTelemetry spans
 - refetch E2E：验证 `refetch-result` 可重复执行，按 batch 幂等 upsert 结果文件和结果行，不产生重复数据。
 - 任务 E2E 不纳入 `scripts/check.sh` 的默认日常检查链路，需要时通过 `make e2e-test` 单独执行。
 - 压测：`wrk`/`vegeta` 覆盖创建任务、查询任务、后台列表和 provider 出站限流。
+
+
+## 15. 多设备与独立 Pull 接入（本次实施）
+
+详细设计见 `mobile-pull-dispatch-design.md`。任务增加 device（默认 web）和 execution_mode（默认 push）快照；供应商 interaction_mode 固定一种，supported_devices 和 device_channels 声明设备及渠道能力。旧 web/push 请求和文件协议保持兼容。
+
+Pull 使用独立 PullService / PullUsecase / PullRepo / PullResultWorker：POST /external/gettask 以 token 识别供应商，一次领取一个任务一个渠道的一批问题；POST /external/taskresult 持久化 JSON 请求后返回 202，独立 worker 逐条写入和汇总。仅新增分片与回传请求两张表；问题仅增加 shard_id，结果仅增加 source_submission_id 并允许文件来源为空。覆盖键为问题和 answerSeq，递增请求 ID 确定覆盖顺序。
+
+领取不回收；最多一次整单转派。请求接收、结果处理、回调及转派复用任务 advisory lock。全部问题已有明确执行结果且全部分片声明完成、无未处理请求才安排首次交付；DONE 后修正不重复交付。Pull 的稀疏轮次只读实际记录。Push 扫描在 LIMIT 前排除 Pull；Yangshi 文件交付保持。后台原任务页展示设备、模式和实际入库进度、分片及请求状态，沿用原鉴权和审计。
+
+
+任务列表起始列顺序为“任务名称 → 设备 / 模式 → 内容风险 → batchNo”，任务名称固定在左侧。
+
+### 15.1 单机启动迁移约定（2026-10-12 修订）
+
+当前按单机停机升级/重启部署，保留启动时按文件顺序重放 SQL；不引入多实例迁移协调或版本管理框架。每个文件显式事务，lock_timeout=5s、statement_timeout=120s；失败则回滚当前文件并停止启动，前序已完成文件可安全重放。
+
+所有业务表不使用物理外键；任务、分片、问题和回传归属由 biz/data 的校验与事务保证。迁移清理历史外键，保留主键、业务幂等唯一索引、字段 CHECK 和结果来源二选一约束。历史废弃列和表不在服务启动时删除，留待独立归档维护。
+
+供应商任务编号仅在首次引入 provider_external_batch_id 列时回填明确的历史编号；网关 job ID 不作为供应商编号。Pull 的该字段始终为空，000005 清理旧重放导致的污染。所有新增列先于相关索引和数据处理。历史 SKIPPED 校验失效只针对 Push；Pull 不通过迁移伪造汇总完成时间。重复执行不得改变 Pull 完成状态、风险统计时间及供应商编号，或重置已保存的校验配置。

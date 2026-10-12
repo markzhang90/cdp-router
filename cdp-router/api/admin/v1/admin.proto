@@ -224,6 +224,12 @@ message TaskListData {
 }
 
 message AdminTaskSummary {
+ string device = 29;
+ string execution_mode = 30;
+ int32 shard_count = 31;
+ int32 completed_shard_count = 32;
+ int32 pending_submission_count = 33;
+ int32 failed_submission_count = 34;
   int64 task_id = 1 [json_name = "taskId"];
   string task_name = 2 [json_name = "taskName"];
   string batch_no = 3 [json_name = "batchNo"];

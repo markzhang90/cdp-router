@@ -444,7 +444,7 @@ export function TaskDetailPage() {
               type="primary"
               icon={<AlertTriangle size={16} />}
               loading={forcingImportCallback}
-              disabled={!canWrite}
+              disabled={!canWrite || task?.executionMode === "pull"}
               onClick={handleForceImportCallback}
             >
               强制导入回调
@@ -454,7 +454,7 @@ export function TaskDetailPage() {
                 删除
               </Button>
             ) : null}
-            <Button icon={<RotateCcw size={16} />} loading={checking} type="primary" onClick={handleCheck}>
+            <Button icon={<RotateCcw size={16} />} loading={checking} disabled={task?.executionMode === "pull"} type="primary" onClick={handleCheck}>
               检查结果
             </Button>
           </Space>
@@ -490,6 +490,8 @@ export function TaskDetailPage() {
             </Descriptions.Item>
           ) : null}
           <Descriptions.Item label="来源">{compactText(task?.source ?? "")}</Descriptions.Item>
+          <Descriptions.Item label="设备 / 模式">{`${task?.device || "web"} / ${task?.executionMode || "push"}`}</Descriptions.Item>
+          {task?.executionMode === "pull" && <Descriptions.Item label="分片 / 回传">{`分片完成 ${task.completedShardCount}/${task.shardCount}；待处理 ${task.pendingSubmissionCount}；处理失败 ${task.failedSubmissionCount}`}</Descriptions.Item>}
           <Descriptions.Item label="供应商">{task?.providerCode ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="问答">{task ? `${task.completedCount}/${task.questionCount}` : "-"}</Descriptions.Item>
           <Descriptions.Item label="进度">

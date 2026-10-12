@@ -1,3 +1,8 @@
+-- Single-instance startup migration; replay-safe and atomic per file.
+begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 -- Idempotent: this project's migrator executes all SQL files on startup.
 alter table cdp_task_item_results
   add column if not exists validation_status varchar(16) not null default 'UNKNOWN',
@@ -17,3 +22,5 @@ create table if not exists cdp_result_validation_rules (
   updated_at timestamptz not null default now()
 );
 insert into cdp_result_validation_rules (id) values (1) on conflict do nothing;
+
+commit;

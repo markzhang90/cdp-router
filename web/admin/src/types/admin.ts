@@ -22,6 +22,12 @@ export interface MeData {
 }
 
 export interface TaskSummary {
+  device: string;
+  executionMode: string;
+  shardCount: number;
+  completedShardCount: number;
+  pendingSubmissionCount: number;
+  failedSubmissionCount: number;
   riskCount: number;
   invalidAnswerCount: number;
   riskSummaryJson: string;

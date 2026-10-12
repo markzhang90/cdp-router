@@ -8,7 +8,7 @@ import (
 )
 
 func (r *TaskRepo) ListInitialValidationTasks(ctx context.Context, limit int, taskID int64) ([]int64, error) {
-	rows, err := r.db.Query(ctx, `select id from cdp_tasks t where deleted_at is null and status not in ('DONE','REASSIGNED') and ($2=0 or id=$2) and exists(select 1 from cdp_task_item_results a where a.task_id=t.id and a.validation_status in ('UNKNOWN','SKIPPED')) order by id limit $1`, limit, taskID)
+	rows, err := r.db.Query(ctx, `select id from cdp_tasks t where execution_mode='push' and deleted_at is null and status not in ('DONE','REASSIGNED') and ($2=0 or id=$2) and exists(select 1 from cdp_task_item_results a where a.task_id=t.id and a.validation_status in ('UNKNOWN','SKIPPED')) order by id limit $1`, limit, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (r *TaskRepo) SaveInitialAnswerValidation(ctx context.Context, id int64, up
 }
 
 func (r *TaskRepo) ListSkippedValidationTasks(ctx context.Context, limit int) ([]int64, error) {
-	rows, err := r.db.Query(ctx, `select id from cdp_tasks t where deleted_at is null and status<>'REASSIGNED' and exists(select 1 from cdp_task_item_results a where a.task_id=t.id and a.validation_status='SKIPPED') order by id limit $1`, limit)
+	rows, err := r.db.Query(ctx, `select id from cdp_tasks t where execution_mode='push' and deleted_at is null and status<>'REASSIGNED' and exists(select 1 from cdp_task_item_results a where a.task_id=t.id and a.validation_status='SKIPPED') order by id limit $1`, limit)
 	if err != nil {
 		return nil, err
 	}
