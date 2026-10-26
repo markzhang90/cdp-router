@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/GitMarkZhang/cdp-router/internal/biz"
-	"github.com/GitMarkZhang/cdp-router/internal/callback"
+	"github.com/GitMarkZhang/cdp-router/internal/download"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -337,7 +337,7 @@ func exportWorkbook(ctx context.Context, db *pgxpool.Pool, taskID int64, output 
 		return fmt.Errorf("task %d has no SUCCESS item results", taskID)
 	}
 
-	content, err := callback.BuildYangshiResultWorkbook(items)
+	content, err := download.BuildResultWorkbook(items)
 	if err != nil {
 		return fmt.Errorf("build workbook: %w", err)
 	}

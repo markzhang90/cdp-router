@@ -3,6 +3,7 @@ syntax = "proto3";
 package api.admin.v1;
 
 import "google/api/annotations.proto";
+import "api/task/v1/task.proto";
 
 option go_package = "github.com/GitMarkZhang/cdp-router/api/admin/v1;adminv1";
 
@@ -49,6 +50,7 @@ service AdminAPI {
     };
   }
 
+  // 使用 Yangshi 格式导出全部问题：AI回答、溯源信息及可选商品表；存在失败或未执行问题时附加“失败／未执行”表，保留状态和错误。
   rpc ExportTaskItems(ExportTaskItemsRequest) returns (ExportTaskItemsResponse) {
     option (google.api.http) = {
       post: "/api/admin/v1/tasks/{id}/items-export"
@@ -310,6 +312,7 @@ message TaskDetailData {
 }
 
 message AdminTaskItem {
+  repeated api.task.v1.ProductCard product_cards = 24 [json_name = "productCards"];
   int64 task_item_id = 1 [json_name = "taskItemId"];
   string item_id = 2 [json_name = "itemId"];
   string platform_code = 3 [json_name = "platformCode"];
@@ -494,6 +497,8 @@ message ProviderListData {
 }
 
 message Provider {
+  string interaction_mode = 19 [json_name = "interactionMode"];
+  repeated string supported_devices = 20 [json_name = "supportedDevices"];
   string provider_code = 1 [json_name = "providerCode"];
   string display_name = 2 [json_name = "displayName"];
   bool enabled = 3;
@@ -573,6 +578,8 @@ message PlatformUser {
 }
 
 message DispatchProfile {
+  // Existing top-level fields describe Push.
+  DispatchMode pull = 11;
   int64 id = 1;
   string code = 2;
   string name = 3;
@@ -586,6 +593,8 @@ message DispatchProfile {
 }
 
 message DispatchProfileInput {
+  // Omitted preserves existing Pull configuration.
+  DispatchModeInput pull = 8;
   string code = 1;
   string name = 2;
   string strategy = 3;
@@ -593,6 +602,24 @@ message DispatchProfileInput {
   repeated string provider_codes = 5 [json_name = "providerCodes"];
   repeated DispatchRuleInput rules = 6;
   string fallback_selection_policy = 7 [json_name = "fallbackSelectionPolicy"];
+}
+
+message DispatchMode {
+  string strategy = 1;
+  bool enabled = 2;
+  repeated string provider_codes = 3 [json_name = "providerCodes"];
+  repeated DispatchRule rules = 4;
+  string fallback_selection_policy = 5 [json_name = "fallbackSelectionPolicy"];
+  int64 cursor = 6;
+  string last_provider_code = 7 [json_name = "lastProviderCode"];
+}
+
+message DispatchModeInput {
+  string strategy = 1;
+  bool enabled = 2;
+  repeated string provider_codes = 3 [json_name = "providerCodes"];
+  repeated DispatchRuleInput rules = 4;
+  string fallback_selection_policy = 5 [json_name = "fallbackSelectionPolicy"];
 }
 
 message DispatchRule {

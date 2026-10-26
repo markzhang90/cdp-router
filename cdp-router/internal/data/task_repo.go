@@ -52,7 +52,16 @@ type dispatchProviderSettings struct {
 	DailyQuestionQuota int
 }
 
+type pullDispatchConfig struct {
+	dispatchProfileConfig
+	Strategy         string `json:"strategy"`
+	Enabled          bool   `json:"enabled"`
+	Cursor           int64  `json:"cursor"`
+	LastProviderCode string `json:"lastProviderCode"`
+}
+
 type dispatchProfileConfig struct {
+	Pull      *pullDispatchConfig `json:"pull,omitempty"`
 	Providers []struct {
 		Code string `json:"code"`
 	} `json:"providers"`
@@ -75,6 +84,12 @@ func NewTaskRepo(db *pgxpool.Pool) *TaskRepo {
 }
 
 func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, providerSettings []biz.ProviderSettings, providerCallbackBaseURL string) (*biz.Task, error) {
+	if input.ExecutionMode == "" {
+		input.ExecutionMode = "push"
+	}
+	if input.ExecutionMode != "push" && input.ExecutionMode != "pull" {
+		return nil, biz.ErrInvalidTaskRequest
+	}
 	bizDate, err := time.Parse("2006-01-02", input.BizDate)
 	if err != nil {
 		return nil, fmt.Errorf("%w: bizDate must be yyyy-MM-dd", biz.ErrInvalidTaskRequest)
@@ -100,7 +115,7 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 		if device == "" {
 			device = "web"
 		}
-		if existing.PlatformUserID != input.PlatformUserID || existing.Device != device {
+		if existing.PlatformUserID != input.PlatformUserID || existing.Device != device || existing.ExecutionMode != input.ExecutionMode {
 			return nil, biz.ErrPullConflict
 		}
 
@@ -117,7 +132,7 @@ func (r *TaskRepo) CreateTask(ctx context.Context, input biz.CreateTaskInput, pr
 		input.Device = "web"
 	}
 	providerSettings = biz.FilterProviders(providerSettings, input.Device, input.Items)
-	decision, err := r.selectDispatchProvider(ctx, tx, input.PlatformUserID, taskName, questionCount, providerSettings)
+	decision, err := r.selectDispatchProvider(ctx, tx, input.PlatformUserID, taskName, questionCount, providerSettings, input.ExecutionMode)
 	if err != nil {
 		return nil, err
 	}
@@ -165,12 +180,9 @@ on conflict (task_id, item_id) do nothing
 			return nil, err
 		}
 	}
-	task.Device, task.ExecutionMode = input.Device, "push"
-	for _, p := range providerSettings {
-		if p.ProviderCode == task.ProviderCode && p.InteractionMode == "pull" {
-			task.ExecutionMode = "pull"
-			task.Status = biz.TaskStatusSubmitted
-		}
+	task.Device, task.ExecutionMode = input.Device, input.ExecutionMode
+	if task.ExecutionMode == "pull" {
+		task.Status = biz.TaskStatusSubmitted
 	}
 	if _, err := tx.Exec(ctx, `update cdp_tasks set device=$2,execution_mode=$3,status=$4,submitted_at=case when $3::varchar='pull' then now() else submitted_at end where id=$1`, task.ID, task.Device, task.ExecutionMode, task.Status); err != nil {
 		return nil, err
@@ -442,7 +454,7 @@ func (r *TaskRepo) PrepareTaskForSubmit(ctx context.Context, taskID int64, provi
 		}
 	}
 	providerSettings = eligible
-	decision, err := r.selectDispatchProvider(ctx, tx, task.PlatformUserID, task.TaskName, task.TotalCount, providerSettings)
+	decision, err := r.selectDispatchProvider(ctx, tx, task.PlatformUserID, task.TaskName, task.TotalCount, providerSettings, task.ExecutionMode)
 	if err != nil {
 		return nil, err
 	}
@@ -484,8 +496,18 @@ where id=$1
 	return r.GetTask(ctx, task.ID)
 }
 
-func (r *TaskRepo) selectDispatchProvider(ctx context.Context, tx pgx.Tx, platformUserID int64, taskName string, questionCount int, providers []biz.ProviderSettings) (taskDispatchDecision, error) {
-	available := dispatchProviderSettingsMap(providers)
+func (r *TaskRepo) selectDispatchProvider(ctx context.Context, tx pgx.Tx, platformUserID int64, taskName string, questionCount int, providers []biz.ProviderSettings, mode string) (taskDispatchDecision, error) {
+	eligible := make([]biz.ProviderSettings, 0, len(providers))
+	for _, p := range providers {
+		m := p.InteractionMode
+		if m == "" {
+			m = "push"
+		}
+		if m == mode {
+			eligible = append(eligible, p)
+		}
+	}
+	available := dispatchProviderSettingsMap(eligible)
 	var profileID int64
 	var profileCode string
 	var strategy string
@@ -504,6 +526,17 @@ for update
 	if err != nil {
 		return taskDispatchDecision{}, err
 	}
+	parsed, err := parseDispatchProfileConfig(config)
+	if err != nil {
+		return taskDispatchDecision{}, biz.ErrProviderUnavailable
+	}
+	if mode == "pull" {
+		if parsed.Pull == nil {
+			return taskDispatchDecision{}, biz.ErrDispatchDisabled
+		}
+		strategy, enabled, cursor = parsed.Pull.Strategy, parsed.Pull.Enabled, parsed.Pull.Cursor
+		parsed = parsed.Pull.dispatchProfileConfig
+	}
 	if !enabled {
 		return taskDispatchDecision{}, biz.ErrDispatchDisabled
 	}
@@ -513,31 +546,35 @@ for update
 	if strategy != string(biz.DispatchStrategyRoundRobin) && strategy != string(biz.DispatchStrategyRuleBased) {
 		return taskDispatchDecision{}, biz.ErrProviderUnavailable
 	}
-	if len(config) == 0 {
-		config = json.RawMessage(`{}`)
-	}
-	parsed, err := parseDispatchProfileConfig(config)
-	if err != nil {
-		return taskDispatchDecision{}, biz.ErrProviderUnavailable
-	}
 	fallbackCandidates := dispatchProfileProviderCodes(parsed, available)
 	if len(fallbackCandidates) == 0 {
 		return taskDispatchDecision{}, biz.ErrProviderUnavailable
 	}
 	quotaDate := currentQuotaDate()
 
+	var decision taskDispatchDecision
 	switch biz.DispatchStrategy(strategy) {
 	case biz.DispatchStrategyRoundRobin:
-		return r.selectRoundRobinDispatchProvider(ctx, tx, profileID, profileCode, cursor, fallbackCandidates, available, quotaDate, questionCount)
+		decision, err = r.selectRoundRobinDispatchProvider(ctx, tx, profileID, profileCode, cursor, fallbackCandidates, available, quotaDate, questionCount)
 	case biz.DispatchStrategyRuleBased:
-		return r.selectRuleBasedDispatchProvider(ctx, tx, profileID, profileCode, cursor, taskName, parsed, fallbackCandidates, available, quotaDate, questionCount)
-	default:
-		return taskDispatchDecision{}, biz.ErrProviderUnavailable
+		decision, err = r.selectRuleBasedDispatchProvider(ctx, tx, profileID, profileCode, cursor, taskName, parsed, fallbackCandidates, available, quotaDate, questionCount)
 	}
+	if err != nil {
+		return taskDispatchDecision{}, err
+	}
+	if mode == "pull" {
+		_, err = tx.Exec(ctx, `update cdp_dispatch_profiles set config=jsonb_set(config,'{pull}',config->'pull' || jsonb_build_object('cursor',$2::bigint,'lastProviderCode',$3::text)),updated_at=now() where id=$1`, profileID, decision.CursorAfter, decision.ProviderCode)
+	} else {
+		_, err = tx.Exec(ctx, `update cdp_dispatch_profiles set cursor=$2,last_provider_code=$3,updated_at=now() where id=$1`, profileID, decision.CursorAfter, decision.ProviderCode)
+	}
+	return decision, err
 }
 
 func parseDispatchProfileConfig(config json.RawMessage) (dispatchProfileConfig, error) {
 	var parsed dispatchProfileConfig
+	if len(config) == 0 {
+		config = json.RawMessage(`{}`)
+	}
 	if err := json.Unmarshal(config, &parsed); err != nil {
 		return dispatchProfileConfig{}, err
 	}
@@ -547,6 +584,9 @@ func parseDispatchProfileConfig(config json.RawMessage) (dispatchProfileConfig, 
 		}
 		return parsed.Rules[i].SortOrder < parsed.Rules[j].SortOrder
 	})
+	if parsed.Pull != nil {
+		sort.SliceStable(parsed.Pull.Rules, func(i, j int) bool { return parsed.Pull.Rules[i].SortOrder < parsed.Pull.Rules[j].SortOrder })
+	}
 	return parsed, nil
 }
 
@@ -592,15 +632,6 @@ func (r *TaskRepo) selectRoundRobinDispatchProvider(ctx context.Context, tx pgx.
 	selected, nextCursor := selectRoundRobinProviderFromSnapshots(candidates, snapshots, cursor)
 	if selected == "" {
 		return taskDispatchDecision{}, biz.ErrProviderUnavailable
-	}
-	if _, err := tx.Exec(ctx, `
-update cdp_dispatch_profiles
-set cursor=$2,
-  last_provider_code=$3,
-  updated_at=now()
-where id=$1
-`, profileID, nextCursor, selected); err != nil {
-		return taskDispatchDecision{}, err
 	}
 	return taskDispatchDecision{
 		ProfileID:          profileID,
@@ -656,15 +687,6 @@ func (r *TaskRepo) selectRuleBasedDispatchProvider(ctx context.Context, tx pgx.T
 	}
 	if selected == "" {
 		return taskDispatchDecision{}, biz.ErrProviderUnavailable
-	}
-	if _, err := tx.Exec(ctx, `
-update cdp_dispatch_profiles
-set cursor=$2,
-  last_provider_code=$3,
-  updated_at=now()
-where id=$1
-`, profileID, nextCursor, selected); err != nil {
-		return taskDispatchDecision{}, err
 	}
 	return taskDispatchDecision{
 		ProfileID:          profileID,
@@ -956,6 +978,7 @@ func sameQuotaDate(a time.Time, b time.Time) bool {
 
 func taskDispatchPayload(task biz.Task, decision taskDispatchDecision) json.RawMessage {
 	payload, _ := json.Marshal(map[string]any{
+		"executionMode":        task.ExecutionMode,
 		"profileId":            decision.ProfileID,
 		"profileCode":          decision.ProfileCode,
 		"strategy":             decision.Strategy,
@@ -1202,7 +1225,7 @@ select
 	  coalesce(tir.recommended_questions,'[]'::jsonb),
 	  coalesce(tir.device_id,''),
 	  coalesce(tir.recording_url,''),
-	  coalesce(tir.references_json,'[]'::jsonb),
+	  coalesce(tir.references_json,'[]'::jsonb),coalesce(tir.product_cards,'[]'::jsonb),
 	  coalesce(tir.reference_count,0),
 	  coalesce(tir.parse_status,''),
   coalesce(tir.parse_error,''),coalesce(tir.validation_status,'UNKNOWN'),coalesce(tir.risk_items,'[]'::jsonb),coalesce(tir.validation_rule_version,''),tir.validated_at
@@ -1222,7 +1245,7 @@ order by ti.id asc, ti.result_seq asc
 		var riskJSON []byte
 		if err := rows.Scan(&item.ItemID, &item.PlatformCode, &item.Seq, &item.Question, &item.ProviderStatus,
 			&item.ResultStatus, &item.AnswerText, &item.ThinkingProcess, &generatedAt, &item.GeneratedAtText,
-			&item.RecommendedQuestions, &item.DeviceID, &item.RecordingURL, &item.ReferencesJSON, &item.ReferenceCount,
+			&item.RecommendedQuestions, &item.DeviceID, &item.RecordingURL, &item.ReferencesJSON, &item.ProductCards, &item.ReferenceCount,
 			&item.ParseStatus, &item.ParseError, &item.AnswerValidation.Status, &riskJSON, &item.RuleVersion, &validatedAt); err != nil {
 			return nil, err
 		}

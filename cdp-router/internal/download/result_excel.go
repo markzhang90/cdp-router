@@ -1,4 +1,4 @@
-package callback
+package download
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-var yangshiAnswerHeaders = []string{
+var answerHeaders = []string{
 	"itemId",
 	"轮次",
 	"问题",
@@ -25,7 +25,7 @@ var yangshiAnswerHeaders = []string{
 	"录屏url",
 }
 
-var yangshiReferenceHeaders = []string{
+var referenceHeaders = []string{
 	"itemId",
 	"轮次",
 	"url",
@@ -40,7 +40,7 @@ var yangshiReferenceHeaders = []string{
 	"作者身份类型",
 }
 
-type yangshiReferenceRow struct {
+type resultReference struct {
 	URL                string `json:"url"`
 	Title              string `json:"title"`
 	Content            string `json:"content"`
@@ -53,52 +53,16 @@ type yangshiReferenceRow struct {
 	AuthorIdentityType string `json:"authorIdentityType"`
 }
 
-func BuildYangshiResultWorkbook(items []biz.TaskItemResultView) ([]byte, error) {
+// BuildResultWorkbook renders result data as an Excel file for download or upload.
+func BuildResultWorkbook(items []biz.TaskItemResultView) ([]byte, error) {
 	if len(items) == 0 {
-		return nil, fmt.Errorf("no task item results available for yangshi callback")
+		return nil, fmt.Errorf("no task item results available for export")
 	}
-
 	file := excelize.NewFile()
 	defer func() { _ = file.Close() }()
-	if err := file.SetSheetName("Sheet1", "AI回答"); err != nil {
+	if err := WriteSheets(file, items); err != nil {
 		return nil, err
 	}
-	if _, err := file.NewSheet("溯源信息"); err != nil {
-		return nil, err
-	}
-	if err := writeYangshiHeader(file, "AI回答", yangshiAnswerHeaders); err != nil {
-		return nil, err
-	}
-	if err := writeYangshiHeader(file, "溯源信息", yangshiReferenceHeaders); err != nil {
-		return nil, err
-	}
-
-	dateStyle, err := file.NewStyle(&excelize.Style{NumFmt: 14})
-	if err != nil {
-		return nil, err
-	}
-
-	answerRow := 2
-	referenceRow := 2
-	for _, item := range items {
-		if err := writeYangshiAnswerRow(file, answerRow, item); err != nil {
-			return nil, err
-		}
-		answerRow++
-
-		references, err := parseYangshiReferences(item.ReferencesJSON)
-		if err != nil {
-			return nil, fmt.Errorf("parse references for item %s: %w", item.ItemID, err)
-		}
-		for _, reference := range references {
-			if err := writeYangshiReferenceRow(file, referenceRow, item.ItemID, item.Seq, reference, dateStyle); err != nil {
-				return nil, err
-			}
-			referenceRow++
-		}
-	}
-
-	file.SetActiveSheet(0)
 	var buffer bytes.Buffer
 	if err := file.Write(&buffer); err != nil {
 		return nil, err
@@ -106,7 +70,64 @@ func BuildYangshiResultWorkbook(items []biz.TaskItemResultView) ([]byte, error) 
 	return buffer.Bytes(), nil
 }
 
-func writeYangshiHeader(file *excelize.File, sheet string, headers []string) error {
+// WriteSheets writes the shared result template into a new workbook.
+// Empty results produce headers so admin exports can include unexecuted tasks.
+func WriteSheets(file *excelize.File, items []biz.TaskItemResultView) error {
+	if err := file.SetSheetName("Sheet1", "AI回答"); err != nil {
+		return err
+	}
+	if _, err := file.NewSheet("溯源信息"); err != nil {
+		return err
+	}
+	if err := writeHeader(file, "AI回答", answerHeaders); err != nil {
+		return err
+	}
+	if err := writeHeader(file, "溯源信息", referenceHeaders); err != nil {
+		return err
+	}
+
+	dateStyle, err := file.NewStyle(&excelize.Style{NumFmt: 14})
+	if err != nil {
+		return err
+	}
+
+	products := make([]productAnswer, 0, len(items))
+	answerRow := 2
+	referenceRow := 2
+	for _, item := range items {
+		products = append(products, productAnswer{
+			PlatformCode: item.PlatformCode,
+			ItemID:       item.ItemID,
+			Seq:          item.Seq,
+			Question:     item.Question,
+			ProductCards: item.ProductCards,
+		})
+		if err := writeAnswerRow(file, answerRow, item); err != nil {
+			return err
+		}
+		answerRow++
+
+		references, err := parseReferences(item.ReferencesJSON)
+		if err != nil {
+			return fmt.Errorf("parse references for item %s: %w", item.ItemID, err)
+		}
+		for _, reference := range references {
+			if err := writeReferenceRow(file, referenceRow, item.ItemID, item.Seq, reference, dateStyle); err != nil {
+				return err
+			}
+			referenceRow++
+		}
+	}
+
+	if err := writeProductSheet(file, products); err != nil {
+		return fmt.Errorf("write product cards: %w", err)
+	}
+
+	file.SetActiveSheet(0)
+	return nil
+}
+
+func writeHeader(file *excelize.File, sheet string, headers []string) error {
 	values := make([]any, len(headers))
 	for i, header := range headers {
 		values[i] = header
@@ -114,17 +135,17 @@ func writeYangshiHeader(file *excelize.File, sheet string, headers []string) err
 	return file.SetSheetRow(sheet, "A1", &values)
 }
 
-func writeYangshiAnswerRow(file *excelize.File, rowIndex int, item biz.TaskItemResultView) error {
+func writeAnswerRow(file *excelize.File, rowIndex int, item biz.TaskItemResultView) error {
 	values := []any{
-		yangshiNumericID(item.ItemID),
+		numericID(item.ItemID),
 		item.Seq,
 		item.Question,
 		item.PlatformCode,
 		item.ThinkingProcess,
 		item.AnswerText,
-		yangshiGeneratedAtText(item),
-		yangshiRecommendedQuestionsText(item.RecommendedQuestions),
-		yangshiMaybeNumber(item.DeviceID),
+		generatedAtText(item),
+		recommendedQuestionsText(item.RecommendedQuestions),
+		maybeNumber(item.DeviceID),
 		item.RecordingURL,
 	}
 	cell, err := excelize.CoordinatesToCellName(1, rowIndex)
@@ -134,19 +155,19 @@ func writeYangshiAnswerRow(file *excelize.File, rowIndex int, item biz.TaskItemR
 	return file.SetSheetRow("AI回答", cell, &values)
 }
 
-func writeYangshiReferenceRow(file *excelize.File, rowIndex int, itemID string, seq int, reference yangshiReferenceRow, dateStyle int) error {
+func writeReferenceRow(file *excelize.File, rowIndex int, itemID string, seq int, reference resultReference, dateStyle int) error {
 	publishedAt := any(reference.PublishedAtText)
-	if parsed, ok := parseYangshiDate(reference.PublishedAtText); ok {
+	if parsed, ok := parseDate(reference.PublishedAtText); ok {
 		publishedAt = parsed
 	}
 	values := []any{
-		yangshiNumericID(itemID),
+		numericID(itemID),
 		seq,
 		reference.URL,
-		yangshiMaybeNumber(reference.Title),
+		maybeNumber(reference.Title),
 		reference.Content,
 		publishedAt,
-		yangshiMaybeNumber(reference.SiteName),
+		maybeNumber(reference.SiteName),
 		reference.AuthorityLevel,
 		reference.SiteCategory,
 		reference.Author,
@@ -170,18 +191,18 @@ func writeYangshiReferenceRow(file *excelize.File, rowIndex int, itemID string, 
 	return nil
 }
 
-func parseYangshiReferences(raw json.RawMessage) ([]yangshiReferenceRow, error) {
+func parseReferences(raw json.RawMessage) ([]resultReference, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	var references []yangshiReferenceRow
+	var references []resultReference
 	if err := json.Unmarshal(raw, &references); err != nil {
 		return nil, err
 	}
 	return references, nil
 }
 
-func yangshiGeneratedAtText(item biz.TaskItemResultView) string {
+func generatedAtText(item biz.TaskItemResultView) string {
 	if strings.TrimSpace(item.GeneratedAtText) != "" {
 		return strings.TrimSpace(item.GeneratedAtText)
 	}
@@ -191,7 +212,7 @@ func yangshiGeneratedAtText(item biz.TaskItemResultView) string {
 	return item.GeneratedAt.Format("2006年01月02日15:04")
 }
 
-func yangshiRecommendedQuestionsText(raw json.RawMessage) string {
+func recommendedQuestionsText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
 	}
@@ -213,7 +234,7 @@ func yangshiRecommendedQuestionsText(raw json.RawMessage) string {
 	return ""
 }
 
-func yangshiNumericID(value string) any {
+func numericID(value string) any {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
@@ -225,7 +246,7 @@ func yangshiNumericID(value string) any {
 	return parsed
 }
 
-func yangshiMaybeNumber(value string) any {
+func maybeNumber(value string) any {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
@@ -244,7 +265,7 @@ func hasLeadingZero(value string) bool {
 	return len(value) > 1 && strings.HasPrefix(value, "0")
 }
 
-func parseYangshiDate(value string) (time.Time, bool) {
+func parseDate(value string) (time.Time, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return time.Time{}, false

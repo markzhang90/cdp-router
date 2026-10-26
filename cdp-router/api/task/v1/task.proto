@@ -73,6 +73,18 @@ service TaskAPI {
   }
 }
 
+// Product values are display text; IDs and sales must not be coerced to numbers.
+message ProductCard {
+  string product_id = 1 [json_name = "productId"];
+  string product_name = 2 [json_name = "productName"];
+  string price = 3;
+  string shop_name = 4 [json_name = "shopName"];
+  string shop_id = 5 [json_name = "shopId"];
+  string selling_points = 6 [json_name = "sellingPoints"];
+  string image_url = 7 [json_name = "imageUrl"];
+  string sales_volume = 8 [json_name = "salesVolume"];
+}
+
 message TaskItem {
   string item_id = 1 [json_name = "itemId"];
   string platform_code = 2 [json_name = "platformCode"];
@@ -83,6 +95,8 @@ message TaskItem {
 }
 
 message CreateTaskRequest {
+  // Defaults to push; device does not determine the execution mode.
+  string execution_mode = 9 [json_name = "executionMode"];
  string device = 8;
   string batch_no = 1 [json_name = "batchNo"];
   string provider_code = 2 [json_name = "providerCode"];
@@ -160,6 +174,7 @@ message ExternalTaskResultData {
 }
 
 message ExternalTaskResultItem {
+  repeated ProductCard product_cards = 18 [json_name = "productCards"];
   string item_id = 1 [json_name = "itemId"];
   string platform_code = 2 [json_name = "platformCode"];
   int32 seq = 3;

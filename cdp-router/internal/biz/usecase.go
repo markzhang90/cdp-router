@@ -82,6 +82,12 @@ func (u *TaskUsecase) CreateTask(ctx context.Context, input CreateTaskInput) (*T
 	if input.Device != "web" && input.Device != "mobile" {
 		return nil, 0, ErrInvalidTaskRequest
 	}
+	if input.ExecutionMode == "" {
+		input.ExecutionMode = "push"
+	}
+	if input.ExecutionMode != "push" && input.ExecutionMode != "pull" {
+		return nil, 0, ErrInvalidTaskRequest
+	}
 	if input.JobID == "" {
 		input.JobID = newJobID()
 	}
@@ -1944,6 +1950,14 @@ func (u *TaskUsecase) deliverTaskCallback(ctx context.Context, task *Task, succe
 			items = successfulResultItems(items)
 		}
 		payload.ResultItems = items
+		// Legacy callbacks remain compact. Product-bearing results include their
+		// answer snapshots so HTTP consumers can receive the new optional cards.
+		for _, item := range items {
+			if len(item.ProductCards) > 0 {
+				payload.Items = callbackResultItems(items)
+				break
+			}
+		}
 	} else {
 		return false, err
 	}
@@ -2045,6 +2059,7 @@ func callbackResultItems(items []TaskItemResultView) []CallbackResultItem {
 			GeneratedAtText:          item.GeneratedAtText,
 			RecommendedQuestionsJSON: item.RecommendedQuestions,
 			ReferencesJSON:           item.ReferencesJSON,
+			ProductCards:             item.ProductCards,
 			ReferenceCount:           item.ReferenceCount,
 			ParseStatus:              item.ParseStatus,
 		})

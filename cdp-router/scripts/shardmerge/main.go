@@ -11,7 +11,7 @@ package main
 //     (provider shards always win; fill rows are used only for itemIds
 //     absent from the shards, answers and references together)
 //   - render one Yangshi-format workbook per task via
-//     callback.BuildYangshiResultWorkbook (same code as the final upload)
+//     download.BuildResultWorkbook (same code as the final upload)
 //
 // Usage:
 //   go run ./scripts/shardmerge -task-id 962 -batch-no YRERUN14-20260929-960-V1 \
@@ -34,8 +34,8 @@ import (
 	"strings"
 
 	"github.com/GitMarkZhang/cdp-router/internal/biz"
-	"github.com/GitMarkZhang/cdp-router/internal/callback"
 	"github.com/GitMarkZhang/cdp-router/internal/cleaner"
+	"github.com/GitMarkZhang/cdp-router/internal/download"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/xuri/excelize/v2"
 )
@@ -180,7 +180,7 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(*output), 0o755); err != nil {
 		fatalf("create output dir: %v", err)
 	}
-	content, err := callback.BuildYangshiResultWorkbook(views)
+	content, err := download.BuildResultWorkbook(views)
 	if err != nil {
 		fatalf("build workbook: %v", err)
 	}

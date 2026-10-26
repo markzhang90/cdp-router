@@ -139,6 +139,9 @@ cdp-router/                  仓库根目录
         router.go
         http_callback.go
         yangshi_callback.go
+      download/
+        result_excel.go       通用结果工作簿生成，供页面下载及回调上传复用
+        products.go           商品工作表写入
       cleaner/
         excel_parser.go
       worker/
@@ -407,6 +410,7 @@ openapi:
 - `device_id`
 - `recording_url`
 - `references_json`
+- `product_cards`：回答对应的有序商品卡片 JSONB，默认空数组；价格、销量及 ID 保存原文字符串。
 - `cleaned_payload`
 - `parse_status`
 - `parse_error`
@@ -1748,6 +1752,8 @@ Pull 使用独立 PullService / PullUsecase / PullRepo / PullResultWorker：POST
 
 任务列表起始列顺序为“任务名称 → 设备 / 模式 → 内容风险 → batchNo”，任务名称固定在左侧。
 
+后台调度选项与接入方调度保存使用相同的供应商可用性校验：供应商编号和限流配置有效，Push 要求 submit_url，Pull 要求独立 token、不要求 submit_url。未配置交互模式时按 Push 校验；轮询供应商池与规则供应商池均支持 Pull。
+
 ### 15.1 单机启动迁移约定（2026-10-12 修订）
 
 当前按单机停机升级/重启部署，保留启动时按文件顺序重放 SQL；不引入多实例迁移协调或版本管理框架。每个文件显式事务，lock_timeout=5s、statement_timeout=120s；失败则回滚当前文件并停止启动，前序已完成文件可安全重放。
@@ -1755,3 +1761,22 @@ Pull 使用独立 PullService / PullUsecase / PullRepo / PullResultWorker：POST
 所有业务表不使用物理外键；任务、分片、问题和回传归属由 biz/data 的校验与事务保证。迁移清理历史外键，保留主键、业务幂等唯一索引、字段 CHECK 和结果来源二选一约束。历史废弃列和表不在服务启动时删除，留待独立归档维护。
 
 供应商任务编号仅在首次引入 provider_external_batch_id 列时回填明确的历史编号；网关 job ID 不作为供应商编号。Pull 的该字段始终为空，000005 清理旧重放导致的污染。所有新增列先于相关索引和数据处理。历史 SKIPPED 校验失效只针对 Push；Pull 不通过迁移伪造汇总完成时间。重复执行不得改变 Pull 完成状态、风险统计时间及供应商编号，或重置已保存的校验配置。
+
+
+### 15.2 Push/Pull 独立调度（2026-10-12 修订）
+
+任务创建请求新增 executionMode，仅支持 push/pull，缺省 push；device 与模式独立。按请求模式选择调度策略，再过滤相同交互模式且支持设备和全部渠道的供应商。无候选、停用或额度耗尽时返回明确错误，不跨模式兜底。同一批次以不同模式重试返回冲突。已创建任务保留模式快照，显式整单转派仍可按既有规则切换模式。
+
+接入方后台调度增加 Push/Pull 页签，分别设置启用、顺序/规则分配、供应商池、FALLBACK 策略及规则。候选供应商通过接口返回 interactionMode 和 supportedDevices，页面和保存接口均按模式校验。未配置模式的旧供应商归 Push；Pull 校验 token，不要求 submit_url。
+
+兼容 API 的 dispatchProfile 原有字段继续表示 Push，新增 pull 对象表示独立 Pull 配置（不传时保留已有 Pull 配置，新接入方缺省停用）。数据库沿用 cdp_dispatch_profiles：原有字段/游标归 Push，config.pull 保存 Pull 的策略、开关、供应商、规则、游标及最后供应商。保存不覆盖运行中的游标，分配仍在同一 profile 行锁事务内；每种模式仅推进自身游标。此扩展无新增数据库表或列，不需要 DDL migration。旧共享池继续按 Push 读取，不自动开启 Pull；旧数据中的非 Push 供应商不参与 Push 分配，管理界面保存时需使用对应模式的池子。
+
+验证覆盖默认 Push、显式 Pull、mobile Push、web Pull、非法模式、跨模式幂等冲突、两种调度策略及独立游标、停用/不可用不跨模式回退、保存保留另一模式。管理接口使用真实 Gin/PostgreSQL/Redis E2E；前端完成类型与构建检查。
+
+### 15.3 Mobile 商品卡片扩展（2026-10-12）
+
+任务详情的问答列表在“引用”列后展示“商品卡片数”，按当前回答的 `productCards` 数组长度计数，缺失或为空时显示 0；展开行查看卡片明细。
+
+实施方案见 [mobile-product-card-design.md](mobile-product-card-design.md)。Pull 每条回答增加可选 `productCards[]`，按 Excel 商品字段及新增销量原文定义结构，每条回答最多 100 张，商品名必填。结果表仅新增 `product_cards jsonb`，与同一问答正文及引用原子覆盖，沿用 `source_submission_id` 的版本顺序；省略或空数组表示清空，旧版无商品请求摘要保持兼容。业务/Admin 结果返回类型化数组，默认 HTTP 回调仅在有商品时附带字段，任务详情折叠展示。后台导出和 Yangshi 回调 Excel 在结果含商品时均增加“商品”sheet，共用 `internal/download/products.go` 写表逻辑，按 `itemId + answerSeq + cardIndex` 关联，每张卡片一行，保留顺序与重复商品 ID。字段包括 App、itemId、answerSeq、cardIndex、提问、商品ID、商品名、价格、店铺、店铺ID、卖点、图片URL、销量；ID、价格和销量按文本写入。无商品时不增加该 sheet。前端沿用任务详情导出入口和现有下载 API。
+
+通用结果文件生成位于 `internal/download/result_excel.go`：`WriteSheets` 接收结果并写入工作表，`BuildResultWorkbook` 输出 Excel 字节；商品写表逻辑位于同模块的 `products.go`。字段映射、模板和格式化均不依赖回调接入方，辅助方法不带 Yangshi 前缀。页面下载和导出脚本复用该模块；Yangshi adapter 只调用通用生成方法，再申请上传地址、上传和发送通知，不持有 Excel 生成代码。页面导出复用该通用工作簿模板：固定“AI回答”“溯源信息”，有商品时增加“商品”，表头、字段转换、日期、单元格类型与样式完全共用。全部问题按任务明细 ID、回答轮次排序，包含失败和未执行问题（无结果时保留问题信息，回答留空）；存在非 IMPORTED 结果时，末尾额外增加“失败／未执行”工作表，保留结果状态及解析错误用于排障。全成功任务的工作表结构与 Yangshi 回调一致。后台仍导出当前数据库全量数据，不使用页面分页；回调的成功结果筛选语义、上传通知、权限、审计与风险校验保持。允许空任务导出仅含表头的模板，回调仍拒绝空结果。

@@ -3183,7 +3183,7 @@ insert into cdp_task_result_files (
 		t.Fatal(err)
 	}
 	defer func() { _ = exportWorkbook.Close() }()
-	successRows, err := exportWorkbook.GetRows("成功")
+	successRows, err := exportWorkbook.GetRows("AI回答")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3191,10 +3191,10 @@ insert into cdp_task_result_files (
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(successRows) != 2 || len(failedRows) != 2 {
+	if len(successRows) != 3 || len(failedRows) != 2 {
 		t.Fatalf("export sheet row counts: success=%d failed=%d", len(successRows), len(failedRows))
 	}
-	if successRows[0][0] != "轮次" || successRows[1][1] != "MPZ-REAL-20260723180500-doubao-001" || successRows[1][4] != "IMPORTED" {
+	if successRows[0][0] != "itemId" || successRows[1][0] != "MPZ-REAL-20260723180500-doubao-001" || successRows[2][0] != "MPZ-REAL-20260723180500-qwen-002" {
 		t.Fatalf("unexpected success export rows: %+v", successRows)
 	}
 	if failedRows[0][0] != "轮次" ||

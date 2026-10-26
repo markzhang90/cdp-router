@@ -123,6 +123,7 @@ type AdminTaskItemsExport struct {
 }
 
 type AdminTaskItem struct {
+	ProductCards []ProductCard
 	AnswerValidation
 	TaskItemID       int64
 	ItemID           string

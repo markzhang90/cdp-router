@@ -620,7 +620,7 @@ returning id,platform_code,name,api_key,status,callback_mode,coalesce(callback_u
 
 func (r *AdminRepo) upsertDispatchProfile(ctx context.Context, tx pgx.Tx, platformUserID int64, platformCode string, input biz.DispatchProfileInput) error {
 	providerCodes := cleanProviderCodes(input.ProviderCodes)
-	if len(providerCodes) == 0 {
+	if input.Enabled && len(providerCodes) == 0 {
 		return fmt.Errorf("%w: providerCodes are required", biz.ErrInvalidTaskRequest)
 	}
 	if input.Strategy == "" {
@@ -638,6 +638,55 @@ func (r *AdminRepo) upsertDispatchProfile(ctx context.Context, tx pgx.Tx, platfo
 		name = platformCode + " 默认调度"
 	}
 	config, err := dispatchConfigJSON(providerCodes, input.FallbackSelectionPolicy, input.Rules)
+	if err != nil {
+		return err
+	}
+	// Lock the existing profile so saving settings cannot reset either cursor.
+	var oldConfig json.RawMessage
+	err = tx.QueryRow(ctx, `select config from cdp_dispatch_profiles where platform_user_id=$1 for update`, platformUserID).Scan(&oldConfig)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	var old map[string]json.RawMessage
+	if len(oldConfig) > 0 {
+		if err = json.Unmarshal(oldConfig, &old); err != nil {
+			return err
+		}
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(config, &fields); err != nil {
+		return err
+	}
+	if input.Pull == nil {
+		if raw, ok := old["pull"]; ok {
+			fields["pull"] = raw
+		}
+	} else {
+		raw, e := dispatchConfigJSON(input.Pull.ProviderCodes, input.Pull.FallbackSelectionPolicy, input.Pull.Rules)
+		if e != nil {
+			return e
+		}
+		var policy dispatchProfileConfig
+		if e = json.Unmarshal(raw, &policy); e != nil {
+			return e
+		}
+		pull := pullDispatchConfig{dispatchProfileConfig: policy, Strategy: string(input.Pull.Strategy), Enabled: input.Pull.Enabled}
+		if pull.Strategy == "" {
+			pull.Strategy = string(biz.DispatchStrategyRoundRobin)
+		}
+		if previous := old["pull"]; len(previous) > 0 {
+			var state pullDispatchConfig
+			if e = json.Unmarshal(previous, &state); e != nil {
+				return e
+			}
+			pull.Cursor, pull.LastProviderCode = state.Cursor, state.LastProviderCode
+		}
+		fields["pull"], err = json.Marshal(pull)
+		if err != nil {
+			return err
+		}
+	}
+	config, err = json.Marshal(fields)
 	if err != nil {
 		return err
 	}
@@ -743,7 +792,7 @@ select
   coalesce(tir.recommended_questions,'[]'::jsonb),
   coalesce(tir.device_id,''),
   coalesce(tir.recording_url,''),
-	  coalesce(tir.references_json,'[]'::jsonb),
+	  coalesce(tir.references_json,'[]'::jsonb),coalesce(tir.product_cards,'[]'::jsonb),
 	  coalesce(tir.reference_count,0),
 	  coalesce(tir.parse_status,''),
 	  coalesce(tir.parse_error,''),
@@ -781,6 +830,7 @@ order by page.priority, page.id, page.result_seq
 			&item.DeviceID,
 			&item.RecordingURL,
 			&item.ReferencesJSON,
+			&item.ProductCards,
 			&item.ReferenceCount,
 			&item.ParseStatus,
 			&item.ParseError,
@@ -844,7 +894,7 @@ select
   coalesce(tir.recommended_questions,'[]'::jsonb),
   coalesce(tir.device_id,''),
   coalesce(tir.recording_url,''),
-	  coalesce(tir.references_json,'[]'::jsonb),
+	  coalesce(tir.references_json,'[]'::jsonb),coalesce(tir.product_cards,'[]'::jsonb),
 	  coalesce(tir.reference_count,0),
 	  coalesce(tir.parse_status,''),
 	  coalesce(tir.parse_error,''),
@@ -888,6 +938,7 @@ order by
 			&item.DeviceID,
 			&item.RecordingURL,
 			&item.ReferencesJSON,
+			&item.ProductCards,
 			&item.ReferenceCount,
 			&item.ParseStatus,
 			&item.ParseError,
@@ -1377,6 +1428,7 @@ func scanPlatformUser(scanner interface{ Scan(dest ...any) error }) (biz.Platfor
 	user.DispatchProfile.ProviderCodes = dispatchProviderCodes(user.DispatchProfile.Config)
 	user.DispatchProfile.FallbackSelectionPolicy = dispatchFallbackSelectionPolicy(user.DispatchProfile.Config, user.DispatchProfile.Strategy)
 	user.DispatchProfile.Rules = dispatchRules(user.DispatchProfile.Config)
+	user.DispatchProfile.Pull = dispatchPullMode(user.DispatchProfile.Config)
 	return user, nil
 }
 
@@ -1651,6 +1703,28 @@ func dispatchConfigJSON(providerCodes []string, fallbackSelectionPolicy biz.Disp
 	}
 	body, err := json.Marshal(map[string]any{"providers": providers, "fallbackSelectionPolicy": policy, "rules": cleanRules})
 	return json.RawMessage(body), err
+}
+
+func dispatchPullMode(raw json.RawMessage) biz.DispatchMode {
+	out := biz.DispatchMode{Strategy: biz.DispatchStrategyRoundRobin, FallbackSelectionPolicy: biz.DispatchFallbackSelectionPolicyRoundRobin}
+	var envelope struct {
+		Pull json.RawMessage `json:"pull"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil || len(envelope.Pull) == 0 {
+		return out
+	}
+	var p pullDispatchConfig
+	if json.Unmarshal(envelope.Pull, &p) != nil {
+		return out
+	}
+	if p.Strategy != "" {
+		out.Strategy = biz.DispatchStrategy(p.Strategy)
+	}
+	out.Enabled, out.Cursor, out.LastProviderCode = p.Enabled, p.Cursor, p.LastProviderCode
+	out.ProviderCodes = dispatchProviderCodes(envelope.Pull)
+	out.FallbackSelectionPolicy = dispatchFallbackSelectionPolicy(envelope.Pull, out.Strategy)
+	out.Rules = dispatchRules(envelope.Pull)
+	return out
 }
 
 func dispatchProviderCodes(config json.RawMessage) []string {

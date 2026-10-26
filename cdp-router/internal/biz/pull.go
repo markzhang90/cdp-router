@@ -29,6 +29,8 @@ type PullShard struct {
 	Items   []TaskItem `json:"items"`
 }
 type PullAnswer struct {
+	// Empty cards must stay out of the hash to preserve pre-upgrade request IDs.
+	ProductCards         []ProductCard   `json:"productCards,omitempty"`
 	ItemID               string          `json:"itemId"`
 	AnswerSeq            int             `json:"answerSeq"`
 	ExecutionStatus      string          `json:"executionStatus"`
@@ -126,6 +128,14 @@ func (u *PullUsecase) Accept(ctx context.Context, provider string, in PullSubmis
 			return 0, ErrInvalidTaskRequest
 		}
 		keys[key] = true
+		if len(a.ProductCards) > 100 {
+			return 0, fmt.Errorf("%w: results[%d].productCards exceeds 100 cards", ErrInvalidTaskRequest, i)
+		}
+		for j, card := range a.ProductCards {
+			if strings.TrimSpace(card.ProductName) == "" {
+				return 0, fmt.Errorf("%w: results[%d].productCards[%d].productName is required", ErrInvalidTaskRequest, i, j)
+			}
+		}
 		switch a.ExecutionStatus {
 		case "SUCCESS":
 			if strings.TrimSpace(a.AnswerText) == "" {
@@ -172,7 +182,7 @@ func (u *PullUsecase) ProcessOne(ctx context.Context) (bool, error) {
 		for _, a := range sub.Input.Results {
 			var refs []json.RawMessage
 			_ = json.Unmarshal(a.References, &refs)
-			result := TaskItemResult{ItemID: a.ItemID, Seq: a.AnswerSeq, AnswerText: a.AnswerText, ThinkingProcess: a.ThinkingProcess, GeneratedAtText: a.GeneratedAt, RecommendedQuestions: a.RecommendedQuestions, DeviceID: a.DeviceID, RecordingURL: a.RecordingURL, ReferencesJSON: a.References, ReferenceCount: len(refs), ParseStatus: "SUCCESS"}
+			result := TaskItemResult{ProductCards: a.ProductCards, ItemID: a.ItemID, Seq: a.AnswerSeq, AnswerText: a.AnswerText, ThinkingProcess: a.ThinkingProcess, GeneratedAtText: a.GeneratedAt, RecommendedQuestions: a.RecommendedQuestions, DeviceID: a.DeviceID, RecordingURL: a.RecordingURL, ReferencesJSON: a.References, ReferenceCount: len(refs), ParseStatus: "SUCCESS"}
 			if a.GeneratedAt != "" {
 				result.GeneratedAt, _ = time.Parse(time.RFC3339, a.GeneratedAt)
 			}

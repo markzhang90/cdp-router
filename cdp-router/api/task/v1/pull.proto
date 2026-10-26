@@ -14,6 +14,8 @@ message PullTaskResponse { int32 status=1; string message=2; PullTaskData data=3
 message PullTaskData { string batch_no=1; int64 shard_id=2; string device=3; string channel=4; repeated TaskItem items=5; }
 message PullResultRequest { string request_id=1; string batch_no=2; int64 shard_id=3; string schema_version=4; bool finished=5; repeated PullAnswer results=6; }
 message PullAnswer {
+ // Complete ordered snapshot; omitted/empty clears previous cards. Maximum 100.
+ repeated ProductCard product_cards=13 [json_name="productCards"];
  string item_id=1; int32 answer_seq=2; string execution_status=3; string error_code=4; string error_message=5;
  string answer_text=6; string thinking_process=7; string generated_at=8;
  repeated string recommended_questions=9; repeated PullReference references=10;

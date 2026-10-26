@@ -1017,3 +1017,23 @@ textarea {
 .validation-rule-keyword { overflow-wrap: anywhere; }
 .task-risk-alert { margin-bottom: 16px; }
 .answer-risk-details { max-height: 200px; overflow: auto; }
+
+.item-products {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.product-cards .ant-collapse-content-box {
+  max-height: 480px;
+  overflow: auto;
+}
+
+.product-cards .product-selling-points {
+  max-width: 320px;
+  margin-bottom: 0;
+  white-space: pre-wrap;
+}
+
+.product-image-value {
+  max-width: 100%;
+}

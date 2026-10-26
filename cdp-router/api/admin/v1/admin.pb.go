@@ -7,6 +7,7 @@
 package adminv1
 
 import (
+	v1 "github.com/GitMarkZhang/cdp-router/api/task/v1"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -1568,6 +1569,7 @@ func (x *TaskDetailData) GetEventPageSize() int32 {
 
 type AdminTaskItem struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
+	ProductCards             []*v1.ProductCard      `protobuf:"bytes,24,rep,name=product_cards,json=productCards,proto3" json:"product_cards,omitempty"`
 	TaskItemId               int64                  `protobuf:"varint,1,opt,name=task_item_id,json=taskItemId,proto3" json:"task_item_id,omitempty"`
 	ItemId                   string                 `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
 	PlatformCode             string                 `protobuf:"bytes,3,opt,name=platform_code,json=platformCode,proto3" json:"platform_code,omitempty"`
@@ -1623,6 +1625,13 @@ func (x *AdminTaskItem) ProtoReflect() protoreflect.Message {
 // Deprecated: Use AdminTaskItem.ProtoReflect.Descriptor instead.
 func (*AdminTaskItem) Descriptor() ([]byte, []int) {
 	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *AdminTaskItem) GetProductCards() []*v1.ProductCard {
+	if x != nil {
+		return x.ProductCards
+	}
+	return nil
 }
 
 func (x *AdminTaskItem) GetTaskItemId() int64 {
@@ -3300,6 +3309,8 @@ func (x *ProviderListData) GetProviders() []*Provider {
 
 type Provider struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
+	InteractionMode        string                 `protobuf:"bytes,19,opt,name=interaction_mode,json=interactionMode,proto3" json:"interaction_mode,omitempty"`
+	SupportedDevices       []string               `protobuf:"bytes,20,rep,name=supported_devices,json=supportedDevices,proto3" json:"supported_devices,omitempty"`
 	ProviderCode           string                 `protobuf:"bytes,1,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
 	DisplayName            string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
 	Enabled                bool                   `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`
@@ -3349,6 +3360,20 @@ func (x *Provider) ProtoReflect() protoreflect.Message {
 // Deprecated: Use Provider.ProtoReflect.Descriptor instead.
 func (*Provider) Descriptor() ([]byte, []int) {
 	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *Provider) GetInteractionMode() string {
+	if x != nil {
+		return x.InteractionMode
+	}
+	return ""
+}
+
+func (x *Provider) GetSupportedDevices() []string {
+	if x != nil {
+		return x.SupportedDevices
+	}
+	return nil
 }
 
 func (x *Provider) GetProviderCode() string {
@@ -4059,17 +4084,19 @@ func (x *PlatformUser) GetDispatchProfile() *DispatchProfile {
 }
 
 type DispatchProfile struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	Id                      int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Code                    string                 `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
-	Name                    string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Strategy                string                 `protobuf:"bytes,4,opt,name=strategy,proto3" json:"strategy,omitempty"`
-	Enabled                 bool                   `protobuf:"varint,5,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Cursor                  int64                  `protobuf:"varint,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
-	LastProviderCode        string                 `protobuf:"bytes,7,opt,name=last_provider_code,json=lastProviderCode,proto3" json:"last_provider_code,omitempty"`
-	ProviderCodes           []string               `protobuf:"bytes,8,rep,name=provider_codes,json=providerCodes,proto3" json:"provider_codes,omitempty"`
-	Rules                   []*DispatchRule        `protobuf:"bytes,9,rep,name=rules,proto3" json:"rules,omitempty"`
-	FallbackSelectionPolicy string                 `protobuf:"bytes,10,opt,name=fallback_selection_policy,json=fallbackSelectionPolicy,proto3" json:"fallback_selection_policy,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Existing top-level fields describe Push.
+	Pull                    *DispatchMode   `protobuf:"bytes,11,opt,name=pull,proto3" json:"pull,omitempty"`
+	Id                      int64           `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Code                    string          `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	Name                    string          `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Strategy                string          `protobuf:"bytes,4,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	Enabled                 bool            `protobuf:"varint,5,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Cursor                  int64           `protobuf:"varint,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	LastProviderCode        string          `protobuf:"bytes,7,opt,name=last_provider_code,json=lastProviderCode,proto3" json:"last_provider_code,omitempty"`
+	ProviderCodes           []string        `protobuf:"bytes,8,rep,name=provider_codes,json=providerCodes,proto3" json:"provider_codes,omitempty"`
+	Rules                   []*DispatchRule `protobuf:"bytes,9,rep,name=rules,proto3" json:"rules,omitempty"`
+	FallbackSelectionPolicy string          `protobuf:"bytes,10,opt,name=fallback_selection_policy,json=fallbackSelectionPolicy,proto3" json:"fallback_selection_policy,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -4102,6 +4129,13 @@ func (x *DispatchProfile) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DispatchProfile.ProtoReflect.Descriptor instead.
 func (*DispatchProfile) Descriptor() ([]byte, []int) {
 	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *DispatchProfile) GetPull() *DispatchMode {
+	if x != nil {
+		return x.Pull
+	}
+	return nil
 }
 
 func (x *DispatchProfile) GetId() int64 {
@@ -4175,14 +4209,16 @@ func (x *DispatchProfile) GetFallbackSelectionPolicy() string {
 }
 
 type DispatchProfileInput struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	Code                    string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	Name                    string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Strategy                string                 `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`
-	Enabled                 bool                   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	ProviderCodes           []string               `protobuf:"bytes,5,rep,name=provider_codes,json=providerCodes,proto3" json:"provider_codes,omitempty"`
-	Rules                   []*DispatchRuleInput   `protobuf:"bytes,6,rep,name=rules,proto3" json:"rules,omitempty"`
-	FallbackSelectionPolicy string                 `protobuf:"bytes,7,opt,name=fallback_selection_policy,json=fallbackSelectionPolicy,proto3" json:"fallback_selection_policy,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Omitted preserves existing Pull configuration.
+	Pull                    *DispatchModeInput   `protobuf:"bytes,8,opt,name=pull,proto3" json:"pull,omitempty"`
+	Code                    string               `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	Name                    string               `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Strategy                string               `protobuf:"bytes,3,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	Enabled                 bool                 `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	ProviderCodes           []string             `protobuf:"bytes,5,rep,name=provider_codes,json=providerCodes,proto3" json:"provider_codes,omitempty"`
+	Rules                   []*DispatchRuleInput `protobuf:"bytes,6,rep,name=rules,proto3" json:"rules,omitempty"`
+	FallbackSelectionPolicy string               `protobuf:"bytes,7,opt,name=fallback_selection_policy,json=fallbackSelectionPolicy,proto3" json:"fallback_selection_policy,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -4215,6 +4251,13 @@ func (x *DispatchProfileInput) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DispatchProfileInput.ProtoReflect.Descriptor instead.
 func (*DispatchProfileInput) Descriptor() ([]byte, []int) {
 	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *DispatchProfileInput) GetPull() *DispatchModeInput {
+	if x != nil {
+		return x.Pull
+	}
+	return nil
 }
 
 func (x *DispatchProfileInput) GetCode() string {
@@ -4266,6 +4309,174 @@ func (x *DispatchProfileInput) GetFallbackSelectionPolicy() string {
 	return ""
 }
 
+type DispatchMode struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Strategy                string                 `protobuf:"bytes,1,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	Enabled                 bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	ProviderCodes           []string               `protobuf:"bytes,3,rep,name=provider_codes,json=providerCodes,proto3" json:"provider_codes,omitempty"`
+	Rules                   []*DispatchRule        `protobuf:"bytes,4,rep,name=rules,proto3" json:"rules,omitempty"`
+	FallbackSelectionPolicy string                 `protobuf:"bytes,5,opt,name=fallback_selection_policy,json=fallbackSelectionPolicy,proto3" json:"fallback_selection_policy,omitempty"`
+	Cursor                  int64                  `protobuf:"varint,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	LastProviderCode        string                 `protobuf:"bytes,7,opt,name=last_provider_code,json=lastProviderCode,proto3" json:"last_provider_code,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *DispatchMode) Reset() {
+	*x = DispatchMode{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DispatchMode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DispatchMode) ProtoMessage() {}
+
+func (x *DispatchMode) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DispatchMode.ProtoReflect.Descriptor instead.
+func (*DispatchMode) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *DispatchMode) GetStrategy() string {
+	if x != nil {
+		return x.Strategy
+	}
+	return ""
+}
+
+func (x *DispatchMode) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *DispatchMode) GetProviderCodes() []string {
+	if x != nil {
+		return x.ProviderCodes
+	}
+	return nil
+}
+
+func (x *DispatchMode) GetRules() []*DispatchRule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+func (x *DispatchMode) GetFallbackSelectionPolicy() string {
+	if x != nil {
+		return x.FallbackSelectionPolicy
+	}
+	return ""
+}
+
+func (x *DispatchMode) GetCursor() int64 {
+	if x != nil {
+		return x.Cursor
+	}
+	return 0
+}
+
+func (x *DispatchMode) GetLastProviderCode() string {
+	if x != nil {
+		return x.LastProviderCode
+	}
+	return ""
+}
+
+type DispatchModeInput struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Strategy                string                 `protobuf:"bytes,1,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	Enabled                 bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	ProviderCodes           []string               `protobuf:"bytes,3,rep,name=provider_codes,json=providerCodes,proto3" json:"provider_codes,omitempty"`
+	Rules                   []*DispatchRuleInput   `protobuf:"bytes,4,rep,name=rules,proto3" json:"rules,omitempty"`
+	FallbackSelectionPolicy string                 `protobuf:"bytes,5,opt,name=fallback_selection_policy,json=fallbackSelectionPolicy,proto3" json:"fallback_selection_policy,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *DispatchModeInput) Reset() {
+	*x = DispatchModeInput{}
+	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DispatchModeInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DispatchModeInput) ProtoMessage() {}
+
+func (x *DispatchModeInput) ProtoReflect() protoreflect.Message {
+	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DispatchModeInput.ProtoReflect.Descriptor instead.
+func (*DispatchModeInput) Descriptor() ([]byte, []int) {
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *DispatchModeInput) GetStrategy() string {
+	if x != nil {
+		return x.Strategy
+	}
+	return ""
+}
+
+func (x *DispatchModeInput) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *DispatchModeInput) GetProviderCodes() []string {
+	if x != nil {
+		return x.ProviderCodes
+	}
+	return nil
+}
+
+func (x *DispatchModeInput) GetRules() []*DispatchRuleInput {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+func (x *DispatchModeInput) GetFallbackSelectionPolicy() string {
+	if x != nil {
+		return x.FallbackSelectionPolicy
+	}
+	return ""
+}
+
 type DispatchRule struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
@@ -4281,7 +4492,7 @@ type DispatchRule struct {
 
 func (x *DispatchRule) Reset() {
 	*x = DispatchRule{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4293,7 +4504,7 @@ func (x *DispatchRule) String() string {
 func (*DispatchRule) ProtoMessage() {}
 
 func (x *DispatchRule) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[53]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4306,7 +4517,7 @@ func (x *DispatchRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchRule.ProtoReflect.Descriptor instead.
 func (*DispatchRule) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{53}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *DispatchRule) GetCode() string {
@@ -4373,7 +4584,7 @@ type DispatchRuleInput struct {
 
 func (x *DispatchRuleInput) Reset() {
 	*x = DispatchRuleInput{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4385,7 +4596,7 @@ func (x *DispatchRuleInput) String() string {
 func (*DispatchRuleInput) ProtoMessage() {}
 
 func (x *DispatchRuleInput) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[54]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4398,7 +4609,7 @@ func (x *DispatchRuleInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchRuleInput.ProtoReflect.Descriptor instead.
 func (*DispatchRuleInput) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{54}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *DispatchRuleInput) GetCode() string {
@@ -4462,7 +4673,7 @@ type ListPlatformUsersRequest struct {
 
 func (x *ListPlatformUsersRequest) Reset() {
 	*x = ListPlatformUsersRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4474,7 +4685,7 @@ func (x *ListPlatformUsersRequest) String() string {
 func (*ListPlatformUsersRequest) ProtoMessage() {}
 
 func (x *ListPlatformUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[55]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4487,7 +4698,7 @@ func (x *ListPlatformUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPlatformUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListPlatformUsersRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{55}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ListPlatformUsersRequest) GetKeyword() string {
@@ -4530,7 +4741,7 @@ type PlatformUserListData struct {
 
 func (x *PlatformUserListData) Reset() {
 	*x = PlatformUserListData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4542,7 +4753,7 @@ func (x *PlatformUserListData) String() string {
 func (*PlatformUserListData) ProtoMessage() {}
 
 func (x *PlatformUserListData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[56]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4555,7 +4766,7 @@ func (x *PlatformUserListData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformUserListData.ProtoReflect.Descriptor instead.
 func (*PlatformUserListData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{56}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *PlatformUserListData) GetUsers() []*PlatformUser {
@@ -4597,7 +4808,7 @@ type ListPlatformUsersResponse struct {
 
 func (x *ListPlatformUsersResponse) Reset() {
 	*x = ListPlatformUsersResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4609,7 +4820,7 @@ func (x *ListPlatformUsersResponse) String() string {
 func (*ListPlatformUsersResponse) ProtoMessage() {}
 
 func (x *ListPlatformUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[57]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4622,7 +4833,7 @@ func (x *ListPlatformUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPlatformUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListPlatformUsersResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{57}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *ListPlatformUsersResponse) GetStatus() int32 {
@@ -4655,7 +4866,7 @@ type GetPlatformUserRequest struct {
 
 func (x *GetPlatformUserRequest) Reset() {
 	*x = GetPlatformUserRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4667,7 +4878,7 @@ func (x *GetPlatformUserRequest) String() string {
 func (*GetPlatformUserRequest) ProtoMessage() {}
 
 func (x *GetPlatformUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[58]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4680,7 +4891,7 @@ func (x *GetPlatformUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserRequest.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{58}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GetPlatformUserRequest) GetId() int64 {
@@ -4701,7 +4912,7 @@ type GetPlatformUserResponse struct {
 
 func (x *GetPlatformUserResponse) Reset() {
 	*x = GetPlatformUserResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4713,7 +4924,7 @@ func (x *GetPlatformUserResponse) String() string {
 func (*GetPlatformUserResponse) ProtoMessage() {}
 
 func (x *GetPlatformUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[59]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4726,7 +4937,7 @@ func (x *GetPlatformUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserResponse.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{59}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *GetPlatformUserResponse) GetStatus() int32 {
@@ -4761,7 +4972,7 @@ type GetPlatformUserMetricsRequest struct {
 
 func (x *GetPlatformUserMetricsRequest) Reset() {
 	*x = GetPlatformUserMetricsRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4773,7 +4984,7 @@ func (x *GetPlatformUserMetricsRequest) String() string {
 func (*GetPlatformUserMetricsRequest) ProtoMessage() {}
 
 func (x *GetPlatformUserMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[60]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4786,7 +4997,7 @@ func (x *GetPlatformUserMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserMetricsRequest.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{60}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *GetPlatformUserMetricsRequest) GetId() int64 {
@@ -4821,7 +5032,7 @@ type GetPlatformUserMetricsResponse struct {
 
 func (x *GetPlatformUserMetricsResponse) Reset() {
 	*x = GetPlatformUserMetricsResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4833,7 +5044,7 @@ func (x *GetPlatformUserMetricsResponse) String() string {
 func (*GetPlatformUserMetricsResponse) ProtoMessage() {}
 
 func (x *GetPlatformUserMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[61]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4846,7 +5057,7 @@ func (x *GetPlatformUserMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformUserMetricsResponse.ProtoReflect.Descriptor instead.
 func (*GetPlatformUserMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{61}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *GetPlatformUserMetricsResponse) GetStatus() int32 {
@@ -4881,7 +5092,7 @@ type ExportPlatformUserReconciliationRequest struct {
 
 func (x *ExportPlatformUserReconciliationRequest) Reset() {
 	*x = ExportPlatformUserReconciliationRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4893,7 +5104,7 @@ func (x *ExportPlatformUserReconciliationRequest) String() string {
 func (*ExportPlatformUserReconciliationRequest) ProtoMessage() {}
 
 func (x *ExportPlatformUserReconciliationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[62]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4906,7 +5117,7 @@ func (x *ExportPlatformUserReconciliationRequest) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use ExportPlatformUserReconciliationRequest.ProtoReflect.Descriptor instead.
 func (*ExportPlatformUserReconciliationRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{62}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *ExportPlatformUserReconciliationRequest) GetId() int64 {
@@ -4941,7 +5152,7 @@ type ExportPlatformUserReconciliationResponse struct {
 
 func (x *ExportPlatformUserReconciliationResponse) Reset() {
 	*x = ExportPlatformUserReconciliationResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4953,7 +5164,7 @@ func (x *ExportPlatformUserReconciliationResponse) String() string {
 func (*ExportPlatformUserReconciliationResponse) ProtoMessage() {}
 
 func (x *ExportPlatformUserReconciliationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[63]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4966,7 +5177,7 @@ func (x *ExportPlatformUserReconciliationResponse) ProtoReflect() protoreflect.M
 
 // Deprecated: Use ExportPlatformUserReconciliationResponse.ProtoReflect.Descriptor instead.
 func (*ExportPlatformUserReconciliationResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{63}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ExportPlatformUserReconciliationResponse) GetStatus() int32 {
@@ -5009,7 +5220,7 @@ type PlatformUserMetricsData struct {
 
 func (x *PlatformUserMetricsData) Reset() {
 	*x = PlatformUserMetricsData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5021,7 +5232,7 @@ func (x *PlatformUserMetricsData) String() string {
 func (*PlatformUserMetricsData) ProtoMessage() {}
 
 func (x *PlatformUserMetricsData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[64]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5034,7 +5245,7 @@ func (x *PlatformUserMetricsData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformUserMetricsData.ProtoReflect.Descriptor instead.
 func (*PlatformUserMetricsData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{64}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *PlatformUserMetricsData) GetUser() *PlatformUser {
@@ -5131,7 +5342,7 @@ type PlatformTaskMetrics struct {
 
 func (x *PlatformTaskMetrics) Reset() {
 	*x = PlatformTaskMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5143,7 +5354,7 @@ func (x *PlatformTaskMetrics) String() string {
 func (*PlatformTaskMetrics) ProtoMessage() {}
 
 func (x *PlatformTaskMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[65]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5156,7 +5367,7 @@ func (x *PlatformTaskMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformTaskMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformTaskMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{65}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *PlatformTaskMetrics) GetSubmittedTaskCount() int32 {
@@ -5237,7 +5448,7 @@ type PlatformQuestionMetrics struct {
 
 func (x *PlatformQuestionMetrics) Reset() {
 	*x = PlatformQuestionMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5249,7 +5460,7 @@ func (x *PlatformQuestionMetrics) String() string {
 func (*PlatformQuestionMetrics) ProtoMessage() {}
 
 func (x *PlatformQuestionMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[66]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5262,7 +5473,7 @@ func (x *PlatformQuestionMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformQuestionMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformQuestionMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{66}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *PlatformQuestionMetrics) GetSubmittedQuestionCount() int32 {
@@ -5329,7 +5540,7 @@ type PlatformResultMetrics struct {
 
 func (x *PlatformResultMetrics) Reset() {
 	*x = PlatformResultMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5341,7 +5552,7 @@ func (x *PlatformResultMetrics) String() string {
 func (*PlatformResultMetrics) ProtoMessage() {}
 
 func (x *PlatformResultMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[67]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5354,7 +5565,7 @@ func (x *PlatformResultMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformResultMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformResultMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{67}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *PlatformResultMetrics) GetResultFileCount() int32 {
@@ -5418,7 +5629,7 @@ type PlatformCallbackMetrics struct {
 
 func (x *PlatformCallbackMetrics) Reset() {
 	*x = PlatformCallbackMetrics{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5430,7 +5641,7 @@ func (x *PlatformCallbackMetrics) String() string {
 func (*PlatformCallbackMetrics) ProtoMessage() {}
 
 func (x *PlatformCallbackMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[68]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5443,7 +5654,7 @@ func (x *PlatformCallbackMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformCallbackMetrics.ProtoReflect.Descriptor instead.
 func (*PlatformCallbackMetrics) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{68}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *PlatformCallbackMetrics) GetCallbackCount() int32 {
@@ -5485,7 +5696,7 @@ type MetricBreakdown struct {
 
 func (x *MetricBreakdown) Reset() {
 	*x = MetricBreakdown{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5497,7 +5708,7 @@ func (x *MetricBreakdown) String() string {
 func (*MetricBreakdown) ProtoMessage() {}
 
 func (x *MetricBreakdown) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[69]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5510,7 +5721,7 @@ func (x *MetricBreakdown) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricBreakdown.ProtoReflect.Descriptor instead.
 func (*MetricBreakdown) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{69}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *MetricBreakdown) GetLabel() string {
@@ -5548,7 +5759,7 @@ type ProviderDailyMetric struct {
 
 func (x *ProviderDailyMetric) Reset() {
 	*x = ProviderDailyMetric{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5560,7 +5771,7 @@ func (x *ProviderDailyMetric) String() string {
 func (*ProviderDailyMetric) ProtoMessage() {}
 
 func (x *ProviderDailyMetric) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[70]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5573,7 +5784,7 @@ func (x *ProviderDailyMetric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderDailyMetric.ProtoReflect.Descriptor instead.
 func (*ProviderDailyMetric) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{70}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ProviderDailyMetric) GetMetricDate() string {
@@ -5632,7 +5843,7 @@ type CreatePlatformUserRequest struct {
 
 func (x *CreatePlatformUserRequest) Reset() {
 	*x = CreatePlatformUserRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5644,7 +5855,7 @@ func (x *CreatePlatformUserRequest) String() string {
 func (*CreatePlatformUserRequest) ProtoMessage() {}
 
 func (x *CreatePlatformUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[71]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5657,7 +5868,7 @@ func (x *CreatePlatformUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePlatformUserRequest.ProtoReflect.Descriptor instead.
 func (*CreatePlatformUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{71}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *CreatePlatformUserRequest) GetPlatformCode() string {
@@ -5713,7 +5924,7 @@ type CreatePlatformUserResponse struct {
 
 func (x *CreatePlatformUserResponse) Reset() {
 	*x = CreatePlatformUserResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[72]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5725,7 +5936,7 @@ func (x *CreatePlatformUserResponse) String() string {
 func (*CreatePlatformUserResponse) ProtoMessage() {}
 
 func (x *CreatePlatformUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[72]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5738,7 +5949,7 @@ func (x *CreatePlatformUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePlatformUserResponse.ProtoReflect.Descriptor instead.
 func (*CreatePlatformUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{72}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *CreatePlatformUserResponse) GetStatus() int32 {
@@ -5777,7 +5988,7 @@ type UpdatePlatformUserRequest struct {
 
 func (x *UpdatePlatformUserRequest) Reset() {
 	*x = UpdatePlatformUserRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[73]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5789,7 +6000,7 @@ func (x *UpdatePlatformUserRequest) String() string {
 func (*UpdatePlatformUserRequest) ProtoMessage() {}
 
 func (x *UpdatePlatformUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[73]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5802,7 +6013,7 @@ func (x *UpdatePlatformUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlatformUserRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePlatformUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{73}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *UpdatePlatformUserRequest) GetId() int64 {
@@ -5865,7 +6076,7 @@ type UpdatePlatformUserResponse struct {
 
 func (x *UpdatePlatformUserResponse) Reset() {
 	*x = UpdatePlatformUserResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[74]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5877,7 +6088,7 @@ func (x *UpdatePlatformUserResponse) String() string {
 func (*UpdatePlatformUserResponse) ProtoMessage() {}
 
 func (x *UpdatePlatformUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[74]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5890,7 +6101,7 @@ func (x *UpdatePlatformUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePlatformUserResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePlatformUserResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{74}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *UpdatePlatformUserResponse) GetStatus() int32 {
@@ -5927,7 +6138,7 @@ type AnswerRisk struct {
 
 func (x *AnswerRisk) Reset() {
 	*x = AnswerRisk{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[75]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5939,7 +6150,7 @@ func (x *AnswerRisk) String() string {
 func (*AnswerRisk) ProtoMessage() {}
 
 func (x *AnswerRisk) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[75]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5952,7 +6163,7 @@ func (x *AnswerRisk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnswerRisk.ProtoReflect.Descriptor instead.
 func (*AnswerRisk) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{75}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *AnswerRisk) GetCode() string {
@@ -6001,7 +6212,7 @@ type UpdateProviderValidationRuleRequest struct {
 
 func (x *UpdateProviderValidationRuleRequest) Reset() {
 	*x = UpdateProviderValidationRuleRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[76]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6013,7 +6224,7 @@ func (x *UpdateProviderValidationRuleRequest) String() string {
 func (*UpdateProviderValidationRuleRequest) ProtoMessage() {}
 
 func (x *UpdateProviderValidationRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[76]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6026,7 +6237,7 @@ func (x *UpdateProviderValidationRuleRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use UpdateProviderValidationRuleRequest.ProtoReflect.Descriptor instead.
 func (*UpdateProviderValidationRuleRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{76}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *UpdateProviderValidationRuleRequest) GetExpectedVersion() string {
@@ -6058,7 +6269,7 @@ type GetResultValidationRulesRequest struct {
 
 func (x *GetResultValidationRulesRequest) Reset() {
 	*x = GetResultValidationRulesRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[77]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6070,7 +6281,7 @@ func (x *GetResultValidationRulesRequest) String() string {
 func (*GetResultValidationRulesRequest) ProtoMessage() {}
 
 func (x *GetResultValidationRulesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[77]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6083,7 +6294,7 @@ func (x *GetResultValidationRulesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetResultValidationRulesRequest.ProtoReflect.Descriptor instead.
 func (*GetResultValidationRulesRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{77}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{79}
 }
 
 type UpdateResultValidationRulesRequest struct {
@@ -6096,7 +6307,7 @@ type UpdateResultValidationRulesRequest struct {
 
 func (x *UpdateResultValidationRulesRequest) Reset() {
 	*x = UpdateResultValidationRulesRequest{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[78]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6108,7 +6319,7 @@ func (x *UpdateResultValidationRulesRequest) String() string {
 func (*UpdateResultValidationRulesRequest) ProtoMessage() {}
 
 func (x *UpdateResultValidationRulesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[78]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6121,7 +6332,7 @@ func (x *UpdateResultValidationRulesRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use UpdateResultValidationRulesRequest.ProtoReflect.Descriptor instead.
 func (*UpdateResultValidationRulesRequest) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{78}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *UpdateResultValidationRulesRequest) GetExpectedVersion() string {
@@ -6149,7 +6360,7 @@ type ResultValidationRulesResponse struct {
 
 func (x *ResultValidationRulesResponse) Reset() {
 	*x = ResultValidationRulesResponse{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[79]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6161,7 +6372,7 @@ func (x *ResultValidationRulesResponse) String() string {
 func (*ResultValidationRulesResponse) ProtoMessage() {}
 
 func (x *ResultValidationRulesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[79]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6174,7 +6385,7 @@ func (x *ResultValidationRulesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValidationRulesResponse.ProtoReflect.Descriptor instead.
 func (*ResultValidationRulesResponse) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{79}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *ResultValidationRulesResponse) GetStatus() int32 {
@@ -6212,7 +6423,7 @@ type ResultValidationRulesData struct {
 
 func (x *ResultValidationRulesData) Reset() {
 	*x = ResultValidationRulesData{}
-	mi := &file_api_admin_v1_admin_proto_msgTypes[80]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6224,7 +6435,7 @@ func (x *ResultValidationRulesData) String() string {
 func (*ResultValidationRulesData) ProtoMessage() {}
 
 func (x *ResultValidationRulesData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_admin_v1_admin_proto_msgTypes[80]
+	mi := &file_api_admin_v1_admin_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6237,7 +6448,7 @@ func (x *ResultValidationRulesData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultValidationRulesData.ProtoReflect.Descriptor instead.
 func (*ResultValidationRulesData) Descriptor() ([]byte, []int) {
-	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{80}
+	return file_api_admin_v1_admin_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ResultValidationRulesData) GetVersion() string {
@@ -6286,7 +6497,7 @@ var File_api_admin_v1_admin_proto protoreflect.FileDescriptor
 
 const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x18api/admin/v1/admin.proto\x12\fapi.admin.v1\x1a\x1cgoogle/api/annotations.proto\"F\n" +
+	"\x18api/admin/v1/admin.proto\x12\fapi.admin.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x16api/task/v1/task.proto\"F\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"n\n" +
@@ -6429,8 +6640,9 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"eventTotal\x12\x1d\n" +
 	"\n" +
 	"event_page\x18\r \x01(\x05R\teventPage\x12&\n" +
-	"\x0fevent_page_size\x18\x0e \x01(\x05R\reventPageSize\"\x8b\a\n" +
-	"\rAdminTaskItem\x12 \n" +
+	"\x0fevent_page_size\x18\x0e \x01(\x05R\reventPageSize\"\xca\a\n" +
+	"\rAdminTaskItem\x12=\n" +
+	"\rproduct_cards\x18\x18 \x03(\v2\x18.api.task.v1.ProductCardR\fproductCards\x12 \n" +
 	"\ftask_item_id\x18\x01 \x01(\x03R\n" +
 	"taskItemId\x12\x17\n" +
 	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12#\n" +
@@ -6601,8 +6813,10 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x122\n" +
 	"\x04data\x18\x03 \x01(\v2\x1e.api.admin.v1.ProviderListDataR\x04data\"H\n" +
 	"\x10ProviderListData\x124\n" +
-	"\tproviders\x18\x01 \x03(\v2\x16.api.admin.v1.ProviderR\tproviders\"\xf1\x05\n" +
-	"\bProvider\x12#\n" +
+	"\tproviders\x18\x01 \x03(\v2\x16.api.admin.v1.ProviderR\tproviders\"\xc9\x06\n" +
+	"\bProvider\x12)\n" +
+	"\x10interaction_mode\x18\x13 \x01(\tR\x0finteractionMode\x12+\n" +
+	"\x11supported_devices\x18\x14 \x03(\tR\x10supportedDevices\x12#\n" +
 	"\rprovider_code\x18\x01 \x01(\tR\fproviderCode\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x18\n" +
 	"\aenabled\x18\x03 \x01(\bR\aenabled\x12\x1f\n" +
@@ -6671,8 +6885,9 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\t \x01(\tR\tupdatedAt\x12H\n" +
 	"\x10dispatch_profile\x18\n" +
-	" \x01(\v2\x1d.api.admin.v1.DispatchProfileR\x0fdispatchProfile\"\xda\x02\n" +
-	"\x0fDispatchProfile\x12\x0e\n" +
+	" \x01(\v2\x1d.api.admin.v1.DispatchProfileR\x0fdispatchProfile\"\x8a\x03\n" +
+	"\x0fDispatchProfile\x12.\n" +
+	"\x04pull\x18\v \x01(\v2\x1a.api.admin.v1.DispatchModeR\x04pull\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1a\n" +
@@ -6683,15 +6898,30 @@ const file_api_admin_v1_admin_proto_rawDesc = "" +
 	"\x0eprovider_codes\x18\b \x03(\tR\rproviderCodes\x120\n" +
 	"\x05rules\x18\t \x03(\v2\x1a.api.admin.v1.DispatchRuleR\x05rules\x12:\n" +
 	"\x19fallback_selection_policy\x18\n" +
-	" \x01(\tR\x17fallbackSelectionPolicy\"\x8e\x02\n" +
-	"\x14DispatchProfileInput\x12\x12\n" +
+	" \x01(\tR\x17fallbackSelectionPolicy\"\xc3\x02\n" +
+	"\x14DispatchProfileInput\x123\n" +
+	"\x04pull\x18\b \x01(\v2\x1f.api.admin.v1.DispatchModeInputR\x04pull\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
 	"\bstrategy\x18\x03 \x01(\tR\bstrategy\x12\x18\n" +
 	"\aenabled\x18\x04 \x01(\bR\aenabled\x12%\n" +
 	"\x0eprovider_codes\x18\x05 \x03(\tR\rproviderCodes\x125\n" +
 	"\x05rules\x18\x06 \x03(\v2\x1f.api.admin.v1.DispatchRuleInputR\x05rules\x12:\n" +
-	"\x19fallback_selection_policy\x18\a \x01(\tR\x17fallbackSelectionPolicy\"\xd6\x01\n" +
+	"\x19fallback_selection_policy\x18\a \x01(\tR\x17fallbackSelectionPolicy\"\x9f\x02\n" +
+	"\fDispatchMode\x12\x1a\n" +
+	"\bstrategy\x18\x01 \x01(\tR\bstrategy\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\x12%\n" +
+	"\x0eprovider_codes\x18\x03 \x03(\tR\rproviderCodes\x120\n" +
+	"\x05rules\x18\x04 \x03(\v2\x1a.api.admin.v1.DispatchRuleR\x05rules\x12:\n" +
+	"\x19fallback_selection_policy\x18\x05 \x01(\tR\x17fallbackSelectionPolicy\x12\x16\n" +
+	"\x06cursor\x18\x06 \x01(\x03R\x06cursor\x12,\n" +
+	"\x12last_provider_code\x18\a \x01(\tR\x10lastProviderCode\"\xe3\x01\n" +
+	"\x11DispatchModeInput\x12\x1a\n" +
+	"\bstrategy\x18\x01 \x01(\tR\bstrategy\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\x12%\n" +
+	"\x0eprovider_codes\x18\x03 \x03(\tR\rproviderCodes\x125\n" +
+	"\x05rules\x18\x04 \x03(\v2\x1f.api.admin.v1.DispatchRuleInputR\x05rules\x12:\n" +
+	"\x19fallback_selection_policy\x18\x05 \x01(\tR\x17fallbackSelectionPolicy\"\xd6\x01\n" +
 	"\fDispatchRule\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -6897,7 +7127,7 @@ func file_api_admin_v1_admin_proto_rawDescGZIP() []byte {
 	return file_api_admin_v1_admin_proto_rawDescData
 }
 
-var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 81)
+var file_api_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 83)
 var file_api_admin_v1_admin_proto_goTypes = []any{
 	(*LoginRequest)(nil),                             // 0: api.admin.v1.LoginRequest
 	(*LoginResponse)(nil),                            // 1: api.admin.v1.LoginResponse
@@ -6952,34 +7182,37 @@ var file_api_admin_v1_admin_proto_goTypes = []any{
 	(*PlatformUser)(nil),                             // 50: api.admin.v1.PlatformUser
 	(*DispatchProfile)(nil),                          // 51: api.admin.v1.DispatchProfile
 	(*DispatchProfileInput)(nil),                     // 52: api.admin.v1.DispatchProfileInput
-	(*DispatchRule)(nil),                             // 53: api.admin.v1.DispatchRule
-	(*DispatchRuleInput)(nil),                        // 54: api.admin.v1.DispatchRuleInput
-	(*ListPlatformUsersRequest)(nil),                 // 55: api.admin.v1.ListPlatformUsersRequest
-	(*PlatformUserListData)(nil),                     // 56: api.admin.v1.PlatformUserListData
-	(*ListPlatformUsersResponse)(nil),                // 57: api.admin.v1.ListPlatformUsersResponse
-	(*GetPlatformUserRequest)(nil),                   // 58: api.admin.v1.GetPlatformUserRequest
-	(*GetPlatformUserResponse)(nil),                  // 59: api.admin.v1.GetPlatformUserResponse
-	(*GetPlatformUserMetricsRequest)(nil),            // 60: api.admin.v1.GetPlatformUserMetricsRequest
-	(*GetPlatformUserMetricsResponse)(nil),           // 61: api.admin.v1.GetPlatformUserMetricsResponse
-	(*ExportPlatformUserReconciliationRequest)(nil),  // 62: api.admin.v1.ExportPlatformUserReconciliationRequest
-	(*ExportPlatformUserReconciliationResponse)(nil), // 63: api.admin.v1.ExportPlatformUserReconciliationResponse
-	(*PlatformUserMetricsData)(nil),                  // 64: api.admin.v1.PlatformUserMetricsData
-	(*PlatformTaskMetrics)(nil),                      // 65: api.admin.v1.PlatformTaskMetrics
-	(*PlatformQuestionMetrics)(nil),                  // 66: api.admin.v1.PlatformQuestionMetrics
-	(*PlatformResultMetrics)(nil),                    // 67: api.admin.v1.PlatformResultMetrics
-	(*PlatformCallbackMetrics)(nil),                  // 68: api.admin.v1.PlatformCallbackMetrics
-	(*MetricBreakdown)(nil),                          // 69: api.admin.v1.MetricBreakdown
-	(*ProviderDailyMetric)(nil),                      // 70: api.admin.v1.ProviderDailyMetric
-	(*CreatePlatformUserRequest)(nil),                // 71: api.admin.v1.CreatePlatformUserRequest
-	(*CreatePlatformUserResponse)(nil),               // 72: api.admin.v1.CreatePlatformUserResponse
-	(*UpdatePlatformUserRequest)(nil),                // 73: api.admin.v1.UpdatePlatformUserRequest
-	(*UpdatePlatformUserResponse)(nil),               // 74: api.admin.v1.UpdatePlatformUserResponse
-	(*AnswerRisk)(nil),                               // 75: api.admin.v1.AnswerRisk
-	(*UpdateProviderValidationRuleRequest)(nil),      // 76: api.admin.v1.UpdateProviderValidationRuleRequest
-	(*GetResultValidationRulesRequest)(nil),          // 77: api.admin.v1.GetResultValidationRulesRequest
-	(*UpdateResultValidationRulesRequest)(nil),       // 78: api.admin.v1.UpdateResultValidationRulesRequest
-	(*ResultValidationRulesResponse)(nil),            // 79: api.admin.v1.ResultValidationRulesResponse
-	(*ResultValidationRulesData)(nil),                // 80: api.admin.v1.ResultValidationRulesData
+	(*DispatchMode)(nil),                             // 53: api.admin.v1.DispatchMode
+	(*DispatchModeInput)(nil),                        // 54: api.admin.v1.DispatchModeInput
+	(*DispatchRule)(nil),                             // 55: api.admin.v1.DispatchRule
+	(*DispatchRuleInput)(nil),                        // 56: api.admin.v1.DispatchRuleInput
+	(*ListPlatformUsersRequest)(nil),                 // 57: api.admin.v1.ListPlatformUsersRequest
+	(*PlatformUserListData)(nil),                     // 58: api.admin.v1.PlatformUserListData
+	(*ListPlatformUsersResponse)(nil),                // 59: api.admin.v1.ListPlatformUsersResponse
+	(*GetPlatformUserRequest)(nil),                   // 60: api.admin.v1.GetPlatformUserRequest
+	(*GetPlatformUserResponse)(nil),                  // 61: api.admin.v1.GetPlatformUserResponse
+	(*GetPlatformUserMetricsRequest)(nil),            // 62: api.admin.v1.GetPlatformUserMetricsRequest
+	(*GetPlatformUserMetricsResponse)(nil),           // 63: api.admin.v1.GetPlatformUserMetricsResponse
+	(*ExportPlatformUserReconciliationRequest)(nil),  // 64: api.admin.v1.ExportPlatformUserReconciliationRequest
+	(*ExportPlatformUserReconciliationResponse)(nil), // 65: api.admin.v1.ExportPlatformUserReconciliationResponse
+	(*PlatformUserMetricsData)(nil),                  // 66: api.admin.v1.PlatformUserMetricsData
+	(*PlatformTaskMetrics)(nil),                      // 67: api.admin.v1.PlatformTaskMetrics
+	(*PlatformQuestionMetrics)(nil),                  // 68: api.admin.v1.PlatformQuestionMetrics
+	(*PlatformResultMetrics)(nil),                    // 69: api.admin.v1.PlatformResultMetrics
+	(*PlatformCallbackMetrics)(nil),                  // 70: api.admin.v1.PlatformCallbackMetrics
+	(*MetricBreakdown)(nil),                          // 71: api.admin.v1.MetricBreakdown
+	(*ProviderDailyMetric)(nil),                      // 72: api.admin.v1.ProviderDailyMetric
+	(*CreatePlatformUserRequest)(nil),                // 73: api.admin.v1.CreatePlatformUserRequest
+	(*CreatePlatformUserResponse)(nil),               // 74: api.admin.v1.CreatePlatformUserResponse
+	(*UpdatePlatformUserRequest)(nil),                // 75: api.admin.v1.UpdatePlatformUserRequest
+	(*UpdatePlatformUserResponse)(nil),               // 76: api.admin.v1.UpdatePlatformUserResponse
+	(*AnswerRisk)(nil),                               // 77: api.admin.v1.AnswerRisk
+	(*UpdateProviderValidationRuleRequest)(nil),      // 78: api.admin.v1.UpdateProviderValidationRuleRequest
+	(*GetResultValidationRulesRequest)(nil),          // 79: api.admin.v1.GetResultValidationRulesRequest
+	(*UpdateResultValidationRulesRequest)(nil),       // 80: api.admin.v1.UpdateResultValidationRulesRequest
+	(*ResultValidationRulesResponse)(nil),            // 81: api.admin.v1.ResultValidationRulesResponse
+	(*ResultValidationRulesData)(nil),                // 82: api.admin.v1.ResultValidationRulesData
+	(*v1.ProductCard)(nil),                           // 83: api.task.v1.ProductCard
 }
 var file_api_admin_v1_admin_proto_depIdxs = []int32{
 	2,  // 0: api.admin.v1.LoginResponse.data:type_name -> api.admin.v1.LoginData
@@ -6996,94 +7229,99 @@ var file_api_admin_v1_admin_proto_depIdxs = []int32{
 	21, // 11: api.admin.v1.TaskDetailData.files:type_name -> api.admin.v1.ResultFile
 	22, // 12: api.admin.v1.TaskDetailData.events:type_name -> api.admin.v1.TaskEvent
 	23, // 13: api.admin.v1.TaskDetailData.callbacks:type_name -> api.admin.v1.TaskCallback
-	75, // 14: api.admin.v1.AdminTaskItem.risk_items:type_name -> api.admin.v1.AnswerRisk
-	26, // 15: api.admin.v1.CheckTaskResultResponse.data:type_name -> api.admin.v1.CheckTaskResultData
-	29, // 16: api.admin.v1.RetryTaskCallbackResponse.data:type_name -> api.admin.v1.RetryTaskCallbackData
-	32, // 17: api.admin.v1.ForceImportCallbackResponse.data:type_name -> api.admin.v1.ForceImportCallbackData
-	35, // 18: api.admin.v1.ReassignTaskResponse.data:type_name -> api.admin.v1.ReassignTaskData
-	9,  // 19: api.admin.v1.DeleteTaskResponse.data:type_name -> api.admin.v1.EmptyData
-	40, // 20: api.admin.v1.ListProvidersResponse.data:type_name -> api.admin.v1.ProviderListData
-	41, // 21: api.admin.v1.ProviderListData.providers:type_name -> api.admin.v1.Provider
-	44, // 22: api.admin.v1.GetDispatchOptionsResponse.data:type_name -> api.admin.v1.DispatchOptionsData
-	45, // 23: api.admin.v1.DispatchOptionsData.strategies:type_name -> api.admin.v1.DispatchStrategyOption
-	41, // 24: api.admin.v1.DispatchOptionsData.providers:type_name -> api.admin.v1.Provider
-	48, // 25: api.admin.v1.GetProviderMetricsResponse.data:type_name -> api.admin.v1.ProviderMetricsData
-	41, // 26: api.admin.v1.ProviderMetricsData.provider:type_name -> api.admin.v1.Provider
-	49, // 27: api.admin.v1.ProviderMetricsData.summary:type_name -> api.admin.v1.ProviderMetricsSummary
-	70, // 28: api.admin.v1.ProviderMetricsData.daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
-	51, // 29: api.admin.v1.PlatformUser.dispatch_profile:type_name -> api.admin.v1.DispatchProfile
-	53, // 30: api.admin.v1.DispatchProfile.rules:type_name -> api.admin.v1.DispatchRule
-	54, // 31: api.admin.v1.DispatchProfileInput.rules:type_name -> api.admin.v1.DispatchRuleInput
-	50, // 32: api.admin.v1.PlatformUserListData.users:type_name -> api.admin.v1.PlatformUser
-	56, // 33: api.admin.v1.ListPlatformUsersResponse.data:type_name -> api.admin.v1.PlatformUserListData
-	50, // 34: api.admin.v1.GetPlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	64, // 35: api.admin.v1.GetPlatformUserMetricsResponse.data:type_name -> api.admin.v1.PlatformUserMetricsData
-	18, // 36: api.admin.v1.ExportPlatformUserReconciliationResponse.data:type_name -> api.admin.v1.ExportTaskItemsData
-	50, // 37: api.admin.v1.PlatformUserMetricsData.user:type_name -> api.admin.v1.PlatformUser
-	65, // 38: api.admin.v1.PlatformUserMetricsData.task_metrics:type_name -> api.admin.v1.PlatformTaskMetrics
-	66, // 39: api.admin.v1.PlatformUserMetricsData.question_metrics:type_name -> api.admin.v1.PlatformQuestionMetrics
-	67, // 40: api.admin.v1.PlatformUserMetricsData.result_metrics:type_name -> api.admin.v1.PlatformResultMetrics
-	68, // 41: api.admin.v1.PlatformUserMetricsData.callback_metrics:type_name -> api.admin.v1.PlatformCallbackMetrics
-	69, // 42: api.admin.v1.PlatformUserMetricsData.status_breakdown:type_name -> api.admin.v1.MetricBreakdown
-	69, // 43: api.admin.v1.PlatformUserMetricsData.failure_reasons:type_name -> api.admin.v1.MetricBreakdown
-	13, // 44: api.admin.v1.PlatformUserMetricsData.recent_tasks:type_name -> api.admin.v1.AdminTaskSummary
-	70, // 45: api.admin.v1.PlatformUserMetricsData.provider_daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
-	52, // 46: api.admin.v1.CreatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
-	50, // 47: api.admin.v1.CreatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	52, // 48: api.admin.v1.UpdatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
-	50, // 49: api.admin.v1.UpdatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
-	80, // 50: api.admin.v1.ResultValidationRulesResponse.data:type_name -> api.admin.v1.ResultValidationRulesData
-	0,  // 51: api.admin.v1.AdminAPI.Login:input_type -> api.admin.v1.LoginRequest
-	3,  // 52: api.admin.v1.AdminAPI.Logout:input_type -> api.admin.v1.LogoutRequest
-	5,  // 53: api.admin.v1.AdminAPI.Me:input_type -> api.admin.v1.MeRequest
-	76, // 54: api.admin.v1.AdminAPI.UpdateProviderValidationRule:input_type -> api.admin.v1.UpdateProviderValidationRuleRequest
-	77, // 55: api.admin.v1.AdminAPI.GetResultValidationRules:input_type -> api.admin.v1.GetResultValidationRulesRequest
-	78, // 56: api.admin.v1.AdminAPI.UpdateResultValidationRules:input_type -> api.admin.v1.UpdateResultValidationRulesRequest
-	10, // 57: api.admin.v1.AdminAPI.ListTasks:input_type -> api.admin.v1.ListTasksRequest
-	14, // 58: api.admin.v1.AdminAPI.GetTaskDetail:input_type -> api.admin.v1.GetTaskDetailRequest
-	16, // 59: api.admin.v1.AdminAPI.ExportTaskItems:input_type -> api.admin.v1.ExportTaskItemsRequest
-	24, // 60: api.admin.v1.AdminAPI.CheckTaskResult:input_type -> api.admin.v1.CheckTaskResultRequest
-	27, // 61: api.admin.v1.AdminAPI.RetryTaskCallback:input_type -> api.admin.v1.RetryTaskCallbackRequest
-	30, // 62: api.admin.v1.AdminAPI.ForceImportCallback:input_type -> api.admin.v1.ForceImportCallbackRequest
-	33, // 63: api.admin.v1.AdminAPI.ReassignTask:input_type -> api.admin.v1.ReassignTaskRequest
-	36, // 64: api.admin.v1.AdminAPI.DeleteTask:input_type -> api.admin.v1.DeleteTaskRequest
-	38, // 65: api.admin.v1.AdminAPI.ListProviders:input_type -> api.admin.v1.ListProvidersRequest
-	42, // 66: api.admin.v1.AdminAPI.GetDispatchOptions:input_type -> api.admin.v1.GetDispatchOptionsRequest
-	46, // 67: api.admin.v1.AdminAPI.GetProviderMetrics:input_type -> api.admin.v1.GetProviderMetricsRequest
-	55, // 68: api.admin.v1.AdminAPI.ListPlatformUsers:input_type -> api.admin.v1.ListPlatformUsersRequest
-	58, // 69: api.admin.v1.AdminAPI.GetPlatformUser:input_type -> api.admin.v1.GetPlatformUserRequest
-	60, // 70: api.admin.v1.AdminAPI.GetPlatformUserMetrics:input_type -> api.admin.v1.GetPlatformUserMetricsRequest
-	62, // 71: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:input_type -> api.admin.v1.ExportPlatformUserReconciliationRequest
-	71, // 72: api.admin.v1.AdminAPI.CreatePlatformUser:input_type -> api.admin.v1.CreatePlatformUserRequest
-	73, // 73: api.admin.v1.AdminAPI.UpdatePlatformUser:input_type -> api.admin.v1.UpdatePlatformUserRequest
-	1,  // 74: api.admin.v1.AdminAPI.Login:output_type -> api.admin.v1.LoginResponse
-	4,  // 75: api.admin.v1.AdminAPI.Logout:output_type -> api.admin.v1.LogoutResponse
-	6,  // 76: api.admin.v1.AdminAPI.Me:output_type -> api.admin.v1.MeResponse
-	79, // 77: api.admin.v1.AdminAPI.UpdateProviderValidationRule:output_type -> api.admin.v1.ResultValidationRulesResponse
-	79, // 78: api.admin.v1.AdminAPI.GetResultValidationRules:output_type -> api.admin.v1.ResultValidationRulesResponse
-	79, // 79: api.admin.v1.AdminAPI.UpdateResultValidationRules:output_type -> api.admin.v1.ResultValidationRulesResponse
-	11, // 80: api.admin.v1.AdminAPI.ListTasks:output_type -> api.admin.v1.ListTasksResponse
-	15, // 81: api.admin.v1.AdminAPI.GetTaskDetail:output_type -> api.admin.v1.GetTaskDetailResponse
-	17, // 82: api.admin.v1.AdminAPI.ExportTaskItems:output_type -> api.admin.v1.ExportTaskItemsResponse
-	25, // 83: api.admin.v1.AdminAPI.CheckTaskResult:output_type -> api.admin.v1.CheckTaskResultResponse
-	28, // 84: api.admin.v1.AdminAPI.RetryTaskCallback:output_type -> api.admin.v1.RetryTaskCallbackResponse
-	31, // 85: api.admin.v1.AdminAPI.ForceImportCallback:output_type -> api.admin.v1.ForceImportCallbackResponse
-	34, // 86: api.admin.v1.AdminAPI.ReassignTask:output_type -> api.admin.v1.ReassignTaskResponse
-	37, // 87: api.admin.v1.AdminAPI.DeleteTask:output_type -> api.admin.v1.DeleteTaskResponse
-	39, // 88: api.admin.v1.AdminAPI.ListProviders:output_type -> api.admin.v1.ListProvidersResponse
-	43, // 89: api.admin.v1.AdminAPI.GetDispatchOptions:output_type -> api.admin.v1.GetDispatchOptionsResponse
-	47, // 90: api.admin.v1.AdminAPI.GetProviderMetrics:output_type -> api.admin.v1.GetProviderMetricsResponse
-	57, // 91: api.admin.v1.AdminAPI.ListPlatformUsers:output_type -> api.admin.v1.ListPlatformUsersResponse
-	59, // 92: api.admin.v1.AdminAPI.GetPlatformUser:output_type -> api.admin.v1.GetPlatformUserResponse
-	61, // 93: api.admin.v1.AdminAPI.GetPlatformUserMetrics:output_type -> api.admin.v1.GetPlatformUserMetricsResponse
-	63, // 94: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:output_type -> api.admin.v1.ExportPlatformUserReconciliationResponse
-	72, // 95: api.admin.v1.AdminAPI.CreatePlatformUser:output_type -> api.admin.v1.CreatePlatformUserResponse
-	74, // 96: api.admin.v1.AdminAPI.UpdatePlatformUser:output_type -> api.admin.v1.UpdatePlatformUserResponse
-	74, // [74:97] is the sub-list for method output_type
-	51, // [51:74] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	83, // 14: api.admin.v1.AdminTaskItem.product_cards:type_name -> api.task.v1.ProductCard
+	77, // 15: api.admin.v1.AdminTaskItem.risk_items:type_name -> api.admin.v1.AnswerRisk
+	26, // 16: api.admin.v1.CheckTaskResultResponse.data:type_name -> api.admin.v1.CheckTaskResultData
+	29, // 17: api.admin.v1.RetryTaskCallbackResponse.data:type_name -> api.admin.v1.RetryTaskCallbackData
+	32, // 18: api.admin.v1.ForceImportCallbackResponse.data:type_name -> api.admin.v1.ForceImportCallbackData
+	35, // 19: api.admin.v1.ReassignTaskResponse.data:type_name -> api.admin.v1.ReassignTaskData
+	9,  // 20: api.admin.v1.DeleteTaskResponse.data:type_name -> api.admin.v1.EmptyData
+	40, // 21: api.admin.v1.ListProvidersResponse.data:type_name -> api.admin.v1.ProviderListData
+	41, // 22: api.admin.v1.ProviderListData.providers:type_name -> api.admin.v1.Provider
+	44, // 23: api.admin.v1.GetDispatchOptionsResponse.data:type_name -> api.admin.v1.DispatchOptionsData
+	45, // 24: api.admin.v1.DispatchOptionsData.strategies:type_name -> api.admin.v1.DispatchStrategyOption
+	41, // 25: api.admin.v1.DispatchOptionsData.providers:type_name -> api.admin.v1.Provider
+	48, // 26: api.admin.v1.GetProviderMetricsResponse.data:type_name -> api.admin.v1.ProviderMetricsData
+	41, // 27: api.admin.v1.ProviderMetricsData.provider:type_name -> api.admin.v1.Provider
+	49, // 28: api.admin.v1.ProviderMetricsData.summary:type_name -> api.admin.v1.ProviderMetricsSummary
+	72, // 29: api.admin.v1.ProviderMetricsData.daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
+	51, // 30: api.admin.v1.PlatformUser.dispatch_profile:type_name -> api.admin.v1.DispatchProfile
+	53, // 31: api.admin.v1.DispatchProfile.pull:type_name -> api.admin.v1.DispatchMode
+	55, // 32: api.admin.v1.DispatchProfile.rules:type_name -> api.admin.v1.DispatchRule
+	54, // 33: api.admin.v1.DispatchProfileInput.pull:type_name -> api.admin.v1.DispatchModeInput
+	56, // 34: api.admin.v1.DispatchProfileInput.rules:type_name -> api.admin.v1.DispatchRuleInput
+	55, // 35: api.admin.v1.DispatchMode.rules:type_name -> api.admin.v1.DispatchRule
+	56, // 36: api.admin.v1.DispatchModeInput.rules:type_name -> api.admin.v1.DispatchRuleInput
+	50, // 37: api.admin.v1.PlatformUserListData.users:type_name -> api.admin.v1.PlatformUser
+	58, // 38: api.admin.v1.ListPlatformUsersResponse.data:type_name -> api.admin.v1.PlatformUserListData
+	50, // 39: api.admin.v1.GetPlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	66, // 40: api.admin.v1.GetPlatformUserMetricsResponse.data:type_name -> api.admin.v1.PlatformUserMetricsData
+	18, // 41: api.admin.v1.ExportPlatformUserReconciliationResponse.data:type_name -> api.admin.v1.ExportTaskItemsData
+	50, // 42: api.admin.v1.PlatformUserMetricsData.user:type_name -> api.admin.v1.PlatformUser
+	67, // 43: api.admin.v1.PlatformUserMetricsData.task_metrics:type_name -> api.admin.v1.PlatformTaskMetrics
+	68, // 44: api.admin.v1.PlatformUserMetricsData.question_metrics:type_name -> api.admin.v1.PlatformQuestionMetrics
+	69, // 45: api.admin.v1.PlatformUserMetricsData.result_metrics:type_name -> api.admin.v1.PlatformResultMetrics
+	70, // 46: api.admin.v1.PlatformUserMetricsData.callback_metrics:type_name -> api.admin.v1.PlatformCallbackMetrics
+	71, // 47: api.admin.v1.PlatformUserMetricsData.status_breakdown:type_name -> api.admin.v1.MetricBreakdown
+	71, // 48: api.admin.v1.PlatformUserMetricsData.failure_reasons:type_name -> api.admin.v1.MetricBreakdown
+	13, // 49: api.admin.v1.PlatformUserMetricsData.recent_tasks:type_name -> api.admin.v1.AdminTaskSummary
+	72, // 50: api.admin.v1.PlatformUserMetricsData.provider_daily_metrics:type_name -> api.admin.v1.ProviderDailyMetric
+	52, // 51: api.admin.v1.CreatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
+	50, // 52: api.admin.v1.CreatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	52, // 53: api.admin.v1.UpdatePlatformUserRequest.dispatch_profile:type_name -> api.admin.v1.DispatchProfileInput
+	50, // 54: api.admin.v1.UpdatePlatformUserResponse.data:type_name -> api.admin.v1.PlatformUser
+	82, // 55: api.admin.v1.ResultValidationRulesResponse.data:type_name -> api.admin.v1.ResultValidationRulesData
+	0,  // 56: api.admin.v1.AdminAPI.Login:input_type -> api.admin.v1.LoginRequest
+	3,  // 57: api.admin.v1.AdminAPI.Logout:input_type -> api.admin.v1.LogoutRequest
+	5,  // 58: api.admin.v1.AdminAPI.Me:input_type -> api.admin.v1.MeRequest
+	78, // 59: api.admin.v1.AdminAPI.UpdateProviderValidationRule:input_type -> api.admin.v1.UpdateProviderValidationRuleRequest
+	79, // 60: api.admin.v1.AdminAPI.GetResultValidationRules:input_type -> api.admin.v1.GetResultValidationRulesRequest
+	80, // 61: api.admin.v1.AdminAPI.UpdateResultValidationRules:input_type -> api.admin.v1.UpdateResultValidationRulesRequest
+	10, // 62: api.admin.v1.AdminAPI.ListTasks:input_type -> api.admin.v1.ListTasksRequest
+	14, // 63: api.admin.v1.AdminAPI.GetTaskDetail:input_type -> api.admin.v1.GetTaskDetailRequest
+	16, // 64: api.admin.v1.AdminAPI.ExportTaskItems:input_type -> api.admin.v1.ExportTaskItemsRequest
+	24, // 65: api.admin.v1.AdminAPI.CheckTaskResult:input_type -> api.admin.v1.CheckTaskResultRequest
+	27, // 66: api.admin.v1.AdminAPI.RetryTaskCallback:input_type -> api.admin.v1.RetryTaskCallbackRequest
+	30, // 67: api.admin.v1.AdminAPI.ForceImportCallback:input_type -> api.admin.v1.ForceImportCallbackRequest
+	33, // 68: api.admin.v1.AdminAPI.ReassignTask:input_type -> api.admin.v1.ReassignTaskRequest
+	36, // 69: api.admin.v1.AdminAPI.DeleteTask:input_type -> api.admin.v1.DeleteTaskRequest
+	38, // 70: api.admin.v1.AdminAPI.ListProviders:input_type -> api.admin.v1.ListProvidersRequest
+	42, // 71: api.admin.v1.AdminAPI.GetDispatchOptions:input_type -> api.admin.v1.GetDispatchOptionsRequest
+	46, // 72: api.admin.v1.AdminAPI.GetProviderMetrics:input_type -> api.admin.v1.GetProviderMetricsRequest
+	57, // 73: api.admin.v1.AdminAPI.ListPlatformUsers:input_type -> api.admin.v1.ListPlatformUsersRequest
+	60, // 74: api.admin.v1.AdminAPI.GetPlatformUser:input_type -> api.admin.v1.GetPlatformUserRequest
+	62, // 75: api.admin.v1.AdminAPI.GetPlatformUserMetrics:input_type -> api.admin.v1.GetPlatformUserMetricsRequest
+	64, // 76: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:input_type -> api.admin.v1.ExportPlatformUserReconciliationRequest
+	73, // 77: api.admin.v1.AdminAPI.CreatePlatformUser:input_type -> api.admin.v1.CreatePlatformUserRequest
+	75, // 78: api.admin.v1.AdminAPI.UpdatePlatformUser:input_type -> api.admin.v1.UpdatePlatformUserRequest
+	1,  // 79: api.admin.v1.AdminAPI.Login:output_type -> api.admin.v1.LoginResponse
+	4,  // 80: api.admin.v1.AdminAPI.Logout:output_type -> api.admin.v1.LogoutResponse
+	6,  // 81: api.admin.v1.AdminAPI.Me:output_type -> api.admin.v1.MeResponse
+	81, // 82: api.admin.v1.AdminAPI.UpdateProviderValidationRule:output_type -> api.admin.v1.ResultValidationRulesResponse
+	81, // 83: api.admin.v1.AdminAPI.GetResultValidationRules:output_type -> api.admin.v1.ResultValidationRulesResponse
+	81, // 84: api.admin.v1.AdminAPI.UpdateResultValidationRules:output_type -> api.admin.v1.ResultValidationRulesResponse
+	11, // 85: api.admin.v1.AdminAPI.ListTasks:output_type -> api.admin.v1.ListTasksResponse
+	15, // 86: api.admin.v1.AdminAPI.GetTaskDetail:output_type -> api.admin.v1.GetTaskDetailResponse
+	17, // 87: api.admin.v1.AdminAPI.ExportTaskItems:output_type -> api.admin.v1.ExportTaskItemsResponse
+	25, // 88: api.admin.v1.AdminAPI.CheckTaskResult:output_type -> api.admin.v1.CheckTaskResultResponse
+	28, // 89: api.admin.v1.AdminAPI.RetryTaskCallback:output_type -> api.admin.v1.RetryTaskCallbackResponse
+	31, // 90: api.admin.v1.AdminAPI.ForceImportCallback:output_type -> api.admin.v1.ForceImportCallbackResponse
+	34, // 91: api.admin.v1.AdminAPI.ReassignTask:output_type -> api.admin.v1.ReassignTaskResponse
+	37, // 92: api.admin.v1.AdminAPI.DeleteTask:output_type -> api.admin.v1.DeleteTaskResponse
+	39, // 93: api.admin.v1.AdminAPI.ListProviders:output_type -> api.admin.v1.ListProvidersResponse
+	43, // 94: api.admin.v1.AdminAPI.GetDispatchOptions:output_type -> api.admin.v1.GetDispatchOptionsResponse
+	47, // 95: api.admin.v1.AdminAPI.GetProviderMetrics:output_type -> api.admin.v1.GetProviderMetricsResponse
+	59, // 96: api.admin.v1.AdminAPI.ListPlatformUsers:output_type -> api.admin.v1.ListPlatformUsersResponse
+	61, // 97: api.admin.v1.AdminAPI.GetPlatformUser:output_type -> api.admin.v1.GetPlatformUserResponse
+	63, // 98: api.admin.v1.AdminAPI.GetPlatformUserMetrics:output_type -> api.admin.v1.GetPlatformUserMetricsResponse
+	65, // 99: api.admin.v1.AdminAPI.ExportPlatformUserReconciliation:output_type -> api.admin.v1.ExportPlatformUserReconciliationResponse
+	74, // 100: api.admin.v1.AdminAPI.CreatePlatformUser:output_type -> api.admin.v1.CreatePlatformUserResponse
+	76, // 101: api.admin.v1.AdminAPI.UpdatePlatformUser:output_type -> api.admin.v1.UpdatePlatformUserResponse
+	79, // [79:102] is the sub-list for method output_type
+	56, // [56:79] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_api_admin_v1_admin_proto_init() }
@@ -7091,14 +7329,14 @@ func file_api_admin_v1_admin_proto_init() {
 	if File_api_admin_v1_admin_proto != nil {
 		return
 	}
-	file_api_admin_v1_admin_proto_msgTypes[76].OneofWrappers = []any{}
+	file_api_admin_v1_admin_proto_msgTypes[78].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_admin_v1_admin_proto_rawDesc), len(file_api_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   81,
+			NumMessages:   83,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

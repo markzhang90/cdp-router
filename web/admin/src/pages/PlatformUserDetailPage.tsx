@@ -264,9 +264,12 @@ export function PlatformUserDetailPage() {
         <Descriptions bordered column={{ xs: 1, sm: 2, lg: 4 }} size="small">
           <Descriptions.Item label="接入方编码">{user?.platformCode ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="状态">{user?.status === "ACTIVE" ? "启用" : "停用"}</Descriptions.Item>
-          <Descriptions.Item label="调度状态">{user?.dispatchProfile?.enabled ? "启用" : "停用"}</Descriptions.Item>
-          <Descriptions.Item label="调度策略">{user?.dispatchProfile?.strategy ?? "-"}</Descriptions.Item>
-          <Descriptions.Item label="供应商池">{user?.dispatchProfile?.providerCodes?.join(", ") || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Push 调度状态">{user?.dispatchProfile?.enabled ? "启用" : "停用"}</Descriptions.Item>
+          <Descriptions.Item label="Push 调度策略">{user?.dispatchProfile?.strategy ?? "-"}</Descriptions.Item>
+          <Descriptions.Item label="Push 供应商池">{user?.dispatchProfile?.providerCodes?.join(", ") || "-"}</Descriptions.Item>
+          <Descriptions.Item label="Pull 调度状态">{user?.dispatchProfile?.pull?.enabled ? "启用" : "停用"}</Descriptions.Item>
+          <Descriptions.Item label="Pull 调度策略">{user?.dispatchProfile?.pull?.strategy ?? "-"}</Descriptions.Item>
+          <Descriptions.Item label="Pull 供应商池">{user?.dispatchProfile?.pull?.providerCodes?.join(", ") || "-"}</Descriptions.Item>
           <Descriptions.Item label="回调方式">{user?.callbackMode === "CUSTOM" ? "定制回调" : "默认 HTTP"}</Descriptions.Item>
           <Descriptions.Item label="API Key">
             <Typography.Text copyable={Boolean(user?.apiKey)} className="mono-text">

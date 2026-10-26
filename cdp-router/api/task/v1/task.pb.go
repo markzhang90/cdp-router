@@ -22,6 +22,107 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Product values are display text; IDs and sales must not be coerced to numbers.
+type ProductCard struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProductId     string                 `protobuf:"bytes,1,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
+	ProductName   string                 `protobuf:"bytes,2,opt,name=product_name,json=productName,proto3" json:"product_name,omitempty"`
+	Price         string                 `protobuf:"bytes,3,opt,name=price,proto3" json:"price,omitempty"`
+	ShopName      string                 `protobuf:"bytes,4,opt,name=shop_name,json=shopName,proto3" json:"shop_name,omitempty"`
+	ShopId        string                 `protobuf:"bytes,5,opt,name=shop_id,json=shopId,proto3" json:"shop_id,omitempty"`
+	SellingPoints string                 `protobuf:"bytes,6,opt,name=selling_points,json=sellingPoints,proto3" json:"selling_points,omitempty"`
+	ImageUrl      string                 `protobuf:"bytes,7,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	SalesVolume   string                 `protobuf:"bytes,8,opt,name=sales_volume,json=salesVolume,proto3" json:"sales_volume,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProductCard) Reset() {
+	*x = ProductCard{}
+	mi := &file_api_task_v1_task_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProductCard) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProductCard) ProtoMessage() {}
+
+func (x *ProductCard) ProtoReflect() protoreflect.Message {
+	mi := &file_api_task_v1_task_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProductCard.ProtoReflect.Descriptor instead.
+func (*ProductCard) Descriptor() ([]byte, []int) {
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ProductCard) GetProductId() string {
+	if x != nil {
+		return x.ProductId
+	}
+	return ""
+}
+
+func (x *ProductCard) GetProductName() string {
+	if x != nil {
+		return x.ProductName
+	}
+	return ""
+}
+
+func (x *ProductCard) GetPrice() string {
+	if x != nil {
+		return x.Price
+	}
+	return ""
+}
+
+func (x *ProductCard) GetShopName() string {
+	if x != nil {
+		return x.ShopName
+	}
+	return ""
+}
+
+func (x *ProductCard) GetShopId() string {
+	if x != nil {
+		return x.ShopId
+	}
+	return ""
+}
+
+func (x *ProductCard) GetSellingPoints() string {
+	if x != nil {
+		return x.SellingPoints
+	}
+	return ""
+}
+
+func (x *ProductCard) GetImageUrl() string {
+	if x != nil {
+		return x.ImageUrl
+	}
+	return ""
+}
+
+func (x *ProductCard) GetSalesVolume() string {
+	if x != nil {
+		return x.SalesVolume
+	}
+	return ""
+}
+
 type TaskItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
@@ -36,7 +137,7 @@ type TaskItem struct {
 
 func (x *TaskItem) Reset() {
 	*x = TaskItem{}
-	mi := &file_api_task_v1_task_proto_msgTypes[0]
+	mi := &file_api_task_v1_task_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -48,7 +149,7 @@ func (x *TaskItem) String() string {
 func (*TaskItem) ProtoMessage() {}
 
 func (x *TaskItem) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[0]
+	mi := &file_api_task_v1_task_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61,7 +162,7 @@ func (x *TaskItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskItem.ProtoReflect.Descriptor instead.
 func (*TaskItem) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{0}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *TaskItem) GetItemId() string {
@@ -107,22 +208,24 @@ func (x *TaskItem) GetWebSearch() bool {
 }
 
 type CreateTaskRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Device        string                 `protobuf:"bytes,8,opt,name=device,proto3" json:"device,omitempty"`
-	BatchNo       string                 `protobuf:"bytes,1,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
-	ProviderCode  string                 `protobuf:"bytes,2,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
-	BizDate       string                 `protobuf:"bytes,3,opt,name=biz_date,json=bizDate,proto3" json:"biz_date,omitempty"`
-	CallbackUrl   string                 `protobuf:"bytes,4,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
-	Items         []*TaskItem            `protobuf:"bytes,5,rep,name=items,proto3" json:"items,omitempty"`
-	Source        string                 `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
-	TaskName      string                 `protobuf:"bytes,7,opt,name=task_name,json=taskName,proto3" json:"task_name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Defaults to push; device does not determine the execution mode.
+	ExecutionMode string      `protobuf:"bytes,9,opt,name=execution_mode,json=executionMode,proto3" json:"execution_mode,omitempty"`
+	Device        string      `protobuf:"bytes,8,opt,name=device,proto3" json:"device,omitempty"`
+	BatchNo       string      `protobuf:"bytes,1,opt,name=batch_no,json=batchNo,proto3" json:"batch_no,omitempty"`
+	ProviderCode  string      `protobuf:"bytes,2,opt,name=provider_code,json=providerCode,proto3" json:"provider_code,omitempty"`
+	BizDate       string      `protobuf:"bytes,3,opt,name=biz_date,json=bizDate,proto3" json:"biz_date,omitempty"`
+	CallbackUrl   string      `protobuf:"bytes,4,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
+	Items         []*TaskItem `protobuf:"bytes,5,rep,name=items,proto3" json:"items,omitempty"`
+	Source        string      `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
+	TaskName      string      `protobuf:"bytes,7,opt,name=task_name,json=taskName,proto3" json:"task_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateTaskRequest) Reset() {
 	*x = CreateTaskRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[1]
+	mi := &file_api_task_v1_task_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -134,7 +237,7 @@ func (x *CreateTaskRequest) String() string {
 func (*CreateTaskRequest) ProtoMessage() {}
 
 func (x *CreateTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[1]
+	mi := &file_api_task_v1_task_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -147,7 +250,14 @@ func (x *CreateTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTaskRequest.ProtoReflect.Descriptor instead.
 func (*CreateTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{1}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateTaskRequest) GetExecutionMode() string {
+	if x != nil {
+		return x.ExecutionMode
+	}
+	return ""
 }
 
 func (x *CreateTaskRequest) GetDevice() string {
@@ -217,7 +327,7 @@ type CreateTaskResponse struct {
 
 func (x *CreateTaskResponse) Reset() {
 	*x = CreateTaskResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[2]
+	mi := &file_api_task_v1_task_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -229,7 +339,7 @@ func (x *CreateTaskResponse) String() string {
 func (*CreateTaskResponse) ProtoMessage() {}
 
 func (x *CreateTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[2]
+	mi := &file_api_task_v1_task_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -242,7 +352,7 @@ func (x *CreateTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTaskResponse.ProtoReflect.Descriptor instead.
 func (*CreateTaskResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{2}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateTaskResponse) GetCode() int32 {
@@ -276,7 +386,7 @@ type CreateTaskData struct {
 
 func (x *CreateTaskData) Reset() {
 	*x = CreateTaskData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[3]
+	mi := &file_api_task_v1_task_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -288,7 +398,7 @@ func (x *CreateTaskData) String() string {
 func (*CreateTaskData) ProtoMessage() {}
 
 func (x *CreateTaskData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[3]
+	mi := &file_api_task_v1_task_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -301,7 +411,7 @@ func (x *CreateTaskData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTaskData.ProtoReflect.Descriptor instead.
 func (*CreateTaskData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{3}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateTaskData) GetExternalBatchId() string {
@@ -327,7 +437,7 @@ type GetTaskRequest struct {
 
 func (x *GetTaskRequest) Reset() {
 	*x = GetTaskRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[4]
+	mi := &file_api_task_v1_task_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -339,7 +449,7 @@ func (x *GetTaskRequest) String() string {
 func (*GetTaskRequest) ProtoMessage() {}
 
 func (x *GetTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[4]
+	mi := &file_api_task_v1_task_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -352,7 +462,7 @@ func (x *GetTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{4}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetTaskRequest) GetId() int64 {
@@ -373,7 +483,7 @@ type GetTaskResponse struct {
 
 func (x *GetTaskResponse) Reset() {
 	*x = GetTaskResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[5]
+	mi := &file_api_task_v1_task_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -385,7 +495,7 @@ func (x *GetTaskResponse) String() string {
 func (*GetTaskResponse) ProtoMessage() {}
 
 func (x *GetTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[5]
+	mi := &file_api_task_v1_task_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -398,7 +508,7 @@ func (x *GetTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{5}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetTaskResponse) GetStatus() int32 {
@@ -447,7 +557,7 @@ type TaskData struct {
 
 func (x *TaskData) Reset() {
 	*x = TaskData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[6]
+	mi := &file_api_task_v1_task_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -459,7 +569,7 @@ func (x *TaskData) String() string {
 func (*TaskData) ProtoMessage() {}
 
 func (x *TaskData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[6]
+	mi := &file_api_task_v1_task_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -472,7 +582,7 @@ func (x *TaskData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskData.ProtoReflect.Descriptor instead.
 func (*TaskData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{6}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *TaskData) GetDevice() string {
@@ -603,7 +713,7 @@ type GetExternalTaskRequest struct {
 
 func (x *GetExternalTaskRequest) Reset() {
 	*x = GetExternalTaskRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[7]
+	mi := &file_api_task_v1_task_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -615,7 +725,7 @@ func (x *GetExternalTaskRequest) String() string {
 func (*GetExternalTaskRequest) ProtoMessage() {}
 
 func (x *GetExternalTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[7]
+	mi := &file_api_task_v1_task_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -628,7 +738,7 @@ func (x *GetExternalTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetExternalTaskRequest.ProtoReflect.Descriptor instead.
 func (*GetExternalTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{7}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetExternalTaskRequest) GetExternalBatchId() string {
@@ -647,7 +757,7 @@ type GetExternalTaskResultRequest struct {
 
 func (x *GetExternalTaskResultRequest) Reset() {
 	*x = GetExternalTaskResultRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[8]
+	mi := &file_api_task_v1_task_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -659,7 +769,7 @@ func (x *GetExternalTaskResultRequest) String() string {
 func (*GetExternalTaskResultRequest) ProtoMessage() {}
 
 func (x *GetExternalTaskResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[8]
+	mi := &file_api_task_v1_task_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -672,7 +782,7 @@ func (x *GetExternalTaskResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetExternalTaskResultRequest.ProtoReflect.Descriptor instead.
 func (*GetExternalTaskResultRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{8}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetExternalTaskResultRequest) GetExternalBatchId() string {
@@ -693,7 +803,7 @@ type GetExternalTaskResultResponse struct {
 
 func (x *GetExternalTaskResultResponse) Reset() {
 	*x = GetExternalTaskResultResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[9]
+	mi := &file_api_task_v1_task_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -705,7 +815,7 @@ func (x *GetExternalTaskResultResponse) String() string {
 func (*GetExternalTaskResultResponse) ProtoMessage() {}
 
 func (x *GetExternalTaskResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[9]
+	mi := &file_api_task_v1_task_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -718,7 +828,7 @@ func (x *GetExternalTaskResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetExternalTaskResultResponse.ProtoReflect.Descriptor instead.
 func (*GetExternalTaskResultResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{9}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetExternalTaskResultResponse) GetStatus() int32 {
@@ -758,7 +868,7 @@ type ExternalTaskResultData struct {
 
 func (x *ExternalTaskResultData) Reset() {
 	*x = ExternalTaskResultData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[10]
+	mi := &file_api_task_v1_task_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -770,7 +880,7 @@ func (x *ExternalTaskResultData) String() string {
 func (*ExternalTaskResultData) ProtoMessage() {}
 
 func (x *ExternalTaskResultData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[10]
+	mi := &file_api_task_v1_task_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -783,7 +893,7 @@ func (x *ExternalTaskResultData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalTaskResultData.ProtoReflect.Descriptor instead.
 func (*ExternalTaskResultData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{10}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ExternalTaskResultData) GetExternalBatchId() string {
@@ -844,6 +954,7 @@ func (x *ExternalTaskResultData) GetItems() []*ExternalTaskResultItem {
 
 type ExternalTaskResultItem struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
+	ProductCards             []*ProductCard         `protobuf:"bytes,18,rep,name=product_cards,json=productCards,proto3" json:"product_cards,omitempty"`
 	ItemId                   string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
 	PlatformCode             string                 `protobuf:"bytes,2,opt,name=platform_code,json=platformCode,proto3" json:"platform_code,omitempty"`
 	Seq                      int32                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
@@ -865,7 +976,7 @@ type ExternalTaskResultItem struct {
 
 func (x *ExternalTaskResultItem) Reset() {
 	*x = ExternalTaskResultItem{}
-	mi := &file_api_task_v1_task_proto_msgTypes[11]
+	mi := &file_api_task_v1_task_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -877,7 +988,7 @@ func (x *ExternalTaskResultItem) String() string {
 func (*ExternalTaskResultItem) ProtoMessage() {}
 
 func (x *ExternalTaskResultItem) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[11]
+	mi := &file_api_task_v1_task_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -890,7 +1001,14 @@ func (x *ExternalTaskResultItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalTaskResultItem.ProtoReflect.Descriptor instead.
 func (*ExternalTaskResultItem) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{11}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ExternalTaskResultItem) GetProductCards() []*ProductCard {
+	if x != nil {
+		return x.ProductCards
+	}
+	return nil
 }
 
 func (x *ExternalTaskResultItem) GetItemId() string {
@@ -1009,7 +1127,7 @@ type GetUploadURLRequest struct {
 
 func (x *GetUploadURLRequest) Reset() {
 	*x = GetUploadURLRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[12]
+	mi := &file_api_task_v1_task_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1021,7 +1139,7 @@ func (x *GetUploadURLRequest) String() string {
 func (*GetUploadURLRequest) ProtoMessage() {}
 
 func (x *GetUploadURLRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[12]
+	mi := &file_api_task_v1_task_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1034,7 +1152,7 @@ func (x *GetUploadURLRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUploadURLRequest.ProtoReflect.Descriptor instead.
 func (*GetUploadURLRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{12}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetUploadURLRequest) GetProviderCode() string {
@@ -1069,7 +1187,7 @@ type GetUploadURLResponse struct {
 
 func (x *GetUploadURLResponse) Reset() {
 	*x = GetUploadURLResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[13]
+	mi := &file_api_task_v1_task_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1081,7 +1199,7 @@ func (x *GetUploadURLResponse) String() string {
 func (*GetUploadURLResponse) ProtoMessage() {}
 
 func (x *GetUploadURLResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[13]
+	mi := &file_api_task_v1_task_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1094,7 +1212,7 @@ func (x *GetUploadURLResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUploadURLResponse.ProtoReflect.Descriptor instead.
 func (*GetUploadURLResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{13}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetUploadURLResponse) GetStatus() int32 {
@@ -1132,7 +1250,7 @@ type UploadURLData struct {
 
 func (x *UploadURLData) Reset() {
 	*x = UploadURLData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[14]
+	mi := &file_api_task_v1_task_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1144,7 +1262,7 @@ func (x *UploadURLData) String() string {
 func (*UploadURLData) ProtoMessage() {}
 
 func (x *UploadURLData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[14]
+	mi := &file_api_task_v1_task_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1157,7 +1275,7 @@ func (x *UploadURLData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadURLData.ProtoReflect.Descriptor instead.
 func (*UploadURLData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{14}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UploadURLData) GetBucket() string {
@@ -1218,7 +1336,7 @@ type ProviderCallbackRequest struct {
 
 func (x *ProviderCallbackRequest) Reset() {
 	*x = ProviderCallbackRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[15]
+	mi := &file_api_task_v1_task_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1230,7 +1348,7 @@ func (x *ProviderCallbackRequest) String() string {
 func (*ProviderCallbackRequest) ProtoMessage() {}
 
 func (x *ProviderCallbackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[15]
+	mi := &file_api_task_v1_task_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1243,7 +1361,7 @@ func (x *ProviderCallbackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderCallbackRequest.ProtoReflect.Descriptor instead.
 func (*ProviderCallbackRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{15}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ProviderCallbackRequest) GetProviderCode() string {
@@ -1313,7 +1431,7 @@ type ProviderCallbackResponse struct {
 
 func (x *ProviderCallbackResponse) Reset() {
 	*x = ProviderCallbackResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[16]
+	mi := &file_api_task_v1_task_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1325,7 +1443,7 @@ func (x *ProviderCallbackResponse) String() string {
 func (*ProviderCallbackResponse) ProtoMessage() {}
 
 func (x *ProviderCallbackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[16]
+	mi := &file_api_task_v1_task_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1338,7 +1456,7 @@ func (x *ProviderCallbackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderCallbackResponse.ProtoReflect.Descriptor instead.
 func (*ProviderCallbackResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{16}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ProviderCallbackResponse) GetStatus() int32 {
@@ -1372,7 +1490,7 @@ type ProviderCallbackData struct {
 
 func (x *ProviderCallbackData) Reset() {
 	*x = ProviderCallbackData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[17]
+	mi := &file_api_task_v1_task_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1384,7 +1502,7 @@ func (x *ProviderCallbackData) String() string {
 func (*ProviderCallbackData) ProtoMessage() {}
 
 func (x *ProviderCallbackData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[17]
+	mi := &file_api_task_v1_task_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1397,7 +1515,7 @@ func (x *ProviderCallbackData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderCallbackData.ProtoReflect.Descriptor instead.
 func (*ProviderCallbackData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{17}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ProviderCallbackData) GetBatchNo() string {
@@ -1423,7 +1541,7 @@ type GetProviderStatusRequest struct {
 
 func (x *GetProviderStatusRequest) Reset() {
 	*x = GetProviderStatusRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[18]
+	mi := &file_api_task_v1_task_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1435,7 +1553,7 @@ func (x *GetProviderStatusRequest) String() string {
 func (*GetProviderStatusRequest) ProtoMessage() {}
 
 func (x *GetProviderStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[18]
+	mi := &file_api_task_v1_task_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1448,7 +1566,7 @@ func (x *GetProviderStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetProviderStatusRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{18}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetProviderStatusRequest) GetId() int64 {
@@ -1469,7 +1587,7 @@ type GetProviderStatusResponse struct {
 
 func (x *GetProviderStatusResponse) Reset() {
 	*x = GetProviderStatusResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[19]
+	mi := &file_api_task_v1_task_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1481,7 +1599,7 @@ func (x *GetProviderStatusResponse) String() string {
 func (*GetProviderStatusResponse) ProtoMessage() {}
 
 func (x *GetProviderStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[19]
+	mi := &file_api_task_v1_task_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1494,7 +1612,7 @@ func (x *GetProviderStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetProviderStatusResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{19}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetProviderStatusResponse) GetStatus() int32 {
@@ -1528,7 +1646,7 @@ type ProviderStatusData struct {
 
 func (x *ProviderStatusData) Reset() {
 	*x = ProviderStatusData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[20]
+	mi := &file_api_task_v1_task_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1540,7 +1658,7 @@ func (x *ProviderStatusData) String() string {
 func (*ProviderStatusData) ProtoMessage() {}
 
 func (x *ProviderStatusData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[20]
+	mi := &file_api_task_v1_task_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1553,7 +1671,7 @@ func (x *ProviderStatusData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderStatusData.ProtoReflect.Descriptor instead.
 func (*ProviderStatusData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{20}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ProviderStatusData) GetExternalBatchId() string {
@@ -1580,7 +1698,7 @@ type ProviderQuestionStatus struct {
 
 func (x *ProviderQuestionStatus) Reset() {
 	*x = ProviderQuestionStatus{}
-	mi := &file_api_task_v1_task_proto_msgTypes[21]
+	mi := &file_api_task_v1_task_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1592,7 +1710,7 @@ func (x *ProviderQuestionStatus) String() string {
 func (*ProviderQuestionStatus) ProtoMessage() {}
 
 func (x *ProviderQuestionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[21]
+	mi := &file_api_task_v1_task_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1605,7 +1723,7 @@ func (x *ProviderQuestionStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderQuestionStatus.ProtoReflect.Descriptor instead.
 func (*ProviderQuestionStatus) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{21}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ProviderQuestionStatus) GetQuestionId() string {
@@ -1631,7 +1749,7 @@ type GetProviderResultFilesRequest struct {
 
 func (x *GetProviderResultFilesRequest) Reset() {
 	*x = GetProviderResultFilesRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[22]
+	mi := &file_api_task_v1_task_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1643,7 +1761,7 @@ func (x *GetProviderResultFilesRequest) String() string {
 func (*GetProviderResultFilesRequest) ProtoMessage() {}
 
 func (x *GetProviderResultFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[22]
+	mi := &file_api_task_v1_task_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1656,7 +1774,7 @@ func (x *GetProviderResultFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderResultFilesRequest.ProtoReflect.Descriptor instead.
 func (*GetProviderResultFilesRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{22}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetProviderResultFilesRequest) GetId() int64 {
@@ -1677,7 +1795,7 @@ type GetProviderResultFilesResponse struct {
 
 func (x *GetProviderResultFilesResponse) Reset() {
 	*x = GetProviderResultFilesResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[23]
+	mi := &file_api_task_v1_task_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1689,7 +1807,7 @@ func (x *GetProviderResultFilesResponse) String() string {
 func (*GetProviderResultFilesResponse) ProtoMessage() {}
 
 func (x *GetProviderResultFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[23]
+	mi := &file_api_task_v1_task_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1702,7 +1820,7 @@ func (x *GetProviderResultFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProviderResultFilesResponse.ProtoReflect.Descriptor instead.
 func (*GetProviderResultFilesResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{23}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetProviderResultFilesResponse) GetStatus() int32 {
@@ -1736,7 +1854,7 @@ type ProviderResultFilesData struct {
 
 func (x *ProviderResultFilesData) Reset() {
 	*x = ProviderResultFilesData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[24]
+	mi := &file_api_task_v1_task_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1748,7 +1866,7 @@ func (x *ProviderResultFilesData) String() string {
 func (*ProviderResultFilesData) ProtoMessage() {}
 
 func (x *ProviderResultFilesData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[24]
+	mi := &file_api_task_v1_task_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1761,7 +1879,7 @@ func (x *ProviderResultFilesData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderResultFilesData.ProtoReflect.Descriptor instead.
 func (*ProviderResultFilesData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{24}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ProviderResultFilesData) GetExternalBatchId() string {
@@ -1789,7 +1907,7 @@ type RefetchTaskResultRequest struct {
 
 func (x *RefetchTaskResultRequest) Reset() {
 	*x = RefetchTaskResultRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[25]
+	mi := &file_api_task_v1_task_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1801,7 +1919,7 @@ func (x *RefetchTaskResultRequest) String() string {
 func (*RefetchTaskResultRequest) ProtoMessage() {}
 
 func (x *RefetchTaskResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[25]
+	mi := &file_api_task_v1_task_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1814,7 +1932,7 @@ func (x *RefetchTaskResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefetchTaskResultRequest.ProtoReflect.Descriptor instead.
 func (*RefetchTaskResultRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{25}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RefetchTaskResultRequest) GetId() int64 {
@@ -1849,7 +1967,7 @@ type RefetchTaskResultResponse struct {
 
 func (x *RefetchTaskResultResponse) Reset() {
 	*x = RefetchTaskResultResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[26]
+	mi := &file_api_task_v1_task_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1861,7 +1979,7 @@ func (x *RefetchTaskResultResponse) String() string {
 func (*RefetchTaskResultResponse) ProtoMessage() {}
 
 func (x *RefetchTaskResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[26]
+	mi := &file_api_task_v1_task_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1874,7 +1992,7 @@ func (x *RefetchTaskResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefetchTaskResultResponse.ProtoReflect.Descriptor instead.
 func (*RefetchTaskResultResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{26}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RefetchTaskResultResponse) GetStatus() int32 {
@@ -1910,7 +2028,7 @@ type RefetchTaskResultData struct {
 
 func (x *RefetchTaskResultData) Reset() {
 	*x = RefetchTaskResultData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[27]
+	mi := &file_api_task_v1_task_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1922,7 +2040,7 @@ func (x *RefetchTaskResultData) String() string {
 func (*RefetchTaskResultData) ProtoMessage() {}
 
 func (x *RefetchTaskResultData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[27]
+	mi := &file_api_task_v1_task_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1935,7 +2053,7 @@ func (x *RefetchTaskResultData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefetchTaskResultData.ProtoReflect.Descriptor instead.
 func (*RefetchTaskResultData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{27}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RefetchTaskResultData) GetTaskId() int64 {
@@ -1977,7 +2095,7 @@ type SyncProviderResultRequest struct {
 
 func (x *SyncProviderResultRequest) Reset() {
 	*x = SyncProviderResultRequest{}
-	mi := &file_api_task_v1_task_proto_msgTypes[28]
+	mi := &file_api_task_v1_task_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1989,7 +2107,7 @@ func (x *SyncProviderResultRequest) String() string {
 func (*SyncProviderResultRequest) ProtoMessage() {}
 
 func (x *SyncProviderResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[28]
+	mi := &file_api_task_v1_task_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2002,7 +2120,7 @@ func (x *SyncProviderResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncProviderResultRequest.ProtoReflect.Descriptor instead.
 func (*SyncProviderResultRequest) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{28}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SyncProviderResultRequest) GetId() int64 {
@@ -2037,7 +2155,7 @@ type SyncProviderResultResponse struct {
 
 func (x *SyncProviderResultResponse) Reset() {
 	*x = SyncProviderResultResponse{}
-	mi := &file_api_task_v1_task_proto_msgTypes[29]
+	mi := &file_api_task_v1_task_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2049,7 +2167,7 @@ func (x *SyncProviderResultResponse) String() string {
 func (*SyncProviderResultResponse) ProtoMessage() {}
 
 func (x *SyncProviderResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[29]
+	mi := &file_api_task_v1_task_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2062,7 +2180,7 @@ func (x *SyncProviderResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncProviderResultResponse.ProtoReflect.Descriptor instead.
 func (*SyncProviderResultResponse) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{29}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SyncProviderResultResponse) GetStatus() int32 {
@@ -2101,7 +2219,7 @@ type SyncProviderResultData struct {
 
 func (x *SyncProviderResultData) Reset() {
 	*x = SyncProviderResultData{}
-	mi := &file_api_task_v1_task_proto_msgTypes[30]
+	mi := &file_api_task_v1_task_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2113,7 +2231,7 @@ func (x *SyncProviderResultData) String() string {
 func (*SyncProviderResultData) ProtoMessage() {}
 
 func (x *SyncProviderResultData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_task_v1_task_proto_msgTypes[30]
+	mi := &file_api_task_v1_task_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2126,7 +2244,7 @@ func (x *SyncProviderResultData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncProviderResultData.ProtoReflect.Descriptor instead.
 func (*SyncProviderResultData) Descriptor() ([]byte, []int) {
-	return file_api_task_v1_task_proto_rawDescGZIP(), []int{30}
+	return file_api_task_v1_task_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SyncProviderResultData) GetTaskId() int64 {
@@ -2182,7 +2300,17 @@ var File_api_task_v1_task_proto protoreflect.FileDescriptor
 
 const file_api_task_v1_task_proto_rawDesc = "" +
 	"\n" +
-	"\x16api/task/v1/task.proto\x12\vapi.task.v1\x1a\x1cgoogle/api/annotations.proto\"\xb3\x01\n" +
+	"\x16api/task/v1/task.proto\x12\vapi.task.v1\x1a\x1cgoogle/api/annotations.proto\"\x82\x02\n" +
+	"\vProductCard\x12\x1d\n" +
+	"\n" +
+	"product_id\x18\x01 \x01(\tR\tproductId\x12!\n" +
+	"\fproduct_name\x18\x02 \x01(\tR\vproductName\x12\x14\n" +
+	"\x05price\x18\x03 \x01(\tR\x05price\x12\x1b\n" +
+	"\tshop_name\x18\x04 \x01(\tR\bshopName\x12\x17\n" +
+	"\ashop_id\x18\x05 \x01(\tR\x06shopId\x12%\n" +
+	"\x0eselling_points\x18\x06 \x01(\tR\rsellingPoints\x12\x1b\n" +
+	"\timage_url\x18\a \x01(\tR\bimageUrl\x12!\n" +
+	"\fsales_volume\x18\b \x01(\tR\vsalesVolume\"\xb3\x01\n" +
 	"\bTaskItem\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12#\n" +
 	"\rplatform_code\x18\x02 \x01(\tR\fplatformCode\x12\x10\n" +
@@ -2190,8 +2318,9 @@ const file_api_task_v1_task_proto_rawDesc = "" +
 	"\bquestion\x18\x04 \x01(\tR\bquestion\x12\x1c\n" +
 	"\tdeepthink\x18\x05 \x01(\bR\tdeepthink\x12\x1d\n" +
 	"\n" +
-	"web_search\x18\x06 \x01(\bR\twebSearch\"\x8b\x02\n" +
-	"\x11CreateTaskRequest\x12\x16\n" +
+	"web_search\x18\x06 \x01(\bR\twebSearch\"\xb2\x02\n" +
+	"\x11CreateTaskRequest\x12%\n" +
+	"\x0eexecution_mode\x18\t \x01(\tR\rexecutionMode\x12\x16\n" +
 	"\x06device\x18\b \x01(\tR\x06device\x12\x19\n" +
 	"\bbatch_no\x18\x01 \x01(\tR\abatchNo\x12#\n" +
 	"\rprovider_code\x18\x02 \x01(\tR\fproviderCode\x12\x19\n" +
@@ -2254,8 +2383,9 @@ const file_api_task_v1_task_proto_rawDesc = "" +
 	"totalCount\x12#\n" +
 	"\rsuccess_count\x18\x06 \x01(\x05R\fsuccessCount\x12!\n" +
 	"\ffailed_count\x18\a \x01(\x05R\vfailedCount\x129\n" +
-	"\x05items\x18\b \x03(\v2#.api.task.v1.ExternalTaskResultItemR\x05items\"\xc1\x04\n" +
-	"\x16ExternalTaskResultItem\x12\x17\n" +
+	"\x05items\x18\b \x03(\v2#.api.task.v1.ExternalTaskResultItemR\x05items\"\x80\x05\n" +
+	"\x16ExternalTaskResultItem\x12=\n" +
+	"\rproduct_cards\x18\x12 \x03(\v2\x18.api.task.v1.ProductCardR\fproductCards\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12#\n" +
 	"\rplatform_code\x18\x02 \x01(\tR\fplatformCode\x12\x10\n" +
 	"\x03seq\x18\x03 \x01(\x05R\x03seq\x12\x1a\n" +
@@ -2391,80 +2521,82 @@ func file_api_task_v1_task_proto_rawDescGZIP() []byte {
 	return file_api_task_v1_task_proto_rawDescData
 }
 
-var file_api_task_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_api_task_v1_task_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_api_task_v1_task_proto_goTypes = []any{
-	(*TaskItem)(nil),                       // 0: api.task.v1.TaskItem
-	(*CreateTaskRequest)(nil),              // 1: api.task.v1.CreateTaskRequest
-	(*CreateTaskResponse)(nil),             // 2: api.task.v1.CreateTaskResponse
-	(*CreateTaskData)(nil),                 // 3: api.task.v1.CreateTaskData
-	(*GetTaskRequest)(nil),                 // 4: api.task.v1.GetTaskRequest
-	(*GetTaskResponse)(nil),                // 5: api.task.v1.GetTaskResponse
-	(*TaskData)(nil),                       // 6: api.task.v1.TaskData
-	(*GetExternalTaskRequest)(nil),         // 7: api.task.v1.GetExternalTaskRequest
-	(*GetExternalTaskResultRequest)(nil),   // 8: api.task.v1.GetExternalTaskResultRequest
-	(*GetExternalTaskResultResponse)(nil),  // 9: api.task.v1.GetExternalTaskResultResponse
-	(*ExternalTaskResultData)(nil),         // 10: api.task.v1.ExternalTaskResultData
-	(*ExternalTaskResultItem)(nil),         // 11: api.task.v1.ExternalTaskResultItem
-	(*GetUploadURLRequest)(nil),            // 12: api.task.v1.GetUploadURLRequest
-	(*GetUploadURLResponse)(nil),           // 13: api.task.v1.GetUploadURLResponse
-	(*UploadURLData)(nil),                  // 14: api.task.v1.UploadURLData
-	(*ProviderCallbackRequest)(nil),        // 15: api.task.v1.ProviderCallbackRequest
-	(*ProviderCallbackResponse)(nil),       // 16: api.task.v1.ProviderCallbackResponse
-	(*ProviderCallbackData)(nil),           // 17: api.task.v1.ProviderCallbackData
-	(*GetProviderStatusRequest)(nil),       // 18: api.task.v1.GetProviderStatusRequest
-	(*GetProviderStatusResponse)(nil),      // 19: api.task.v1.GetProviderStatusResponse
-	(*ProviderStatusData)(nil),             // 20: api.task.v1.ProviderStatusData
-	(*ProviderQuestionStatus)(nil),         // 21: api.task.v1.ProviderQuestionStatus
-	(*GetProviderResultFilesRequest)(nil),  // 22: api.task.v1.GetProviderResultFilesRequest
-	(*GetProviderResultFilesResponse)(nil), // 23: api.task.v1.GetProviderResultFilesResponse
-	(*ProviderResultFilesData)(nil),        // 24: api.task.v1.ProviderResultFilesData
-	(*RefetchTaskResultRequest)(nil),       // 25: api.task.v1.RefetchTaskResultRequest
-	(*RefetchTaskResultResponse)(nil),      // 26: api.task.v1.RefetchTaskResultResponse
-	(*RefetchTaskResultData)(nil),          // 27: api.task.v1.RefetchTaskResultData
-	(*SyncProviderResultRequest)(nil),      // 28: api.task.v1.SyncProviderResultRequest
-	(*SyncProviderResultResponse)(nil),     // 29: api.task.v1.SyncProviderResultResponse
-	(*SyncProviderResultData)(nil),         // 30: api.task.v1.SyncProviderResultData
-	nil,                                    // 31: api.task.v1.UploadURLData.HeadersEntry
+	(*ProductCard)(nil),                    // 0: api.task.v1.ProductCard
+	(*TaskItem)(nil),                       // 1: api.task.v1.TaskItem
+	(*CreateTaskRequest)(nil),              // 2: api.task.v1.CreateTaskRequest
+	(*CreateTaskResponse)(nil),             // 3: api.task.v1.CreateTaskResponse
+	(*CreateTaskData)(nil),                 // 4: api.task.v1.CreateTaskData
+	(*GetTaskRequest)(nil),                 // 5: api.task.v1.GetTaskRequest
+	(*GetTaskResponse)(nil),                // 6: api.task.v1.GetTaskResponse
+	(*TaskData)(nil),                       // 7: api.task.v1.TaskData
+	(*GetExternalTaskRequest)(nil),         // 8: api.task.v1.GetExternalTaskRequest
+	(*GetExternalTaskResultRequest)(nil),   // 9: api.task.v1.GetExternalTaskResultRequest
+	(*GetExternalTaskResultResponse)(nil),  // 10: api.task.v1.GetExternalTaskResultResponse
+	(*ExternalTaskResultData)(nil),         // 11: api.task.v1.ExternalTaskResultData
+	(*ExternalTaskResultItem)(nil),         // 12: api.task.v1.ExternalTaskResultItem
+	(*GetUploadURLRequest)(nil),            // 13: api.task.v1.GetUploadURLRequest
+	(*GetUploadURLResponse)(nil),           // 14: api.task.v1.GetUploadURLResponse
+	(*UploadURLData)(nil),                  // 15: api.task.v1.UploadURLData
+	(*ProviderCallbackRequest)(nil),        // 16: api.task.v1.ProviderCallbackRequest
+	(*ProviderCallbackResponse)(nil),       // 17: api.task.v1.ProviderCallbackResponse
+	(*ProviderCallbackData)(nil),           // 18: api.task.v1.ProviderCallbackData
+	(*GetProviderStatusRequest)(nil),       // 19: api.task.v1.GetProviderStatusRequest
+	(*GetProviderStatusResponse)(nil),      // 20: api.task.v1.GetProviderStatusResponse
+	(*ProviderStatusData)(nil),             // 21: api.task.v1.ProviderStatusData
+	(*ProviderQuestionStatus)(nil),         // 22: api.task.v1.ProviderQuestionStatus
+	(*GetProviderResultFilesRequest)(nil),  // 23: api.task.v1.GetProviderResultFilesRequest
+	(*GetProviderResultFilesResponse)(nil), // 24: api.task.v1.GetProviderResultFilesResponse
+	(*ProviderResultFilesData)(nil),        // 25: api.task.v1.ProviderResultFilesData
+	(*RefetchTaskResultRequest)(nil),       // 26: api.task.v1.RefetchTaskResultRequest
+	(*RefetchTaskResultResponse)(nil),      // 27: api.task.v1.RefetchTaskResultResponse
+	(*RefetchTaskResultData)(nil),          // 28: api.task.v1.RefetchTaskResultData
+	(*SyncProviderResultRequest)(nil),      // 29: api.task.v1.SyncProviderResultRequest
+	(*SyncProviderResultResponse)(nil),     // 30: api.task.v1.SyncProviderResultResponse
+	(*SyncProviderResultData)(nil),         // 31: api.task.v1.SyncProviderResultData
+	nil,                                    // 32: api.task.v1.UploadURLData.HeadersEntry
 }
 var file_api_task_v1_task_proto_depIdxs = []int32{
-	0,  // 0: api.task.v1.CreateTaskRequest.items:type_name -> api.task.v1.TaskItem
-	3,  // 1: api.task.v1.CreateTaskResponse.data:type_name -> api.task.v1.CreateTaskData
-	6,  // 2: api.task.v1.GetTaskResponse.data:type_name -> api.task.v1.TaskData
-	10, // 3: api.task.v1.GetExternalTaskResultResponse.data:type_name -> api.task.v1.ExternalTaskResultData
-	11, // 4: api.task.v1.ExternalTaskResultData.items:type_name -> api.task.v1.ExternalTaskResultItem
-	14, // 5: api.task.v1.GetUploadURLResponse.data:type_name -> api.task.v1.UploadURLData
-	31, // 6: api.task.v1.UploadURLData.headers:type_name -> api.task.v1.UploadURLData.HeadersEntry
-	17, // 7: api.task.v1.ProviderCallbackResponse.data:type_name -> api.task.v1.ProviderCallbackData
-	20, // 8: api.task.v1.GetProviderStatusResponse.data:type_name -> api.task.v1.ProviderStatusData
-	21, // 9: api.task.v1.ProviderStatusData.questions:type_name -> api.task.v1.ProviderQuestionStatus
-	24, // 10: api.task.v1.GetProviderResultFilesResponse.data:type_name -> api.task.v1.ProviderResultFilesData
-	27, // 11: api.task.v1.RefetchTaskResultResponse.data:type_name -> api.task.v1.RefetchTaskResultData
-	30, // 12: api.task.v1.SyncProviderResultResponse.data:type_name -> api.task.v1.SyncProviderResultData
-	1,  // 13: api.task.v1.TaskAPI.CreateTask:input_type -> api.task.v1.CreateTaskRequest
-	4,  // 14: api.task.v1.TaskAPI.GetTask:input_type -> api.task.v1.GetTaskRequest
-	7,  // 15: api.task.v1.TaskAPI.GetExternalTask:input_type -> api.task.v1.GetExternalTaskRequest
-	8,  // 16: api.task.v1.TaskAPI.GetExternalTaskResult:input_type -> api.task.v1.GetExternalTaskResultRequest
-	12, // 17: api.task.v1.TaskAPI.GetUploadURL:input_type -> api.task.v1.GetUploadURLRequest
-	15, // 18: api.task.v1.TaskAPI.ProviderCallback:input_type -> api.task.v1.ProviderCallbackRequest
-	18, // 19: api.task.v1.TaskAPI.GetProviderStatus:input_type -> api.task.v1.GetProviderStatusRequest
-	22, // 20: api.task.v1.TaskAPI.GetProviderResultFiles:input_type -> api.task.v1.GetProviderResultFilesRequest
-	25, // 21: api.task.v1.TaskAPI.RefetchTaskResult:input_type -> api.task.v1.RefetchTaskResultRequest
-	28, // 22: api.task.v1.TaskAPI.SyncProviderResult:input_type -> api.task.v1.SyncProviderResultRequest
-	2,  // 23: api.task.v1.TaskAPI.CreateTask:output_type -> api.task.v1.CreateTaskResponse
-	5,  // 24: api.task.v1.TaskAPI.GetTask:output_type -> api.task.v1.GetTaskResponse
-	5,  // 25: api.task.v1.TaskAPI.GetExternalTask:output_type -> api.task.v1.GetTaskResponse
-	9,  // 26: api.task.v1.TaskAPI.GetExternalTaskResult:output_type -> api.task.v1.GetExternalTaskResultResponse
-	13, // 27: api.task.v1.TaskAPI.GetUploadURL:output_type -> api.task.v1.GetUploadURLResponse
-	16, // 28: api.task.v1.TaskAPI.ProviderCallback:output_type -> api.task.v1.ProviderCallbackResponse
-	19, // 29: api.task.v1.TaskAPI.GetProviderStatus:output_type -> api.task.v1.GetProviderStatusResponse
-	23, // 30: api.task.v1.TaskAPI.GetProviderResultFiles:output_type -> api.task.v1.GetProviderResultFilesResponse
-	26, // 31: api.task.v1.TaskAPI.RefetchTaskResult:output_type -> api.task.v1.RefetchTaskResultResponse
-	29, // 32: api.task.v1.TaskAPI.SyncProviderResult:output_type -> api.task.v1.SyncProviderResultResponse
-	23, // [23:33] is the sub-list for method output_type
-	13, // [13:23] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	1,  // 0: api.task.v1.CreateTaskRequest.items:type_name -> api.task.v1.TaskItem
+	4,  // 1: api.task.v1.CreateTaskResponse.data:type_name -> api.task.v1.CreateTaskData
+	7,  // 2: api.task.v1.GetTaskResponse.data:type_name -> api.task.v1.TaskData
+	11, // 3: api.task.v1.GetExternalTaskResultResponse.data:type_name -> api.task.v1.ExternalTaskResultData
+	12, // 4: api.task.v1.ExternalTaskResultData.items:type_name -> api.task.v1.ExternalTaskResultItem
+	0,  // 5: api.task.v1.ExternalTaskResultItem.product_cards:type_name -> api.task.v1.ProductCard
+	15, // 6: api.task.v1.GetUploadURLResponse.data:type_name -> api.task.v1.UploadURLData
+	32, // 7: api.task.v1.UploadURLData.headers:type_name -> api.task.v1.UploadURLData.HeadersEntry
+	18, // 8: api.task.v1.ProviderCallbackResponse.data:type_name -> api.task.v1.ProviderCallbackData
+	21, // 9: api.task.v1.GetProviderStatusResponse.data:type_name -> api.task.v1.ProviderStatusData
+	22, // 10: api.task.v1.ProviderStatusData.questions:type_name -> api.task.v1.ProviderQuestionStatus
+	25, // 11: api.task.v1.GetProviderResultFilesResponse.data:type_name -> api.task.v1.ProviderResultFilesData
+	28, // 12: api.task.v1.RefetchTaskResultResponse.data:type_name -> api.task.v1.RefetchTaskResultData
+	31, // 13: api.task.v1.SyncProviderResultResponse.data:type_name -> api.task.v1.SyncProviderResultData
+	2,  // 14: api.task.v1.TaskAPI.CreateTask:input_type -> api.task.v1.CreateTaskRequest
+	5,  // 15: api.task.v1.TaskAPI.GetTask:input_type -> api.task.v1.GetTaskRequest
+	8,  // 16: api.task.v1.TaskAPI.GetExternalTask:input_type -> api.task.v1.GetExternalTaskRequest
+	9,  // 17: api.task.v1.TaskAPI.GetExternalTaskResult:input_type -> api.task.v1.GetExternalTaskResultRequest
+	13, // 18: api.task.v1.TaskAPI.GetUploadURL:input_type -> api.task.v1.GetUploadURLRequest
+	16, // 19: api.task.v1.TaskAPI.ProviderCallback:input_type -> api.task.v1.ProviderCallbackRequest
+	19, // 20: api.task.v1.TaskAPI.GetProviderStatus:input_type -> api.task.v1.GetProviderStatusRequest
+	23, // 21: api.task.v1.TaskAPI.GetProviderResultFiles:input_type -> api.task.v1.GetProviderResultFilesRequest
+	26, // 22: api.task.v1.TaskAPI.RefetchTaskResult:input_type -> api.task.v1.RefetchTaskResultRequest
+	29, // 23: api.task.v1.TaskAPI.SyncProviderResult:input_type -> api.task.v1.SyncProviderResultRequest
+	3,  // 24: api.task.v1.TaskAPI.CreateTask:output_type -> api.task.v1.CreateTaskResponse
+	6,  // 25: api.task.v1.TaskAPI.GetTask:output_type -> api.task.v1.GetTaskResponse
+	6,  // 26: api.task.v1.TaskAPI.GetExternalTask:output_type -> api.task.v1.GetTaskResponse
+	10, // 27: api.task.v1.TaskAPI.GetExternalTaskResult:output_type -> api.task.v1.GetExternalTaskResultResponse
+	14, // 28: api.task.v1.TaskAPI.GetUploadURL:output_type -> api.task.v1.GetUploadURLResponse
+	17, // 29: api.task.v1.TaskAPI.ProviderCallback:output_type -> api.task.v1.ProviderCallbackResponse
+	20, // 30: api.task.v1.TaskAPI.GetProviderStatus:output_type -> api.task.v1.GetProviderStatusResponse
+	24, // 31: api.task.v1.TaskAPI.GetProviderResultFiles:output_type -> api.task.v1.GetProviderResultFilesResponse
+	27, // 32: api.task.v1.TaskAPI.RefetchTaskResult:output_type -> api.task.v1.RefetchTaskResultResponse
+	30, // 33: api.task.v1.TaskAPI.SyncProviderResult:output_type -> api.task.v1.SyncProviderResultResponse
+	24, // [24:34] is the sub-list for method output_type
+	14, // [14:24] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_api_task_v1_task_proto_init() }
@@ -2478,7 +2610,7 @@ func file_api_task_v1_task_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_task_v1_task_proto_rawDesc), len(file_api_task_v1_task_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   32,
+			NumMessages:   33,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

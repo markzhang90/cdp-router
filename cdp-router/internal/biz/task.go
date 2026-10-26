@@ -89,6 +89,7 @@ const (
 )
 
 type DispatchProfile struct {
+	Pull                    DispatchMode
 	ID                      int64
 	PlatformUserID          int64
 	Code                    string
@@ -106,8 +107,27 @@ type DispatchProfile struct {
 }
 
 type DispatchProfileInput struct {
+	Pull                    *DispatchModeInput
 	Code                    string
 	Name                    string
+	Strategy                DispatchStrategy
+	Enabled                 bool
+	ProviderCodes           []string
+	FallbackSelectionPolicy DispatchFallbackSelectionPolicy
+	Rules                   []DispatchRuleInput
+}
+
+type DispatchMode struct {
+	Strategy                DispatchStrategy
+	Enabled                 bool
+	ProviderCodes           []string
+	FallbackSelectionPolicy DispatchFallbackSelectionPolicy
+	Rules                   []DispatchRule
+	Cursor                  int64
+	LastProviderCode        string
+}
+
+type DispatchModeInput struct {
 	Strategy                DispatchStrategy
 	Enabled                 bool
 	ProviderCodes           []string
@@ -190,6 +210,7 @@ type TaskItem struct {
 }
 
 type CreateTaskInput struct {
+	ExecutionMode  string
 	Device         string
 	JobID          string
 	PlatformUserID int64
@@ -292,6 +313,7 @@ type CallbackDelivery struct {
 }
 
 type CallbackResultItem struct {
+	ProductCards             []ProductCard   `json:"productCards,omitempty"`
 	ItemID                   string          `json:"itemId"`
 	PlatformCode             string          `json:"platformCode,omitempty"`
 	Seq                      int             `json:"seq,omitempty"`
@@ -410,7 +432,20 @@ type ResultFileInput struct {
 	NotifyCallback  bool
 }
 
+// ProductCard preserves the provider's display values and order within an answer.
+type ProductCard struct {
+	ProductID     string `json:"productId,omitempty"`
+	ProductName   string `json:"productName,omitempty"`
+	Price         string `json:"price,omitempty"`
+	ShopName      string `json:"shopName,omitempty"`
+	ShopID        string `json:"shopId,omitempty"`
+	SellingPoints string `json:"sellingPoints,omitempty"`
+	ImageURL      string `json:"imageUrl,omitempty"`
+	SalesVolume   string `json:"salesVolume,omitempty"`
+}
+
 type TaskItemResult struct {
+	ProductCards []ProductCard `json:"productCards,omitempty"`
 	AnswerValidation
 	ItemID               string          `json:"itemId"`
 	Seq                  int             `json:"seq"`
@@ -433,6 +468,7 @@ type TaskItemResult struct {
 }
 
 type TaskItemResultView struct {
+	ProductCards []ProductCard
 	AnswerValidation
 	ItemID               string
 	PlatformCode         string

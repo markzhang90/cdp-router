@@ -311,19 +311,21 @@ func (x *PullResultRequest) GetResults() []*PullAnswer {
 }
 
 type PullAnswer struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	ItemId               string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
-	AnswerSeq            int32                  `protobuf:"varint,2,opt,name=answer_seq,json=answerSeq,proto3" json:"answer_seq,omitempty"`
-	ExecutionStatus      string                 `protobuf:"bytes,3,opt,name=execution_status,json=executionStatus,proto3" json:"execution_status,omitempty"`
-	ErrorCode            string                 `protobuf:"bytes,4,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
-	ErrorMessage         string                 `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	AnswerText           string                 `protobuf:"bytes,6,opt,name=answer_text,json=answerText,proto3" json:"answer_text,omitempty"`
-	ThinkingProcess      string                 `protobuf:"bytes,7,opt,name=thinking_process,json=thinkingProcess,proto3" json:"thinking_process,omitempty"`
-	GeneratedAt          string                 `protobuf:"bytes,8,opt,name=generated_at,json=generatedAt,proto3" json:"generated_at,omitempty"`
-	RecommendedQuestions []string               `protobuf:"bytes,9,rep,name=recommended_questions,json=recommendedQuestions,proto3" json:"recommended_questions,omitempty"`
-	References           []*PullReference       `protobuf:"bytes,10,rep,name=references,proto3" json:"references,omitempty"`
-	DeviceId             string                 `protobuf:"bytes,11,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	RecordingUrl         string                 `protobuf:"bytes,12,opt,name=recording_url,json=recordingUrl,proto3" json:"recording_url,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Complete ordered snapshot; omitted/empty clears previous cards. Maximum 100.
+	ProductCards         []*ProductCard   `protobuf:"bytes,13,rep,name=product_cards,json=productCards,proto3" json:"product_cards,omitempty"`
+	ItemId               string           `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	AnswerSeq            int32            `protobuf:"varint,2,opt,name=answer_seq,json=answerSeq,proto3" json:"answer_seq,omitempty"`
+	ExecutionStatus      string           `protobuf:"bytes,3,opt,name=execution_status,json=executionStatus,proto3" json:"execution_status,omitempty"`
+	ErrorCode            string           `protobuf:"bytes,4,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorMessage         string           `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	AnswerText           string           `protobuf:"bytes,6,opt,name=answer_text,json=answerText,proto3" json:"answer_text,omitempty"`
+	ThinkingProcess      string           `protobuf:"bytes,7,opt,name=thinking_process,json=thinkingProcess,proto3" json:"thinking_process,omitempty"`
+	GeneratedAt          string           `protobuf:"bytes,8,opt,name=generated_at,json=generatedAt,proto3" json:"generated_at,omitempty"`
+	RecommendedQuestions []string         `protobuf:"bytes,9,rep,name=recommended_questions,json=recommendedQuestions,proto3" json:"recommended_questions,omitempty"`
+	References           []*PullReference `protobuf:"bytes,10,rep,name=references,proto3" json:"references,omitempty"`
+	DeviceId             string           `protobuf:"bytes,11,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	RecordingUrl         string           `protobuf:"bytes,12,opt,name=recording_url,json=recordingUrl,proto3" json:"recording_url,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -356,6 +358,13 @@ func (x *PullAnswer) ProtoReflect() protoreflect.Message {
 // Deprecated: Use PullAnswer.ProtoReflect.Descriptor instead.
 func (*PullAnswer) Descriptor() ([]byte, []int) {
 	return file_api_task_v1_pull_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *PullAnswer) GetProductCards() []*ProductCard {
+	if x != nil {
+		return x.ProductCards
+	}
+	return nil
 }
 
 func (x *PullAnswer) GetItemId() string {
@@ -898,9 +907,10 @@ const file_api_task_v1_pull_proto_rawDesc = "" +
 	"\bshard_id\x18\x03 \x01(\x03R\ashardId\x12%\n" +
 	"\x0eschema_version\x18\x04 \x01(\tR\rschemaVersion\x12\x1a\n" +
 	"\bfinished\x18\x05 \x01(\bR\bfinished\x121\n" +
-	"\aresults\x18\x06 \x03(\v2\x17.api.task.v1.PullAnswerR\aresults\"\xd5\x03\n" +
+	"\aresults\x18\x06 \x03(\v2\x17.api.task.v1.PullAnswerR\aresults\"\x94\x04\n" +
 	"\n" +
-	"PullAnswer\x12\x17\n" +
+	"PullAnswer\x12=\n" +
+	"\rproduct_cards\x18\r \x03(\v2\x18.api.task.v1.ProductCardR\fproductCards\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\x1d\n" +
 	"\n" +
 	"answer_seq\x18\x02 \x01(\x05R\tanswerSeq\x12)\n" +
@@ -988,29 +998,31 @@ var file_api_task_v1_pull_proto_goTypes = []any{
 	(*TaskProgressData)(nil),       // 8: api.task.v1.TaskProgressData
 	(*PullReference)(nil),          // 9: api.task.v1.PullReference
 	(*TaskItem)(nil),               // 10: api.task.v1.TaskItem
-	(*GetTaskRequest)(nil),         // 11: api.task.v1.GetTaskRequest
-	(*GetExternalTaskRequest)(nil), // 12: api.task.v1.GetExternalTaskRequest
+	(*ProductCard)(nil),            // 11: api.task.v1.ProductCard
+	(*GetTaskRequest)(nil),         // 12: api.task.v1.GetTaskRequest
+	(*GetExternalTaskRequest)(nil), // 13: api.task.v1.GetExternalTaskRequest
 }
 var file_api_task_v1_pull_proto_depIdxs = []int32{
 	2,  // 0: api.task.v1.PullTaskResponse.data:type_name -> api.task.v1.PullTaskData
 	10, // 1: api.task.v1.PullTaskData.items:type_name -> api.task.v1.TaskItem
 	4,  // 2: api.task.v1.PullResultRequest.results:type_name -> api.task.v1.PullAnswer
-	9,  // 3: api.task.v1.PullAnswer.references:type_name -> api.task.v1.PullReference
-	6,  // 4: api.task.v1.PullResultResponse.data:type_name -> api.task.v1.PullResultData
-	8,  // 5: api.task.v1.TaskProgressResponse.data:type_name -> api.task.v1.TaskProgressData
-	0,  // 6: api.task.v1.PullAPI.GetPullTask:input_type -> api.task.v1.PullTaskRequest
-	3,  // 7: api.task.v1.PullAPI.SubmitPullResult:input_type -> api.task.v1.PullResultRequest
-	11, // 8: api.task.v1.PullAPI.GetTaskProgress:input_type -> api.task.v1.GetTaskRequest
-	12, // 9: api.task.v1.PullAPI.GetExternalTaskProgress:input_type -> api.task.v1.GetExternalTaskRequest
-	1,  // 10: api.task.v1.PullAPI.GetPullTask:output_type -> api.task.v1.PullTaskResponse
-	5,  // 11: api.task.v1.PullAPI.SubmitPullResult:output_type -> api.task.v1.PullResultResponse
-	7,  // 12: api.task.v1.PullAPI.GetTaskProgress:output_type -> api.task.v1.TaskProgressResponse
-	7,  // 13: api.task.v1.PullAPI.GetExternalTaskProgress:output_type -> api.task.v1.TaskProgressResponse
-	10, // [10:14] is the sub-list for method output_type
-	6,  // [6:10] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	11, // 3: api.task.v1.PullAnswer.product_cards:type_name -> api.task.v1.ProductCard
+	9,  // 4: api.task.v1.PullAnswer.references:type_name -> api.task.v1.PullReference
+	6,  // 5: api.task.v1.PullResultResponse.data:type_name -> api.task.v1.PullResultData
+	8,  // 6: api.task.v1.TaskProgressResponse.data:type_name -> api.task.v1.TaskProgressData
+	0,  // 7: api.task.v1.PullAPI.GetPullTask:input_type -> api.task.v1.PullTaskRequest
+	3,  // 8: api.task.v1.PullAPI.SubmitPullResult:input_type -> api.task.v1.PullResultRequest
+	12, // 9: api.task.v1.PullAPI.GetTaskProgress:input_type -> api.task.v1.GetTaskRequest
+	13, // 10: api.task.v1.PullAPI.GetExternalTaskProgress:input_type -> api.task.v1.GetExternalTaskRequest
+	1,  // 11: api.task.v1.PullAPI.GetPullTask:output_type -> api.task.v1.PullTaskResponse
+	5,  // 12: api.task.v1.PullAPI.SubmitPullResult:output_type -> api.task.v1.PullResultResponse
+	7,  // 13: api.task.v1.PullAPI.GetTaskProgress:output_type -> api.task.v1.TaskProgressResponse
+	7,  // 14: api.task.v1.PullAPI.GetExternalTaskProgress:output_type -> api.task.v1.TaskProgressResponse
+	11, // [11:15] is the sub-list for method output_type
+	7,  // [7:11] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_api_task_v1_pull_proto_init() }

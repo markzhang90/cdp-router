@@ -5,20 +5,50 @@ import { ArrowDown, ArrowUp, BarChart3, Edit3, Plus, RefreshCw, Search, SlidersH
 import { useNavigate } from "react-router-dom";
 import { createPlatformUser, getDispatchOptions, listPlatformUsers, updatePlatformUser } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
-import type { DispatchProfilePayload, DispatchStrategyOption, PlatformUser, PlatformUserListQuery, PlatformUserPayload, Provider } from "../types/admin";
+import type { DispatchMode, DispatchModePayload, DispatchProfilePayload, DispatchStrategyOption, PlatformUser, PlatformUserListQuery, PlatformUserPayload, Provider } from "../types/admin";
 import { compactText, formatDateTime } from "../utils/format";
 
 type FormValues = Omit<PlatformUserPayload, "dispatchProfile"> & {
   dispatchProfile?: DispatchProfilePayload;
 };
 
-const createDefaultDispatchProfile = (): DispatchProfilePayload => ({
+const createDefaultMode = (enabled = true): DispatchModePayload => ({
   strategy: "ROUND_ROBIN",
-  enabled: true,
+  enabled,
   providerCodes: [],
   fallbackSelectionPolicy: "ROUND_ROBIN",
   rules: []
 });
+
+const createDefaultDispatchProfile = (): DispatchProfilePayload => ({
+  ...createDefaultMode(), pull: createDefaultMode(false)
+});
+
+function buildModePayload(mode?: DispatchMode, enabled = true): DispatchModePayload {
+  return {
+    ...createDefaultMode(enabled), ...mode,
+    providerCodes: mode?.providerCodes ?? [],
+    rules: mode?.rules ?? []
+  };
+}
+
+function normalizeModePayload(mode: DispatchModePayload): DispatchModePayload {
+  const strategy = mode.strategy || "ROUND_ROBIN";
+  return {
+    strategy, enabled: mode.enabled ?? false,
+    providerCodes: mode.providerCodes ?? [],
+    fallbackSelectionPolicy: mode.fallbackSelectionPolicy || defaultFallbackSelectionPolicy(strategy),
+    rules: strategy === "RULE_BASED" ? (mode.rules ?? []).map((rule, index) => ({
+      ...rule,
+      code: rule.code || createDispatchRuleCode(index + 1),
+      name: rule.name || `规则${index + 1}`,
+      sortOrder: (index + 1) * 10,
+      labels: rule.labels ?? [],
+      providerCodes: rule.providerCodes ?? [],
+      enabled: rule.enabled ?? true
+    })) : []
+  };
+}
 
 const strategyLabel: Record<string, string> = {
   ROUND_ROBIN: "顺序分配",
@@ -162,19 +192,10 @@ export function PlatformUsersPage() {
   };
 
   const buildDispatchProfilePayload = (user: PlatformUser): DispatchProfilePayload => ({
+    ...buildModePayload(user.dispatchProfile),
     code: user.dispatchProfile?.code,
     name: user.dispatchProfile?.name,
-    strategy: user.dispatchProfile?.strategy || "ROUND_ROBIN",
-    enabled: user.dispatchProfile?.enabled ?? true,
-    providerCodes: user.dispatchProfile?.providerCodes ?? [],
-    fallbackSelectionPolicy: user.dispatchProfile?.fallbackSelectionPolicy || defaultFallbackSelectionPolicy(user.dispatchProfile?.strategy || "ROUND_ROBIN"),
-    rules: (user.dispatchProfile?.rules ?? []).map((rule, index) => ({
-      ...rule,
-      code: rule.code || createDispatchRuleCode(index + 1),
-      name: rule.name || `规则${index + 1}`,
-      labels: rule.labels ?? [],
-      providerCodes: rule.providerCodes ?? []
-    }))
+    pull: buildModePayload(user.dispatchProfile?.pull, false)
   });
 
   const buildPlatformFormValues = (user: PlatformUser): FormValues => ({
@@ -188,8 +209,6 @@ export function PlatformUsersPage() {
 
   const normalizePayload = (values: FormValues, fallbackDispatchProfile?: DispatchProfilePayload): PlatformUserPayload => {
     const dispatchProfile = values.dispatchProfile ?? fallbackDispatchProfile ?? createDefaultDispatchProfile();
-    const strategy = dispatchProfile.strategy || "ROUND_ROBIN";
-    const fallbackSelectionPolicy = dispatchProfile.fallbackSelectionPolicy || defaultFallbackSelectionPolicy(strategy);
     return {
       platformCode: values.platformCode,
       name: values.name,
@@ -199,22 +218,8 @@ export function PlatformUsersPage() {
       dispatchProfile: {
         code: dispatchProfile.code,
         name: dispatchProfile.name,
-        strategy,
-        enabled: dispatchProfile.enabled ?? true,
-        providerCodes: dispatchProfile.providerCodes ?? [],
-        fallbackSelectionPolicy,
-        rules:
-          strategy === "RULE_BASED"
-            ? (dispatchProfile.rules ?? []).map((rule, index) => ({
-                ...rule,
-                code: rule.code || createDispatchRuleCode(index + 1),
-                name: rule.name || `规则${index + 1}`,
-                sortOrder: (index + 1) * 10,
-                labels: rule.labels ?? [],
-                providerCodes: rule.providerCodes ?? [],
-                enabled: rule.enabled ?? true
-              }))
-            : []
+        ...normalizeModePayload(dispatchProfile),
+        pull: normalizeModePayload(dispatchProfile.pull ?? createDefaultMode(false))
       }
     };
   };
@@ -283,7 +288,8 @@ export function PlatformUsersPage() {
     () =>
       dispatchProviders.map((provider) => ({
         label: `${provider.providerCode} · ${provider.displayName}${provider.dailyQuestionQuota > 0 ? ` · ${provider.dailyQuestionQuota}/日` : " · 无上限"}`,
-        value: provider.providerCode
+        value: provider.providerCode,
+        mode: provider.interactionMode || "push"
       })),
     [dispatchProviders]
   );
@@ -299,163 +305,183 @@ export function PlatformUsersPage() {
     [dispatchStrategies]
   );
 
-  const renderDispatchFields = () => (
-    <>
-      <Form.Item name={["dispatchProfile", "strategy"]} hidden rules={[{ required: true, message: "请选择调度模式" }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name={["dispatchProfile", "enabled"]} label="任务调度" valuePropName="checked">
-        <Switch checkedChildren="启用" unCheckedChildren="停用" />
-      </Form.Item>
-      <Form.Item noStyle shouldUpdate={(prev, current) => prev.dispatchProfile?.strategy !== current.dispatchProfile?.strategy}>
-        {({ getFieldValue, setFieldValue }) => {
-          const strategy = getFieldValue(["dispatchProfile", "strategy"]) || "ROUND_ROBIN";
-          return (
-            <Tabs
-              className="dispatch-mode-tabs"
-              activeKey={strategy}
-              onChange={(key) => {
-                setFieldValue(["dispatchProfile", "strategy"], key);
-                setFieldValue(["dispatchProfile", "fallbackSelectionPolicy"], defaultFallbackSelectionPolicy(key));
-              }}
-              items={strategyOptions.map((option) => ({
-                ...option,
-                children:
-                  option.key === "RULE_BASED" ? (
-                    <Space direction="vertical" size={14} className="dispatch-config-stack">
+  const renderDispatchMode = (mode: "push" | "pull") => {
+    const profilePath = mode === "push" ? ["dispatchProfile"] : ["dispatchProfile", "pull"];
+    const modeProviders = providerOptions.filter((provider) => provider.mode === mode);
+    return (
+      <>
+        <Form.Item name={[...profilePath, "strategy"]} hidden rules={[{ required: true, message: "请选择调度模式" }]}>
+          <Input />
+        </Form.Item>
+        <Form.Item name={[...profilePath, "enabled"]} label={`${mode === "push" ? "Push" : "Pull"} 调度`} valuePropName="checked">
+          <Switch checkedChildren="启用" unCheckedChildren="停用" />
+        </Form.Item>
+        <Form.Item noStyle shouldUpdate>
+          {({ getFieldValue, setFieldValue }) => {
+            if (!getFieldValue([...profilePath, "enabled"])) {
+              return <Typography.Text type="secondary">已停用：该模式的任务将无法分配，不会切换到另一模式。</Typography.Text>;
+            }
+            const strategy = getFieldValue([...profilePath, "strategy"]) || "ROUND_ROBIN";
+            return (
+              <Tabs
+                className="dispatch-mode-tabs"
+                destroyInactiveTabPane
+                activeKey={strategy}
+                onChange={(key) => {
+                  setFieldValue([...profilePath, "strategy"], key);
+                  setFieldValue([...profilePath, "fallbackSelectionPolicy"], defaultFallbackSelectionPolicy(key));
+                }}
+                items={strategyOptions.map((option) => ({
+                  ...option,
+                  children:
+                    option.key === "RULE_BASED" ? (
+                      <Space direction="vertical" size={14} className="dispatch-config-stack">
+                        <Form.Item
+                          name={[...profilePath, "providerCodes"]}
+                          label="FALLBACK 供应商池"
+                          rules={[{ required: true, message: "请选择 FALLBACK 供应商" }]}
+                        >
+                          <Select
+                            mode="multiple"
+                            loading={dispatchOptionsLoading}
+                            placeholder="选择兜底供应商"
+                            options={modeProviders}
+                            onFocus={loadDispatchOptions}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name={[...profilePath, "fallbackSelectionPolicy"]}
+                          label="FALLBACK 下发方式"
+                          rules={[{ required: true, message: "请选择 FALLBACK 下发方式" }]}
+                        >
+                          <Segmented options={fallbackSelectionPolicyOptions} />
+                        </Form.Item>
+                        <Form.List name={[...profilePath, "rules"]}>
+                          {(fields, { add, remove, move }) => (
+                            <Space direction="vertical" size={12} className="dispatch-config-stack">
+                              <div className="dispatch-rule-list-header">
+                                <Typography.Text strong>规则列表</Typography.Text>
+                                <Button
+                                  icon={<Plus size={16} />}
+                                  onClick={() => {
+                                    const ruleNumber = nextDispatchRuleNumber(getFieldValue([...profilePath, "rules"]));
+                                    add({
+                                      code: createDispatchRuleCode(ruleNumber),
+                                      name: `规则${ruleNumber}`,
+                                      enabled: true,
+                                      sortOrder: (fields.length + 1) * 10,
+                                      labels: [],
+                                      providerCodes: []
+                                    });
+                                  }}
+                                >
+                                  添加规则
+                                </Button>
+                              </div>
+                              {fields.map((field, index) => (
+                                <div className="rule-editor" key={field.key}>
+                                  <div className="dispatch-rule-toolbar">
+                                    <Space size={8}>
+                                      <span className="dispatch-rule-index">{index + 1}</span>
+                                      <Typography.Text strong>规则 {index + 1}</Typography.Text>
+                                    </Space>
+                                    <Space size={4}>
+                                      <Tooltip title="上移">
+                                        <Button
+                                          type="text"
+                                          disabled={index === 0}
+                                          icon={<ArrowUp size={16} />}
+                                          onClick={() => move(field.name, field.name - 1)}
+                                        />
+                                      </Tooltip>
+                                      <Tooltip title="下移">
+                                        <Button
+                                          type="text"
+                                          disabled={index === fields.length - 1}
+                                          icon={<ArrowDown size={16} />}
+                                          onClick={() => move(field.name, field.name + 1)}
+                                        />
+                                      </Tooltip>
+                                      <Tooltip title="删除规则">
+                                        <Button type="text" danger icon={<Trash2 size={16} />} onClick={() => remove(field.name)} />
+                                      </Tooltip>
+                                    </Space>
+                                  </div>
+                                  <div className="dispatch-rule-grid">
+                                    <Form.Item name={[field.name, "code"]} hidden>
+                                      <Input />
+                                    </Form.Item>
+                                    <Form.Item name={[field.name, "enabled"]} label="启用规则" valuePropName="checked" initialValue>
+                                      <Switch checkedChildren="启用" unCheckedChildren="停用" />
+                                    </Form.Item>
+                                    <Form.Item name={[field.name, "name"]} label="规则名称">
+                                      <Input placeholder={`规则${index + 1}`} />
+                                    </Form.Item>
+                                    <Form.Item
+                                      className="dispatch-rule-field-wide"
+                                      name={[field.name, "taskNameRegex"]}
+                                      label="任务名称匹配（关键词或者正则表达式）"
+                                      rules={[{ required: true, message: "请输入任务名称匹配规则" }]}
+                                    >
+                                      <Input placeholder="人工校验 或 .*人工校验.*" />
+                                    </Form.Item>
+                                    <Form.Item className="dispatch-rule-field-wide" name={[field.name, "labels"]} label="标签">
+                                      <DispatchLabelsInput />
+                                    </Form.Item>
+                                    <Form.Item
+                                      className="dispatch-rule-field-wide"
+                                      name={[field.name, "providerCodes"]}
+                                      label="可执行供应商池"
+                                      rules={[{ required: true, message: "请选择供应商" }]}
+                                    >
+                                      <Select
+                                        mode="multiple"
+                                        loading={dispatchOptionsLoading}
+                                        placeholder="选择供应商"
+                                        options={modeProviders}
+                                        onFocus={loadDispatchOptions}
+                                      />
+                                    </Form.Item>
+                                  </div>
+                                </div>
+                              ))}
+                            </Space>
+                          )}
+                        </Form.List>
+                      </Space>
+                    ) : (
                       <Form.Item
-                        name={["dispatchProfile", "providerCodes"]}
-                        label="FALLBACK 供应商池"
-                        rules={[{ required: true, message: "请选择 FALLBACK 供应商" }]}
+                        name={[...profilePath, "providerCodes"]}
+                        label="默认供应商池"
+                        rules={[{ required: true, message: "请选择默认供应商" }]}
                       >
                         <Select
                           mode="multiple"
                           loading={dispatchOptionsLoading}
-                          placeholder="选择兜底供应商"
-                          options={providerOptions}
+                          placeholder="按选择顺序依次下发"
+                          options={modeProviders}
                           onFocus={loadDispatchOptions}
                         />
                       </Form.Item>
-                      <Form.Item
-                        name={["dispatchProfile", "fallbackSelectionPolicy"]}
-                        label="FALLBACK 下发方式"
-                        rules={[{ required: true, message: "请选择 FALLBACK 下发方式" }]}
-                      >
-                        <Segmented options={fallbackSelectionPolicyOptions} />
-                      </Form.Item>
-                      <Form.List name={["dispatchProfile", "rules"]}>
-                        {(fields, { add, remove, move }) => (
-                          <Space direction="vertical" size={12} className="dispatch-config-stack">
-                            <div className="dispatch-rule-list-header">
-                              <Typography.Text strong>规则列表</Typography.Text>
-                              <Button
-                                icon={<Plus size={16} />}
-                                onClick={() => {
-                                  const ruleNumber = nextDispatchRuleNumber(getFieldValue(["dispatchProfile", "rules"]));
-                                  add({
-                                    code: createDispatchRuleCode(ruleNumber),
-                                    name: `规则${ruleNumber}`,
-                                    enabled: true,
-                                    sortOrder: (fields.length + 1) * 10,
-                                    labels: [],
-                                    providerCodes: []
-                                  });
-                                }}
-                              >
-                                添加规则
-                              </Button>
-                            </div>
-                            {fields.map((field, index) => (
-                              <div className="rule-editor" key={field.key}>
-                                <div className="dispatch-rule-toolbar">
-                                  <Space size={8}>
-                                    <span className="dispatch-rule-index">{index + 1}</span>
-                                    <Typography.Text strong>规则 {index + 1}</Typography.Text>
-                                  </Space>
-                                  <Space size={4}>
-                                    <Tooltip title="上移">
-                                      <Button
-                                        type="text"
-                                        disabled={index === 0}
-                                        icon={<ArrowUp size={16} />}
-                                        onClick={() => move(field.name, field.name - 1)}
-                                      />
-                                    </Tooltip>
-                                    <Tooltip title="下移">
-                                      <Button
-                                        type="text"
-                                        disabled={index === fields.length - 1}
-                                        icon={<ArrowDown size={16} />}
-                                        onClick={() => move(field.name, field.name + 1)}
-                                      />
-                                    </Tooltip>
-                                    <Tooltip title="删除规则">
-                                      <Button type="text" danger icon={<Trash2 size={16} />} onClick={() => remove(field.name)} />
-                                    </Tooltip>
-                                  </Space>
-                                </div>
-                                <div className="dispatch-rule-grid">
-                                  <Form.Item name={[field.name, "code"]} hidden>
-                                    <Input />
-                                  </Form.Item>
-                                  <Form.Item name={[field.name, "enabled"]} label="启用规则" valuePropName="checked" initialValue>
-                                    <Switch checkedChildren="启用" unCheckedChildren="停用" />
-                                  </Form.Item>
-                                  <Form.Item name={[field.name, "name"]} label="规则名称">
-                                    <Input placeholder={`规则${index + 1}`} />
-                                  </Form.Item>
-                                  <Form.Item
-                                    className="dispatch-rule-field-wide"
-                                    name={[field.name, "taskNameRegex"]}
-                                    label="任务名称匹配（关键词或者正则表达式）"
-                                    rules={[{ required: true, message: "请输入任务名称匹配规则" }]}
-                                  >
-                                    <Input placeholder="人工校验 或 .*人工校验.*" />
-                                  </Form.Item>
-                                  <Form.Item className="dispatch-rule-field-wide" name={[field.name, "labels"]} label="标签">
-                                    <DispatchLabelsInput />
-                                  </Form.Item>
-                                  <Form.Item
-                                    className="dispatch-rule-field-wide"
-                                    name={[field.name, "providerCodes"]}
-                                    label="可执行供应商池"
-                                    rules={[{ required: true, message: "请选择供应商" }]}
-                                  >
-                                    <Select
-                                      mode="multiple"
-                                      loading={dispatchOptionsLoading}
-                                      placeholder="选择供应商"
-                                      options={providerOptions}
-                                      onFocus={loadDispatchOptions}
-                                    />
-                                  </Form.Item>
-                                </div>
-                              </div>
-                            ))}
-                          </Space>
-                        )}
-                      </Form.List>
-                    </Space>
-                  ) : (
-                    <Form.Item
-                      name={["dispatchProfile", "providerCodes"]}
-                      label="默认供应商池"
-                      rules={[{ required: true, message: "请选择默认供应商" }]}
-                    >
-                      <Select
-                        mode="multiple"
-                        loading={dispatchOptionsLoading}
-                        placeholder="按选择顺序依次下发"
-                        options={providerOptions}
-                        onFocus={loadDispatchOptions}
-                      />
-                    </Form.Item>
-                  )
-              }))}
-            />
-          );
-        }}
-      </Form.Item>
+                    )
+                }))}
+              />
+            );
+          }}
+        </Form.Item>
+      </>
+    );
+  };
+
+  const renderDispatchFields = () => (
+    <>
+      <Typography.Paragraph type="secondary">
+        上游通过 executionMode 指定 push 或 pull，未传时使用 Push。两种模式独立分配，不跨模式兜底。
+      </Typography.Paragraph>
+      <Tabs items={[
+        { key: "push", label: "Push 主动下发", forceRender: true, children: renderDispatchMode("push") },
+        { key: "pull", label: "Pull 供应商领取", forceRender: true, children: renderDispatchMode("pull") }
+      ]} />
     </>
   );
 
@@ -491,20 +517,22 @@ export function PlatformUsersPage() {
         title: "调度策略",
         dataIndex: ["dispatchProfile", "strategy"],
         width: 140,
-        render: (_: string, user) => (user.dispatchProfile?.strategy ? strategyLabel[user.dispatchProfile.strategy] ?? user.dispatchProfile.strategy : "-")
+        render: (_: string, user) => (
+          <Space direction="vertical" size={2}>
+            <span>Push：{strategyLabel[user.dispatchProfile?.strategy || ""] || "-"}</span>
+            <span>Pull：{strategyLabel[user.dispatchProfile?.pull?.strategy || ""] || "-"}</span>
+          </Space>
+        )
       },
       {
         title: "供应商池",
         dataIndex: ["dispatchProfile", "providerCodes"],
         width: 260,
         render: (_: string[], user) => {
-          const providerCodes = user.dispatchProfile?.providerCodes ?? [];
-          if (providerCodes.length === 0) return "-";
           return (
-            <Space size={[4, 4]} wrap>
-              {providerCodes.map((code) => (
-                <Tag key={code}>{code}</Tag>
-              ))}
+            <Space direction="vertical" size={2}>
+              <span>Push：{user.dispatchProfile?.providerCodes?.join(", ") || "-"}</span>
+              <span>Pull：{user.dispatchProfile?.pull?.providerCodes?.join(", ") || "-"}</span>
             </Space>
           );
         }
@@ -513,7 +541,12 @@ export function PlatformUsersPage() {
         title: "调度",
         dataIndex: ["dispatchProfile", "enabled"],
         width: 100,
-        render: (_: boolean, user) => (user.dispatchProfile?.enabled ? "启用" : "停用")
+        render: (_: boolean, user) => (
+          <Space direction="vertical" size={2}>
+            <span>Push：{user.dispatchProfile?.enabled ? "启用" : "停用"}</span>
+            <span>Pull：{user.dispatchProfile?.pull?.enabled ? "启用" : "停用"}</span>
+          </Space>
+        )
       },
       {
         title: "回调方式",

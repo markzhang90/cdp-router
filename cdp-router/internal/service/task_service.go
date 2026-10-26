@@ -82,6 +82,7 @@ func (s *TaskService) CreateTask(c *gin.Context) {
 	}
 	task, acceptedCount, err := s.tasks.CreateTask(c.Request.Context(), biz.CreateTaskInput{
 		Device:         req.Device,
+		ExecutionMode:  req.ExecutionMode,
 		PlatformUserID: platformUser.ID,
 		PlatformCode:   platformUser.PlatformCode,
 		BatchNo:        req.BatchNo,
@@ -222,6 +223,7 @@ func (s *TaskService) GetExternalTaskResult(c *gin.Context) {
 			GeneratedAtText:          item.GeneratedAtText,
 			RecommendedQuestionsJson: string(defaultJSON(item.RecommendedQuestions)),
 			ReferencesJson:           string(defaultJSON(item.ReferencesJSON)),
+			ProductCards:             productCardsProto(item.ProductCards),
 			ReferenceCount:           int32(item.ReferenceCount),
 			ParseStatus:              item.ParseStatus,
 			ParseError:               item.ParseError,

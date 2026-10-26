@@ -6,6 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { checkTaskResult, deleteTask, exportTaskItemsXlsx, forceImportCallback, getTaskDetail, retryTaskCallback } from "../api/client";
 import { getStoredUser } from "../api/session";
 import { AnswerRiskTags, TaskRiskSummary } from "../components/AnswerRiskTags";
+import { ProductCards } from "../components/ProductCards";
 import { JsonBlock } from "../components/JsonBlock";
 import { PageHeader } from "../components/PageHeader";
 import { ResultStatusTag, TaskStatusTag } from "../components/StatusTag";
@@ -295,6 +296,12 @@ export function TaskDetailPage() {
           )
       },
       { title: "引用", dataIndex: "referenceCount", width: 80 },
+      {
+        title: "商品卡片数",
+        key: "productCardCount",
+        width: 110,
+        render: (_, item) => item.productCards?.length ?? 0
+      },
       { title: "导入时间", dataIndex: "resultImportedAt", width: 170, render: formatFullDateTime }
     ],
     []
@@ -566,6 +573,9 @@ export function TaskDetailPage() {
                         <h3>引用</h3>
                         <JsonBlock value={item.referencesJson || "[]"} />
                       </div>
+                      <div className="item-products">
+                        <ProductCards cards={item.productCards || []} />
+                      </div>
                       <div>
                         <h3>录屏地址</h3>
                         <Typography.Text copyable={Boolean(item.recordingUrl)} className="mono-text">
@@ -575,7 +585,7 @@ export function TaskDetailPage() {
                     </div>
                   )
                 }}
-                scroll={{ x: 1420 }}
+                scroll={{ x: 1530 }}
               />
             )
           },

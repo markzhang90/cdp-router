@@ -20,6 +20,7 @@ import (
 	adminv1 "github.com/GitMarkZhang/cdp-router/api/admin/v1"
 	"github.com/GitMarkZhang/cdp-router/internal/biz"
 	"github.com/GitMarkZhang/cdp-router/internal/config"
+	"github.com/GitMarkZhang/cdp-router/internal/download"
 	"github.com/GitMarkZhang/cdp-router/internal/pkg/timezone"
 	"github.com/GitMarkZhang/cdp-router/internal/pkg/trace"
 	"github.com/gin-gonic/gin"
@@ -654,10 +655,18 @@ func (s *AdminService) providerList(ctx context.Context, onlyDispatchAvailable b
 }
 
 func dispatchAvailableProvider(provider config.ProviderConfig) bool {
-	return strings.TrimSpace(provider.Code) != "" &&
-		strings.TrimSpace(provider.SubmitURL) != "" &&
-		provider.QPSLimit > 0 &&
-		provider.ConcurrencyLimit > 0
+	provider = config.NormalizeProviderConfig(provider)
+	if strings.TrimSpace(provider.Code) == "" || provider.QPSLimit <= 0 || provider.ConcurrencyLimit <= 0 {
+		return false
+	}
+	switch provider.InteractionMode {
+	case "push":
+		return strings.TrimSpace(provider.SubmitURL) != ""
+	case "pull":
+		return strings.TrimSpace(provider.Token) != ""
+	default:
+		return false
+	}
 }
 
 func (s *AdminService) providerCompanyName(providerCode string) string {
@@ -1214,15 +1223,6 @@ func (s *AdminService) platformUserInput(platformCode string, name string, statu
 	if input.PlatformCode == "" || input.Name == "" {
 		return biz.AdminPlatformUserInput{}, fmt.Errorf("platformCode/name are required")
 	}
-	if len(input.DispatchProfile.ProviderCodes) == 0 {
-		return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.providerCodes are required")
-	}
-	for _, code := range input.DispatchProfile.ProviderCodes {
-		provider, ok := s.providers[code]
-		if !ok || !dispatchAvailableProvider(provider) {
-			return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.providerCodes contains unavailable provider %s", code)
-		}
-	}
 	switch input.Status {
 	case "ACTIVE", "DISABLED":
 	default:
@@ -1233,18 +1233,48 @@ func (s *AdminService) platformUserInput(platformCode string, name string, statu
 	default:
 		return biz.AdminPlatformUserInput{}, fmt.Errorf("callbackMode must be DEFAULT_HTTP or CUSTOM")
 	}
-	switch input.DispatchProfile.Strategy {
-	case biz.DispatchStrategyRoundRobin, biz.DispatchStrategyRuleBased:
-	default:
-		return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.strategy must be ROUND_ROBIN or RULE_BASED")
-	}
-	if err := validateFallbackSelectionPolicy(input.DispatchProfile); err != nil {
+	if err := s.validateDispatchMode(&input.DispatchProfile, "push"); err != nil {
 		return biz.AdminPlatformUserInput{}, err
 	}
-	if err := s.validateDispatchRules(input.DispatchProfile); err != nil {
-		return biz.AdminPlatformUserInput{}, err
+	if dispatch != nil && dispatch.Pull != nil {
+		p := dispatch.Pull
+		mode := biz.DispatchProfileInput{Strategy: biz.DispatchStrategy(strings.TrimSpace(strings.ToUpper(p.Strategy))), Enabled: p.Enabled, ProviderCodes: append([]string{}, p.ProviderCodes...), FallbackSelectionPolicy: biz.DispatchFallbackSelectionPolicy(strings.TrimSpace(strings.ToUpper(p.FallbackSelectionPolicy))), Rules: dispatchRuleInputs(p.Rules)}
+		if err := s.validateDispatchMode(&mode, "pull"); err != nil {
+			return biz.AdminPlatformUserInput{}, fmt.Errorf("dispatchProfile.pull: %w", err)
+		}
+		input.DispatchProfile.Pull = &biz.DispatchModeInput{Strategy: mode.Strategy, Enabled: mode.Enabled, ProviderCodes: mode.ProviderCodes, FallbackSelectionPolicy: mode.FallbackSelectionPolicy, Rules: mode.Rules}
 	}
 	return input, nil
+}
+
+func (s *AdminService) validateDispatchMode(profile *biz.DispatchProfileInput, mode string) error {
+	if profile.Strategy == "" {
+		profile.Strategy = biz.DispatchStrategyRoundRobin
+	}
+	if profile.FallbackSelectionPolicy == "" {
+		profile.FallbackSelectionPolicy = defaultFallbackSelectionPolicy(profile.Strategy)
+	}
+	assignDispatchRuleCodes(profile)
+	if profile.Enabled && len(profile.ProviderCodes) == 0 {
+		return fmt.Errorf("%s providerCodes are required", mode)
+	}
+	for i, code := range profile.ProviderCodes {
+		code = strings.TrimSpace(code)
+		profile.ProviderCodes[i] = code
+		p, ok := s.providers[code]
+		if !ok || !dispatchAvailableProvider(p) || config.NormalizeProviderConfig(p).InteractionMode != mode {
+			return fmt.Errorf("%s contains unavailable or mismatched provider %s", mode, code)
+		}
+	}
+	switch profile.Strategy {
+	case biz.DispatchStrategyRoundRobin, biz.DispatchStrategyRuleBased:
+	default:
+		return fmt.Errorf("dispatch strategy must be ROUND_ROBIN or RULE_BASED")
+	}
+	if err := validateFallbackSelectionPolicy(*profile); err != nil {
+		return err
+	}
+	return s.validateDispatchRules(*profile, mode)
 }
 
 func dispatchRuleInputs(rules []*adminv1.DispatchRuleInput) []biz.DispatchRuleInput {
@@ -1266,7 +1296,7 @@ func dispatchRuleInputs(rules []*adminv1.DispatchRuleInput) []biz.DispatchRuleIn
 	return out
 }
 
-func (s *AdminService) validateDispatchRules(profile biz.DispatchProfileInput) error {
+func (s *AdminService) validateDispatchRules(profile biz.DispatchProfileInput, mode string) error {
 	if profile.Strategy != biz.DispatchStrategyRuleBased {
 		return nil
 	}
@@ -1288,7 +1318,7 @@ func (s *AdminService) validateDispatchRules(profile biz.DispatchProfileInput) e
 		for _, code := range rule.ProviderCodes {
 			code = strings.TrimSpace(code)
 			provider, ok := s.providers[code]
-			if !ok || !dispatchAvailableProvider(provider) {
+			if !ok || !dispatchAvailableProvider(provider) || config.NormalizeProviderConfig(provider).InteractionMode != mode {
 				return fmt.Errorf("dispatchProfile.rules.%s.providerCodes contains unavailable provider %s", rule.Code, code)
 			}
 		}
@@ -1506,6 +1536,7 @@ func dispatchProfileProto(profile biz.DispatchProfile) *adminv1.DispatchProfile 
 		return nil
 	}
 	return &adminv1.DispatchProfile{
+		Pull:                    &adminv1.DispatchMode{Strategy: string(profile.Pull.Strategy), Enabled: profile.Pull.Enabled, ProviderCodes: append([]string{}, profile.Pull.ProviderCodes...), Rules: dispatchRulesProto(profile.Pull.Rules), FallbackSelectionPolicy: string(profile.Pull.FallbackSelectionPolicy), Cursor: profile.Pull.Cursor, LastProviderCode: profile.Pull.LastProviderCode},
 		Id:                      profile.ID,
 		Code:                    profile.Code,
 		Name:                    profile.Name,
@@ -1536,6 +1567,7 @@ func dispatchRulesProto(rules []biz.DispatchRule) []*adminv1.DispatchRule {
 }
 
 func providerProto(provider config.ProviderConfig, quotaUsage biz.AdminProviderQuotaUsage) *adminv1.Provider {
+	provider = config.NormalizeProviderConfig(provider)
 	unlimited := provider.DailyQuestionQuota <= 0
 	remaining := provider.DailyQuestionQuota - quotaUsage.Used
 	if unlimited {
@@ -1544,6 +1576,7 @@ func providerProto(provider config.ProviderConfig, quotaUsage biz.AdminProviderQ
 		remaining = 0
 	}
 	return &adminv1.Provider{
+		InteractionMode: provider.InteractionMode, SupportedDevices: append([]string{}, provider.SupportedDevices...),
 		ProviderCode:           provider.Code,
 		DisplayName:            provider.DisplayName,
 		Enabled:                provider.Enabled,
@@ -1692,6 +1725,7 @@ func adminTaskItemProto(item biz.AdminTaskItem) *adminv1.AdminTaskItem {
 		DeviceId:                 item.DeviceID,
 		RecordingUrl:             item.RecordingURL,
 		ReferencesJson:           string(defaultJSON(item.ReferencesJSON)),
+		ProductCards:             productCardsProto(item.ProductCards),
 		ReferenceCount:           int32(item.ReferenceCount),
 		ParseStatus:              item.ParseStatus,
 		ParseError:               item.ParseError,
@@ -1700,25 +1734,47 @@ func adminTaskItemProto(item biz.AdminTaskItem) *adminv1.AdminTaskItem {
 }
 
 func buildTaskItemsWorkbook(export biz.AdminTaskItemsExport) ([]byte, error) {
-	const (
-		successSheet = "成功"
-		failedSheet  = "失败／未执行"
-	)
+	// The admin query prioritizes failures; use the callback's item/round order
+	// for all shared sheets without mutating the caller's slice.
+	items := append([]biz.AdminTaskItem(nil), export.Items...)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].TaskItemID != items[j].TaskItemID {
+			return items[i].TaskItemID < items[j].TaskItemID
+		}
+		return items[i].Seq < items[j].Seq
+	})
+	results := make([]biz.TaskItemResultView, 0, len(items))
+	for _, item := range items {
+		results = append(results, biz.TaskItemResultView{
+			ItemID:               item.ItemID,
+			PlatformCode:         item.PlatformCode,
+			Seq:                  item.Seq,
+			Question:             item.Question,
+			AnswerText:           item.AnswerText,
+			ThinkingProcess:      item.ThinkingProcess,
+			GeneratedAt:          item.GeneratedAt,
+			GeneratedAtText:      item.GeneratedAtText,
+			RecommendedQuestions: item.RecommendedJSON,
+			DeviceID:             item.DeviceID,
+			RecordingURL:         item.RecordingURL,
+			ReferencesJSON:       item.ReferencesJSON,
+			ProductCards:         item.ProductCards,
+		})
+	}
 	file := excelize.NewFile()
 	defer func() { _ = file.Close() }()
-	if err := file.SetSheetName("Sheet1", successSheet); err != nil {
+	if err := download.WriteSheets(file, results); err != nil {
 		return nil, err
 	}
-	if _, err := file.NewSheet(failedSheet); err != nil {
-		return nil, err
+	if failed := filterTaskItems(items, false); len(failed) > 0 {
+		const sheet = "失败／未执行"
+		if _, err := file.NewSheet(sheet); err != nil {
+			return nil, err
+		}
+		if err := writeTaskItemsSheet(file, sheet, failed); err != nil {
+			return nil, err
+		}
 	}
-	if err := writeTaskItemsSheet(file, successSheet, filterTaskItems(export.Items, true)); err != nil {
-		return nil, err
-	}
-	if err := writeTaskItemsSheet(file, failedSheet, filterTaskItems(export.Items, false)); err != nil {
-		return nil, err
-	}
-	file.SetActiveSheet(0)
 	var buf bytes.Buffer
 	if err := file.Write(&buf); err != nil {
 		return nil, err

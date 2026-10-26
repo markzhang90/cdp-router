@@ -616,6 +616,7 @@ paths:
         post:
             tags:
                 - AdminAPI
+            description: 使用 Yangshi 格式导出全部问题：AI回答、溯源信息及可选商品表；存在失败或未执行问题时附加“失败／未执行”表，保留状态和错误。
             operationId: AdminAPI_ExportTaskItems
             parameters:
                 - name: id
@@ -1037,6 +1038,10 @@ components:
         AdminTaskItem:
             type: object
             properties:
+                productCards:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProductCard'
                 taskItemId:
                     type: string
                 itemId:
@@ -1276,6 +1281,9 @@ components:
         CreateTaskRequest:
             type: object
             properties:
+                executionMode:
+                    type: string
+                    description: Defaults to push; device does not determine the execution mode.
                 device:
                     type: string
                 batchNo:
@@ -1314,6 +1322,44 @@ components:
                     type: string
                 data:
                     $ref: '#/components/schemas/EmptyData'
+        DispatchMode:
+            type: object
+            properties:
+                strategy:
+                    type: string
+                enabled:
+                    type: boolean
+                providerCodes:
+                    type: array
+                    items:
+                        type: string
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DispatchRule'
+                fallbackSelectionPolicy:
+                    type: string
+                cursor:
+                    type: string
+                lastProviderCode:
+                    type: string
+        DispatchModeInput:
+            type: object
+            properties:
+                strategy:
+                    type: string
+                enabled:
+                    type: boolean
+                providerCodes:
+                    type: array
+                    items:
+                        type: string
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DispatchRuleInput'
+                fallbackSelectionPolicy:
+                    type: string
         DispatchOptionsData:
             type: object
             properties:
@@ -1328,6 +1374,10 @@ components:
         DispatchProfile:
             type: object
             properties:
+                pull:
+                    allOf:
+                        - $ref: '#/components/schemas/DispatchMode'
+                    description: Existing top-level fields describe Push.
                 id:
                     type: string
                 code:
@@ -1355,6 +1405,10 @@ components:
         DispatchProfileInput:
             type: object
             properties:
+                pull:
+                    allOf:
+                        - $ref: '#/components/schemas/DispatchModeInput'
+                    description: Omitted preserves existing Pull configuration.
                 code:
                     type: string
                 name:
@@ -1499,6 +1553,10 @@ components:
         ExternalTaskResultItem:
             type: object
             properties:
+                productCards:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProductCard'
                 itemId:
                     type: string
                 platformCode:
@@ -1968,9 +2026,35 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/ProviderDailyMetric'
+        ProductCard:
+            type: object
+            properties:
+                productId:
+                    type: string
+                productName:
+                    type: string
+                price:
+                    type: string
+                shopName:
+                    type: string
+                shopId:
+                    type: string
+                sellingPoints:
+                    type: string
+                imageUrl:
+                    type: string
+                salesVolume:
+                    type: string
+            description: Product values are display text; IDs and sales must not be coerced to numbers.
         Provider:
             type: object
             properties:
+                interactionMode:
+                    type: string
+                supportedDevices:
+                    type: array
+                    items:
+                        type: string
                 providerCode:
                     type: string
                 displayName:
@@ -2138,6 +2222,11 @@ components:
         PullAnswer:
             type: object
             properties:
+                productCards:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ProductCard'
+                    description: Complete ordered snapshot; omitted/empty clears previous cards. Maximum 100.
                 itemId:
                     type: string
                 answerSeq:

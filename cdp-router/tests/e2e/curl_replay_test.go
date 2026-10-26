@@ -215,7 +215,7 @@ func runCurlReplay(t *testing.T, samples []curlReplayAnswer, mode, digest string
 	}
 	cfg.PlatformUsers = map[string]config.PlatformUserConfig{user.PlatformCode: user}
 	users := syncPlatformUsers(t, ctx, db, cfg)
-	if _, err = db.Exec(ctx, `update cdp_dispatch_profiles set config='{"providers":[{"code":"legacy"},{"code":"mobile"}]}'::jsonb where platform_user_id=(select id from platform_users where platform_code=$1)`, user.PlatformCode); err != nil {
+	if _, err = db.Exec(ctx, `update cdp_dispatch_profiles set config='{"providers":[{"code":"legacy"}],"pull":{"enabled":true,"strategy":"ROUND_ROBIN","providers":[{"code":"mobile"}]}}'::jsonb where platform_user_id=(select id from platform_users where platform_code=$1)`, user.PlatformCode); err != nil {
 		t.Fatal(err)
 	}
 	repo := data.NewTaskRepo(db)
@@ -280,6 +280,9 @@ func runCurlReplay(t *testing.T, samples []curlReplayAnswer, mode, digest string
 		body := map[string]any{"batchNo": batch, "providerCode": "ignored-request-provider", "bizDate": time.Now().Format("2006-01-02"), "callbackUrl": upstream.URL + "/notify", "items": questionItems}
 		if device != "" {
 			body["device"] = device
+			if device == "mobile" {
+				body["executionMode"] = "pull"
+			}
 		}
 		out := request("create-"+batch, "POST", "/api/v1/tasks", user.APIKey, body, 200)
 		repeated := request("recreate-"+batch, "POST", "/api/v1/tasks", user.APIKey, body, 200)

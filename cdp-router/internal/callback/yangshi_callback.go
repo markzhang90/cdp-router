@@ -12,6 +12,7 @@ import (
 
 	"github.com/GitMarkZhang/cdp-router/internal/biz"
 	"github.com/GitMarkZhang/cdp-router/internal/config"
+	"github.com/GitMarkZhang/cdp-router/internal/download"
 	"github.com/GitMarkZhang/cdp-router/internal/pkg/httphelper"
 )
 
@@ -53,7 +54,7 @@ func (c *YangshiClient) Deliver(ctx context.Context, task *biz.Task, payload biz
 	if err != nil {
 		return biz.CallbackResult{}, err
 	}
-	content, err := BuildYangshiResultWorkbook(payload.ResultItems)
+	content, err := download.BuildResultWorkbook(payload.ResultItems)
 	if err != nil {
 		return biz.CallbackResult{}, err
 	}

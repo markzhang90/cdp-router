@@ -79,7 +79,19 @@ export interface TaskListQuery {
   pageSize?: number;
 }
 
+export interface ProductCard {
+  productId: string;
+  productName: string;
+  price: string;
+  shopName: string;
+  shopId: string;
+  sellingPoints: string;
+  imageUrl: string;
+  salesVolume: string;
+}
+
 export interface TaskItem {
+  productCards?: ProductCard[];
   validationStatus: string;
   riskItems: AnswerRisk[];
   validationRuleVersion: string;
@@ -233,6 +245,8 @@ export interface ReassignTaskData {
 }
 
 export interface Provider {
+  interactionMode: "push" | "pull";
+  supportedDevices: string[];
   providerCode: string;
   displayName: string;
   companyName: string;
@@ -300,10 +314,14 @@ export interface PlatformUser {
   updatedAt: string;
 }
 
-export interface DispatchProfile {
+export interface DispatchProfile extends DispatchMode {
   id: number;
   code: string;
   name: string;
+  pull?: DispatchMode;
+}
+
+export interface DispatchMode {
   strategy: string;
   enabled: boolean;
   cursor: number;
@@ -424,9 +442,13 @@ export interface PlatformUserPayload {
   dispatchProfile: DispatchProfilePayload;
 }
 
-export interface DispatchProfilePayload {
+export interface DispatchProfilePayload extends DispatchModePayload {
   code?: string;
   name?: string;
+  pull?: DispatchModePayload;
+}
+
+export interface DispatchModePayload {
   strategy: string;
   enabled: boolean;
   providerCodes: string[];

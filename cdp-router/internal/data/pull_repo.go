@@ -220,14 +220,18 @@ func (r *PullRepo) Lease(ctx context.Context) (*biz.PullSubmission, error) {
 }
 func (r *PullRepo) ApplyAnswer(ctx context.Context, sub *biz.PullSubmission, a biz.PullAnswer, result biz.TaskItemResult) error {
 	risks, _ := json.Marshal(result.RiskItems)
-	_, err := r.tasks.dbFor(ctx).Exec(ctx, `insert into cdp_task_item_results(task_id,task_item_id,batch_no,item_id,platform_code,question,seq,answer_text,thinking_process,generated_at,generated_at_text,recommended_questions,device_id,recording_url,references_json,reference_count,cleaned_payload,parse_status,parse_error,source_submission_id,validation_status,risk_items,validation_rule_version,validated_at)
- select i.task_id,i.id,t.batch_no,i.item_id,i.platform_code,i.question,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$3,$17,$18,$19,$20
+	cards := result.ProductCards
+	if cards == nil {
+		cards = []biz.ProductCard{}
+	}
+	_, err := r.tasks.dbFor(ctx).Exec(ctx, `insert into cdp_task_item_results(task_id,task_item_id,batch_no,item_id,platform_code,question,seq,answer_text,thinking_process,generated_at,generated_at_text,recommended_questions,device_id,recording_url,references_json,reference_count,cleaned_payload,parse_status,parse_error,source_submission_id,validation_status,risk_items,validation_rule_version,validated_at,product_cards)
+ select i.task_id,i.id,t.batch_no,i.item_id,i.platform_code,i.question,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$3,$17,$18,$19,$20,coalesce($23::jsonb,'[]'::jsonb)
  from cdp_task_items i join cdp_tasks t on t.id=i.task_id
  where i.task_id=$1 and i.shard_id=$2 and i.item_id=$21 and t.status not in ('REASSIGNED','FAILED')
  and exists(select 1 from cdp_task_result_submissions where id=$3 and status='PROCESSING' and lease_token=$22)
  on conflict(task_item_id,seq) do update set
- answer_text=excluded.answer_text,thinking_process=excluded.thinking_process,generated_at=excluded.generated_at,generated_at_text=excluded.generated_at_text,recommended_questions=excluded.recommended_questions,device_id=excluded.device_id,recording_url=excluded.recording_url,references_json=excluded.references_json,reference_count=excluded.reference_count,cleaned_payload=excluded.cleaned_payload,parse_status=excluded.parse_status,parse_error=excluded.parse_error,source_submission_id=excluded.source_submission_id,validation_status=excluded.validation_status,risk_items=excluded.risk_items,validation_rule_version=excluded.validation_rule_version,validated_at=excluded.validated_at,updated_at=now()
- where cdp_task_item_results.source_submission_id < excluded.source_submission_id`, sub.TaskID, sub.ShardID, sub.ID, result.Seq, result.AnswerText, result.ThinkingProcess, nullableTime(result.GeneratedAt), result.GeneratedAtText, result.RecommendedQuestions, result.DeviceID, result.RecordingURL, result.ReferencesJSON, result.ReferenceCount, result.CleanedPayload, result.ParseStatus, result.ParseError, result.Status, risks, result.RuleVersion, result.ValidatedAt, a.ItemID, sub.LeaseToken)
+ product_cards=excluded.product_cards,answer_text=excluded.answer_text,thinking_process=excluded.thinking_process,generated_at=excluded.generated_at,generated_at_text=excluded.generated_at_text,recommended_questions=excluded.recommended_questions,device_id=excluded.device_id,recording_url=excluded.recording_url,references_json=excluded.references_json,reference_count=excluded.reference_count,cleaned_payload=excluded.cleaned_payload,parse_status=excluded.parse_status,parse_error=excluded.parse_error,source_submission_id=excluded.source_submission_id,validation_status=excluded.validation_status,risk_items=excluded.risk_items,validation_rule_version=excluded.validation_rule_version,validated_at=excluded.validated_at,updated_at=now()
+ where cdp_task_item_results.source_submission_id < excluded.source_submission_id`, sub.TaskID, sub.ShardID, sub.ID, result.Seq, result.AnswerText, result.ThinkingProcess, nullableTime(result.GeneratedAt), result.GeneratedAtText, result.RecommendedQuestions, result.DeviceID, result.RecordingURL, result.ReferencesJSON, result.ReferenceCount, result.CleanedPayload, result.ParseStatus, result.ParseError, result.Status, risks, result.RuleVersion, result.ValidatedAt, a.ItemID, sub.LeaseToken, cards)
 	return err
 }
 func (r *PullRepo) Finish(ctx context.Context, sub *biz.PullSubmission) error {
